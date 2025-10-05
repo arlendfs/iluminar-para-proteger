@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { 
+            margin: 0; 
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            overflow: hidden;
+        }
+        
+        #info { 
+            position: absolute; 
+            top: 15px; 
+            left: 15px; 
+            background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(240,248,255,0.9) 100%);
+            padding: 20px; 
+            border-radius: 15px; 
+            font-size: 13px; 
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.3);
+            min-width: 280px;
+        }
+        
+        #info h3 { 
+            margin: 0 0 10px 0; 
+            color: #1e3c72; 
+            font-size: 16px;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        #info p { 
+            margin: 5px 0; 
+            color: #2c3e50; 
+            line-height: 1.4;
+        }
+        
+        #status { 
+            background: linear-gradient(90deg, #4CAF50, #45a049); 
+            color: white; 
+            padding: 8px 12px; 
+            border-radius: 20px; 
+            margin-top: 10px;
+            text-align: center;
+            font-weight: bold;
+            box-shadow: 0 2px 10px rgba(76, 175, 80, 0.3);
+        }
+
+        #controls { 
+            position: absolute; 
+            bottom: 20px; 
+            right: 20px; 
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            min-width: 200px;
+        }
+        
+        .btn { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; 
+            border: none; 
+            padding: 12px 16px; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .btn:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn.danger:hover {
+            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
+        }
+
+        .btn.success {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+        }
+
+        .btn.success:hover {
+            box-shadow: 0 8px 25px rgba(76, 175, 80, 0.6);
+        }
+
+        #help {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: linear-gradient(135deg, rgba(0,0,0,0.8) 0%, rgba(20,20,20,0.9) 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 12px;
+            font-size: 11px;
+            max-width: 250px;
+            display: none;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        #fps {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            background: rgba(0,0,0,0.7);
+            color: #00ff00;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        canvas {
+            display: block;
+            cursor: grab;
+        }
+
+        canvas:active {
+            cursor: grabbing;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>Carregando Protótipo 3D...</div>
+    </div>
+
+    <div id="info">
+        <h3>🌟 Poste Solar Inteligente Pro</h3>
+        <p><strong>Altura:</strong> 12m | <strong>LED:</strong> 150W</p>
+        <p><strong>Painel:</strong> 200Wp | <strong>Bateria:</strong> LiFePO4</p>
+        <p><strong>Sensores:</strong> PIR + Fotocélula + Radar</p>
+        <p><strong>Conectividade:</strong> 4G/5G + LoRaWAN</p>
+        <p><strong>Vida Útil:</strong> 15 anos | <strong>IP:</strong> 65</p>
+        <div id="status">Modo: Dia ☀️ | LED: Desligado | FPS: 60</div>
+    </div>
+
+    <div id="controls">
+        <button class="btn" id="dayNightBtn">🌙 Dia/Noite</button>
+        <button class="btn success" id="lightBtn">💡 LED</button>
+        <button class="btn" id="simulateBtn">🚶 Simular</button>
+        <button class="btn danger" id="resetBtn">📷 Reset</button>
+        <button class="btn" id="helpBtn">❓ Ajuda</button>
+        <button class="btn" id="pauseBtn">⏯️ Pause</button>
+    </div>
+
+    <div id="help">
+        <h4>🎮 Controles Avançados</h4>
+        <p><strong>Mouse:</strong></p>
+        <p>• Arrastar: Rotacionar câmera</p>
+        <p>• Scroll: Zoom in/out</p>
+        <p>• Duplo clique: Fullscreen</p>
+        
+        <p><strong>Teclado:</strong></p>
+        <p>• N: Alternar dia/noite</p>
+        <p>• L: Ligar/desligar LED</p>
+        <p>• M: Simular movimento</p>
+        <p>• R: Reset câmera</p>
+        <p>• H: Esta ajuda</p>
+        <p>• ESPAÇO: Pausar animação</p>
+        
+        <p><strong>Recursos:</strong></p>
+        <p>• Física realista</p>
+        <p>• Iluminação dinâmica</p>
+        <p>• Sombras em tempo real</p>
+        <p>• Partículas atmosféricas</p>
+    </div>
+
+    <div id="fps">FPS: 0</div>
+    
+    <canvas id="canvas"></canvas>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Variáveis globais
+        let scene, camera, renderer, post, light, lightBeam;
+        let isDayTime = true, isLightOn = false, isAnimating = true;
+        let cameraAngle = 0, cameraHeight = 3, cameraDistance = 8;
+        let frameCount = 0, lastTime = Date.now();
+        let particles = [];
+        
+        // Controles de mouse
+        let isMouseDown = false, mouseLastX = 0, mouseLastY = 0;
+
+        // Função principal de inicialização
+        function init() {
+            console.log("Inicializando protótipo 3D...");
+            
+            try {
+                // Configurar cena
+                scene = new THREE.Scene();
+                scene.fog = new THREE.Fog(0x1a1a2e, 10, 50);
+                
+                // Configurar câmera
+                camera = new THREE.PerspectiveCamera(75, 800/500, 0.1, 1000);
+                
+                // Configurar renderer
+                renderer = new THREE.WebGLRenderer({
+                    canvas: document.getElementById('canvas'), 
+                    antialias: true,
+                    alpha: true
+                });
+                renderer.setSize(800, 500);
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                renderer.toneMapping = THREE.ACESFilmicToneMapping;
+                renderer.toneMappingExposure = 1.2;
+                
+                // Configurar cor de fundo inicial
+                updateSkyColor();
+
+                // Criar iluminação
+                setupLighting();
+                
+                // Criar chão
+                createGround();
+
+                // Criar o poste
+                createPost();
+                
+                // Criar partículas
+                createParticles();
+
+                // Posição inicial da câmera
+                resetCamera();
+
+                // Configurar event listeners
+                setupEventListeners();
+                
+                // Esconder loading
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                }, 1000);
+                
+                console.log("Protótipo 3D inicializado com sucesso!");
+                
+            } catch (error) {
+                console.error("Erro ao inicializar:", error);
+            }
+        }
+
+        function setupLighting() {
+            // Luz ambiente
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.4); // Aumentado para melhor visibilidade
+            scene.add(ambientLight);
+
+            // Luz direcional (Sol) - otimizada
+            const sunLight = new THREE.DirectionalLight(0xfff8dc, 0.8);
+            sunLight.position.set(15, 20, 10);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 512; // Reduzido para performance
+            sunLight.shadow.mapSize.height = 512;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 30; // Reduzido
+            sunLight.shadow.camera.left = -15; // Área menor
+            sunLight.shadow.camera.right = 15;
+            sunLight.shadow.camera.top = 15;
+            sunLight.shadow.camera.bottom = -15;
+            scene.add(sunLight);
+        }
+
+        function createGround() {
+            const groundGeometry = new THREE.PlaneGeometry(50, 50);
+            const groundMaterial = new THREE.MeshLambertMaterial({ 
+                color: isDayTime ? 0x4a4a4a : 0x2a2a2a,
+                transparent: true,
+                opacity: 0.8
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+        }
+
+        function createPost() {
+            const postGroup = new THREE.Group();
+
+            // Base - geometria simplificada
+            const baseGeometry = new THREE.CylinderGeometry(1, 1.2, 0.6, 8); // Menos segmentos
+            const baseMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x555555,
+                shininess: 30
+            });
+            const base = new THREE.Mesh(baseGeometry, baseMaterial);
+            base.position.y = 0.3;
+            base.castShadow = true;
+            postGroup.add(base);
+
+            // Haste principal - otimizada
+            const postGeometry = new THREE.CylinderGeometry(0.15, 0.25, 7, 8); // Menos segmentos
+            const postMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x888888,
+                shininess: 50
+            });
+            post = new THREE.Mesh(postGeometry, postMaterial);
+            post.position.y = 4;
+            post.castShadow = true;
+            postGroup.add(post);
+
+            // Painel solar
+            const panelGeometry = new THREE.BoxGeometry(2, 0.08, 2.5);
+            const panelMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x0a0a2e,
+                shininess: 80
+            });
+            const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+            panel.position.y = 7.5;
+            panel.rotation.x = -0.3;
+            panel.castShadow = true;
+            postGroup.add(panel);
+
+            // Luminária LED - geometria otimizada
+            const ledHousingGeometry = new THREE.CylinderGeometry(0.4, 0.5, 0.3, 8); // Menos segmentos
+            const ledHousingMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+            const ledHousing = new THREE.Mesh(ledHousingGeometry, ledHousingMaterial);
+            ledHousing.position.y = 6.7;
+            postGroup.add(ledHousing);
+
+            const ledGeometry = new THREE.SphereGeometry(0.25, 8, 8); // Menos segmentos
+            const ledMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x444444,
+                transparent: true,
+                opacity: 0.9
+            });
+            light = new THREE.Mesh(ledGeometry, ledMaterial);
+            light.position.y = 6.8;
+            postGroup.add(light);
+
+            // Sensor - simplificado
+            const sensorGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const sensorMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+            const sensor = new THREE.Mesh(sensorGeometry, sensorMaterial);
+            sensor.position.set(0.3, 6.5, 0);
+            postGroup.add(sensor);
+
+            scene.add(postGroup);
+        }
+
+        function createParticles() {
+            const particleCount = 25; // Reduzido para melhor performance
+            const particleGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+
+            for(let i = 0; i < particleCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 30; // Área menor
+                positions[i * 3 + 1] = Math.random() * 15;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 30;
+            }
+
+            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const particleMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.05, // Menor para performance
+                transparent: true,
+                opacity: 0.4 // Reduzido
+            });
+
+            particles = new THREE.Points(particleGeometry, particleMaterial);
+            scene.add(particles);
+        }
+
+        function setupEventListeners() {
+            // Botões
+            document.getElementById('dayNightBtn').addEventListener('click', toggleDayNight);
+            document.getElementById('lightBtn').addEventListener('click', toggleLight);
+            document.getElementById('simulateBtn').addEventListener('click', simulate);
+            document.getElementById('resetBtn').addEventListener('click', resetCamera);
+            document.getElementById('helpBtn').addEventListener('click', toggleHelp);
+            document.getElementById('pauseBtn').addEventListener('click', toggleAnimation);
+
+            // Mouse
+            const canvas = document.getElementById('canvas');
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('wheel', onMouseWheel);
+            canvas.addEventListener('dblclick', toggleFullscreen);
+
+            // Teclado
+            document.addEventListener('keydown', onKeyDown);
+
+            // Redimensionamento
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // Funções de controle
+        function toggleDayNight() {
+            isDayTime = !isDayTime;
+            updateSkyColor();
+            updateStatus();
+
+            if (!isDayTime && !isLightOn) {
+                setTimeout(toggleLight, 500);
+            } else if (isDayTime && isLightOn) {
+                setTimeout(toggleLight, 500);
+            }
+        }
+
+        function toggleLight() {
+            isLightOn = !isLightOn;
+            
+            if (isLightOn) {
+                light.material.color.setHex(0xffff88);
+                light.material.emissive.setHex(0x444400);
+                
+                const pointLight = new THREE.PointLight(0xffff88, 1.5, 15, 1.5);
+                pointLight.position.set(0, 6.8, 0); // Posição correta do LED
+                pointLight.castShadow = true;
+                pointLight.shadow.mapSize.width = 512; // Reduzido para performance
+                pointLight.shadow.mapSize.height = 512;
+                scene.add(pointLight);
+                light.userData.pointLight = pointLight;
+                
+                // Cone de luz direcionado para baixo
+                const coneGeometry = new THREE.ConeGeometry(4, 7, 12, 1, true); // Menos segmentos
+                const coneMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffff88,
+                    transparent: true,
+                    opacity: 0.08,
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending
+                });
+                lightBeam = new THREE.Mesh(coneGeometry, coneMaterial);
+                lightBeam.position.set(0, 3.3, 0); // Posicionado corretamente
+                lightBeam.rotation.x = 0; // Sem rotação - cone já aponta para baixo
+                scene.add(lightBeam);
+                
+            } else {
+                light.material.color.setHex(0x444444);
+                light.material.emissive.setHex(0x000000);
+                
+                if (light.userData.pointLight) {
+                    scene.remove(light.userData.pointLight);
+                    delete light.userData.pointLight;
+                }
+                
+                if (lightBeam) {
+                    scene.remove(lightBeam);
+                    lightBeam = null;
+                }
+            }
+            updateStatus();
+        }
+
+        function simulate() {
+            const vehicleGroup = new THREE.Group();
+            
+            // Corpo principal do carro - mais detalhado
+            const bodyGeometry = new THREE.BoxGeometry(2.2, 0.8, 4.5);
+            const bodyMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff3333,
+                shininess: 100,
+                reflectivity: 0.3
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.8;
+            body.castShadow = true;
+            vehicleGroup.add(body);
+            
+            // Capô/frente do carro
+            const hoodGeometry = new THREE.BoxGeometry(2.0, 0.3, 1.5);
+            const hoodMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff4444,
+                shininess: 120
+            });
+            const hood = new THREE.Mesh(hoodGeometry, hoodMaterial);
+            hood.position.set(0, 1.05, 2.25); // Ajustado para frente
+            hood.castShadow = true;
+            vehicleGroup.add(hood);
+            
+            // Teto
+            const roofGeometry = new THREE.BoxGeometry(1.8, 0.6, 2);
+            const roofMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff2222,
+                shininess: 80
+            });
+            const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+            roof.position.set(0, 1.4, 0);
+            roof.castShadow = true;
+            vehicleGroup.add(roof);
+            
+            // Para-brisa dianteiro
+            const windshieldGeometry = new THREE.PlaneGeometry(1.6, 0.8);
+            const windshieldMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x4444ff,
+                transparent: true,
+                opacity: 0.6,
+                shininess: 200
+            });
+            const windshield = new THREE.Mesh(windshieldGeometry, windshieldMaterial);
+            windshield.position.set(0, 1.2, 1.2);
+            windshield.rotation.x = -0.3;
+            vehicleGroup.add(windshield);
+            
+            // Para-brisa traseiro
+            const rearWindow = windshield.clone();
+            rearWindow.position.set(0, 1.2, -1.2);
+            rearWindow.rotation.x = 0.3;
+            vehicleGroup.add(rearWindow);
+            
+            // Rodas mais realistas - ajustadas para orientação frontal
+            const wheelGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 12);
+            const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x111111 });
+            
+            // Aros das rodas
+            const rimGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.26, 8);
+            const rimMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x888888,
+                shininess: 150
+            });
+            
+            const wheelPositions = [
+                [-0.9, 0.35, -1.8], // Traseira esquerda
+                [0.9, 0.35, -1.8],  // Traseira direita
+                [-0.9, 0.35, 1.8],  // Dianteira esquerda
+                [0.9, 0.35, 1.8]    // Dianteira direita
+            ];
+            
+            wheelPositions.forEach((pos, index) => {
+                // Pneu
+                const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel.position.set(pos[0], pos[1], pos[2]);
+                wheel.rotation.x = Math.PI / 2; // Rotação correta para movimento frontal
+                wheel.castShadow = true;
+                wheel.userData.isWheel = true;
+                wheel.userData.wheelIndex = index;
+                vehicleGroup.add(wheel);
+                
+                // Aro
+                const rim = new THREE.Mesh(rimGeometry, rimMaterial);
+                rim.position.set(pos[0], pos[1], pos[2]);
+                rim.rotation.x = Math.PI / 2; // Rotação correta para movimento frontal
+                vehicleGroup.add(rim);
+            });
+            
+            // Faróis dianteiros - ajustados para frente
+            const headlightGeometry = new THREE.SphereGeometry(0.15, 8, 8);
+            const headlightMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xffffaa,
+                emissive: 0x444400,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const leftHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+            leftHeadlight.position.set(-0.7, 0.7, 2.8); // Frente do carro
+            vehicleGroup.add(leftHeadlight);
+            
+            const rightHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+            rightHeadlight.position.set(0.7, 0.7, 2.8); // Frente do carro
+            vehicleGroup.add(rightHeadlight);
+            
+            // Lanternas traseiras - ajustadas para trás
+            const taillightGeometry = new THREE.SphereGeometry(0.12, 8, 8);
+            const taillightMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff3333,
+                emissive: 0x330000
+            });
+            
+            const leftTaillight = new THREE.Mesh(taillightGeometry, taillightMaterial);
+            leftTaillight.position.set(-0.7, 0.7, -2.8); // Traseira do carro
+            vehicleGroup.add(leftTaillight);
+            
+            const rightTaillight = new THREE.Mesh(taillightGeometry, taillightMaterial);
+            rightTaillight.position.set(0.7, 0.7, -2.8); // Traseira do carro
+            vehicleGroup.add(rightTaillight);
+            
+            // Espelhos retrovisores
+            const mirrorGeometry = new THREE.BoxGeometry(0.1, 0.08, 0.15);
+            const mirrorMaterial = new THREE.MeshPhongMaterial({ color: 0x444444 });
+            
+            const leftMirror = new THREE.Mesh(mirrorGeometry, mirrorMaterial);
+            leftMirror.position.set(-1.0, 1.3, 0.5);
+            vehicleGroup.add(leftMirror);
+            
+            const rightMirror = new THREE.Mesh(mirrorGeometry, mirrorMaterial);
+            rightMirror.position.set(1.0, 1.3, 0.5);
+            vehicleGroup.add(rightMirror);
+            
+            // Posicionar o veículo ao lado e longe do poste (movimento frontal)
+            vehicleGroup.position.set(3, 0, -20); // Ao lado (X=3) e vindo de longe (Z=-20)
+            vehicleGroup.rotation.y = 0; // Sem rotação, vai direto para frente
+            scene.add(vehicleGroup);
+            
+            // Criar luz dos faróis se for noite
+            let headlightLeft, headlightRight;
+            if (!isDayTime) {
+                headlightLeft = new THREE.SpotLight(0xffffaa, 1, 25, Math.PI / 8, 0.3);
+                headlightLeft.position.set(-0.7, 0.7, 2.8);
+                headlightLeft.target.position.set(-0.7, 0, 10); // Luz para frente
+                headlightLeft.castShadow = true;
+                vehicleGroup.add(headlightLeft);
+                vehicleGroup.add(headlightLeft.target);
+                
+                headlightRight = new THREE.SpotLight(0xffffaa, 1, 25, Math.PI / 8, 0.3);
+                headlightRight.position.set(0.7, 0.7, 2.8);
+                headlightRight.target.position.set(0.7, 0, 10); // Luz para frente
+                headlightRight.castShadow = true;
+                vehicleGroup.add(headlightRight);
+                vehicleGroup.add(headlightRight.target);
+            }
+            
+            // Animação de movimento frontal melhorada
+            let posZ = -20;
+            const speed = 0.3;
+            let wheelRotation = 0;
+            
+            function moveVehicle() {
+                posZ += speed;
+                vehicleGroup.position.z = posZ;
+                
+                // Rotacionar todas as rodas de forma realista (eixo Z para movimento frontal)
+                wheelRotation += speed * 0.1;
+                vehicleGroup.children.forEach(child => {
+                    if (child.userData.isWheel) {
+                        child.rotation.z = wheelRotation;
+                    }
+                });
+                
+                // Atualizar posição dos faróis se existirem
+                if (headlightLeft && headlightRight) {
+                    headlightLeft.target.position.z = posZ + 10;
+                    headlightRight.target.position.z = posZ + 10;
+                }
+                
+                // Detectar proximidade do sensor PIR (quando carro está próximo ao poste no eixo Z)
+                const distanceToPost = Math.abs(posZ); // Distância até o poste (Z=0)
+                if (distanceToPost < 6 && !isDayTime && !isLightOn) {
+                    toggleLight();
+                    
+                    // Feedback visual - piscar sensor
+                    const postGroup = scene.children.find(child => child.type === 'Group' && child.children.length > 5);
+                    if (postGroup) {
+                        const sensor = postGroup.children.find(child => child.material && child.material.color.r > 0.5);
+                        if (sensor) {
+                            sensor.material.emissive.setHex(0x330000);
+                            setTimeout(() => {
+                                sensor.material.emissive.setHex(0x000000);
+                            }, 200);
+                        }
+                    }
+                }
+                
+                // Som de motor simulado (vibração visual)
+                if (Math.random() > 0.95) {
+                    vehicleGroup.position.y += (Math.random() - 0.5) * 0.02;
+                }
+                
+                if (posZ < 20) {
+                    requestAnimationFrame(moveVehicle);
+                } else {
+                    scene.remove(vehicleGroup);
+                    // Desligar LED após alguns segundos
+                    if (isLightOn && !isDayTime) {
+                        setTimeout(toggleLight, 3000);
+                    }
+                }
+            }
+            
+            // Iniciar animação
+            moveVehicle();
+        }
+
+        function resetCamera() {
+            cameraAngle = 0;
+            cameraHeight = 3;
+            cameraDistance = 8;
+            updateStatus();
+        }
+
+        function toggleAnimation() {
+            isAnimating = !isAnimating;
+            if (isAnimating) animate();
+            updateStatus();
+        }
+
+        function toggleHelp() {
+            const help = document.getElementById('help');
+            help.style.display = help.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Event handlers
+        function onMouseDown(event) {
+            isMouseDown = true;
+            mouseLastX = event.clientX;
+            mouseLastY = event.clientY;
+        }
+
+        function onMouseMove(event) {
+            if (isMouseDown) {
+                const deltaX = event.clientX - mouseLastX;
+                const deltaY = event.clientY - mouseLastY;
+                
+                cameraAngle += deltaX * 0.01;
+                cameraHeight = Math.max(1, Math.min(10, cameraHeight - deltaY * 0.05));
+                
+                mouseLastX = event.clientX;
+                mouseLastY = event.clientY;
+            }
+        }
+
+        function onMouseUp() {
+            isMouseDown = false;
+        }
+
+        function onMouseWheel(event) {
+            cameraDistance = Math.max(3, Math.min(15, cameraDistance + event.deltaY * 0.01));
+        }
+
+        function onKeyDown(event) {
+            switch(event.code) {
+                case 'KeyN': toggleDayNight(); break;
+                case 'KeyL': toggleLight(); break;
+                case 'KeyM': simulate(); break;
+                case 'KeyR': resetCamera(); break;
+                case 'KeyH': toggleHelp(); break;
+                case 'Space': 
+                    event.preventDefault();
+                    toggleAnimation(); 
+                    break;
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = 800 / 500;
+            camera.updateProjectionMatrix();
+            renderer.setSize(800, 500);
+        }
+
+        // Funções auxiliares
+        function updateCamera() {
+            camera.position.x = Math.cos(cameraAngle) * cameraDistance;
+            camera.position.y = cameraHeight;
+            camera.position.z = Math.sin(cameraAngle) * cameraDistance;
+            camera.lookAt(0, 4, 0);
+        }
+
+        function updateSkyColor() {
+            const skyColor = isDayTime ? 0x87CEEB : 0x0a0a1a;
+            renderer.setClearColor(skyColor);
+            if (scene.fog) scene.fog.color.setHex(skyColor);
+        }
+
+        function updateStatus() {
+            const status = document.getElementById('status');
+            const modeText = isDayTime ? 'Dia ☀️' : 'Noite 🌙';
+            const ledText = isLightOn ? 'Ligado 💡' : 'Desligado';
+            const animText = isAnimating ? 'Ativo' : 'Pausado';
+            status.innerHTML = `${modeText} | LED: ${ledText} | Anim: ${animText}`;
+        }
+
+        // Loop de animação otimizado
+        function animate() {
+            if (isAnimating) {
+                requestAnimationFrame(animate);
+                
+                // FPS Counter - atualiza menos frequentemente
+                frameCount++;
+                const currentTime = Date.now();
+                if (currentTime - lastTime >= 2000) { // A cada 2 segundos
+                    const fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+                    document.getElementById('fps').textContent = `FPS: ${fps}`;
+                    frameCount = 0;
+                    lastTime = currentTime;
+                }
+
+                // Atualizar câmera
+                updateCamera();
+                
+                // Animações sutis menos frequentes
+                if (frameCount % 3 === 0) { // A cada 3 frames
+                    // Movimento muito sutil das partículas
+                    if (particles) {
+                        const positions = particles.geometry.attributes.position.array;
+                        for(let i = 0; i < positions.length; i += 9) { // Atualiza menos partículas
+                            positions[i] += (Math.random() - 0.5) * 0.01;
+                            positions[i + 1] += (Math.random() - 0.5) * 0.005;
+                            positions[i + 2] += (Math.random() - 0.5) * 0.01;
+                        }
+                        particles.geometry.attributes.position.needsUpdate = true;
+                    }
+                }
+                
+                // Renderizar
+                renderer.render(scene, camera);
+            } else {
+                requestAnimationFrame(animate);
+            }
+        }
+
+        // Inicialização quando DOM estiver pronto
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("DOM carregado, iniciando em 500ms...");
+            setTimeout(() => {
+                init();
+                animate();
+            }, 500);
+        });
+
+        // Fallback se DOMContentLoaded não disparar
+        window.addEventListener('load', function() {
+            console.log("Window carregada");
+            if (!scene) {
+                setTimeout(() => {
+                    init();
+                    animate();
+                }, 100);
+            }
+        });
+    </script>
+</body>
+</html>
