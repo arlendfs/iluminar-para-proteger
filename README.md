@@ -152,7 +152,7 @@ streamlit run app.py
 
 **Observações técnicas:**
 - Encoding comum: `latin1` (o código usa `encoding='latin1'` por padrão). Se necessário, converta para UTF-8.
-- Arquivos grandes: suportados até ~500 MB (leitura em chunks configurável em `config.py`).
+- Arquivos grandes: suportados até ~250 MB (leitura em chunks configurável em `config.py`).
 - Separador flexível; o loader usa `engine='python'` para maior tolerância a formatos.
 
 ---
@@ -263,7 +263,7 @@ score_prioridade = (mortos * 3) + total_feridos
 ---
 
 ### 📊 15. Estatísticas do Projeto
-- Linhas de código (aprox.): ~2250 (Python)
+- Linhas de código (aprox.): ~2850 (Python)
 - Capacidade de processamento: arquivos de até ~250 MB por arquivo
 - Tempo médio de análise (depende da máquina): otimizado para análises interativas em < 30s para amostras (variável)
 
