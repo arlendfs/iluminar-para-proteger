@@ -47,6 +47,19 @@ O projeto **Iluminar para Proteger** é uma aplicação web em Python (Streamlit
 
 ---
 
+### 🌍 2.1 Alinhamento com os Objetivos de Desenvolvimento Sustentável (ODS/ONU)
+
+O projeto **Iluminar para Proteger** foi desenvolvido em conformidade com os princípios da **Agenda 2030 da ONU**, alinhando-se a três **Objetivos de Desenvolvimento Sustentável (ODS)** diretamente relacionados ao impacto social, ambiental e tecnológico da iniciativa.
+
+| 🧭 ODS | 🌱 Tema | 💡 Contribuição do Projeto |
+|--------|---------|----------------------------|
+| **07. Energia Limpa e Acessível** | Garantir acesso confiável, sustentável e moderno à energia para todos. | Implementa **postes solares inteligentes** em rodovias, promovendo o uso de **energia renovável**, com autonomia e baixo impacto ambiental. |
+| **09. Indústria, Inovação e Infraestrutura** | Construir infraestruturas resilientes, promover a industrialização inclusiva e fomentar a inovação. | Utiliza **análise de dados, automação e modelagem 3D** para gerar soluções tecnológicas e sustentáveis em infraestrutura pública. |
+| **11. Cidades e Comunidades Sustentáveis** | Tornar as cidades e os assentamentos humanos inclusivos, seguros, resilientes e sustentáveis. | Reduz **acidentes noturnos** e **melhora a segurança viária**, contribuindo para uma mobilidade mais humana e inteligente. |
+
+> 💬 *"Cada poste instalado é mais que luz — é uma faísca de esperança, segurança e sustentabilidade em movimento."*
+
+
 ### 🛠️ 3. Tecnologias Utilizadas
 - **Linguagem:** Python 3.8+
 - **Web UI:** Streamlit
