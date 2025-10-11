@@ -165,7 +165,7 @@ streamlit run app.py
 
 **Observações técnicas:**
 - Encoding comum: `latin1` (o código usa `encoding='latin1'` por padrão). Se necessário, converta para UTF-8.
-- Arquivos grandes: suportados até ~250 MB (leitura em chunks configurável em `config.py`).
+- Arquivos grandes: suportados até ~200 MB (leitura em chunks configurável em `config.py`).
 - Separador flexível; o loader usa `engine='python'` para maior tolerância a formatos.
 
 ---
@@ -180,6 +180,19 @@ streamlit run app.py
 - **Relatórios**: botão gera PDF e salva em `reports/`; também há botão para download imediato.
 - **Gerenciamento de relatórios**: sidebar lista PDFs gerados, permite download e exclusão.
 
+⚡ Upload Inteligente com Limite de 200 MB
+
+Para facilitar o uso da aplicação diretamente pelo link do Streamlit Cloud, o sistema possui um modo de upload inteligente, que respeita o limite de 200 MB por arquivo imposto pela plataforma.
+
+💡 Importante: Mesmo que o código suporte 250 MB localmente, o Streamlit Cloud só permite envios de até 200 MB por arquivo.
+
+📂 Como funciona
+
+Você pode enviar múltiplos arquivos CSV (ex: acidentes_2020a.csv, acidentes_2020b.csv) — o sistema os unirá automaticamente.
+
+Caso o arquivo exceda 200 MB, divida-o em partes menores e envie todas de uma vez.
+
+Se estiver executando o projeto localmente (streamlit run app.py), também é possível marcar a opção “Usar arquivos locais da pasta /data”, sem limite de tamanho.
 ---
 
 ### 🧮 9. Metodologia de Cálculo (ROI e Score)
@@ -277,7 +290,7 @@ score_prioridade = (mortos * 3) + total_feridos
 
 ### 📊 15. Estatísticas do Projeto
 - Linhas de código (aprox.): ~2850 (Python)
-- Capacidade de processamento: arquivos de até ~250 MB por arquivo
+- Capacidade de processamento: arquivos de até ~200 MB por arquivo
 - Tempo médio de análise (depende da máquina): otimizado para análises interativas em < 30s para amostras (variável)
 
 ---

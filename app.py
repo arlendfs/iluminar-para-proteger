@@ -79,6 +79,11 @@ def main():
         accept_multiple_files=True,
         help="Arquivos de 2020-2024 com dados de acidentes rodoviários",
     )
+    st.sidebar.info("""
+    💡 **Dica:** O limite de upload no Streamlit Cloud é **200 MB por arquivo**.
+    Se o seu arquivo for maior, divida-o em partes menores (ex: 2020a.csv, 2020b.csv)
+    ou use a opção **"Usar arquivos locais"** se estiver rodando o app localmente.
+    """)
 
     # Usa a variável do config
     data_dir = str(DATA_DIR)
