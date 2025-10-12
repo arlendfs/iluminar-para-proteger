@@ -134,61 +134,74 @@ class AccidentAnalyzer:
             combined_df = pd.concat(all_data, ignore_index=True)
             return _self._preprocess_data(combined_df)
         return None
-
+    
     @st.cache_data
     def load_data(_self, files):
         """
         Carrega e processa dados de arquivos CSV ou Parquet.
-        CSV grandes são processados em chunks. Parquet é carregado diretamente.
+        Processa em fila para evitar estouro de memória no Streamlit Cloud (1GB).
+        Logs organizados em expander para não poluir a tela.
         """
-        chunk_list = []
+        combined_df = pd.DataFrame()
         chunk_size = APP_CONFIG.get("chunk_size", 10000)
+        
+        # Cria um expander para logs detalhados
+        with st.expander("📋 Ver detalhes do carregamento", expanded=False):
+            for idx, file in enumerate(files, start=1):
+                filename = getattr(file, "name", "uploaded_file")
+                st.write(f"**[{idx}/{len(files)}]** {filename}")
 
-        for file in files:
-            filename = getattr(file, "name", "uploaded_file")
-            
-            # Detectar formato e carregar
-            data, formato = _self._carregar_arquivo_unico(file, chunk_size=chunk_size)
-            
-            if data is None:
-                continue
-                
-            if formato == 'parquet':
-                # Parquet: já vem como DataFrame completo
-                data["source_file"] = filename
-                processed_df = _self._preprocess_data(data)
-                if not processed_df.empty:
-                    chunk_list.append(processed_df)
-                
-            elif formato == 'csv_chunks':
-                # CSV com chunks
-                st.write(f"📊 Processando CSV {filename} em blocos de {chunk_size:,} linhas...")
-                chunk_count = 0
-                for chunk in data:
-                    if isinstance(chunk, pd.DataFrame):
-                        # Evita atribuições diretas que podem gerar avisos de typing
-                        # (por exemplo: '__setitem__' não definido no tipo Hashable)
-                        chunk = chunk.assign(source_file=filename)
-                        processed_chunk = _self._preprocess_data(chunk)
-                        if not processed_chunk.empty:
-                            chunk_list.append(processed_chunk)
-                            chunk_count += 1
-                    else:
-                        st.warning("⚠️ Chunk recebido não é um DataFrame e foi ignorado.")
-                st.success(f"✅ Arquivo CSV {filename} carregado: {chunk_count} chunks processados!")
-                
-            elif formato == 'csv':
-                # CSV completo (sem chunks)
-                data["source_file"] = filename
-                processed_df = _self._preprocess_data(data)
-                if not processed_df.empty:
-                    chunk_list.append(processed_df)
+                # Detectar formato e carregar
+                data, formato = _self._carregar_arquivo_unico(file, chunk_size=chunk_size)
+                if data is None:
+                    continue
 
-        if chunk_list:
-            combined_df = pd.concat(chunk_list, ignore_index=True)
-            st.success(f"🎉 Total combinado: {len(combined_df):,} registros!")
+                # Caso Parquet
+                if formato == 'parquet':
+                    data["source_file"] = filename
+                    processed_df = _self._preprocess_data(data)
+                    if not processed_df.empty:
+                        st.success(f"✅ {len(processed_df):,} registros processados")
+                        combined_df = pd.concat([combined_df, processed_df], ignore_index=True)
+                        del processed_df
+
+                # Caso CSV com chunks
+                elif formato == 'csv_chunks':
+                    chunk_count = 0
+                    total_rows = 0
+                    
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    for chunk in data:
+                        if isinstance(chunk, pd.DataFrame):
+                            chunk = chunk.assign(source_file=filename)
+                            processed_chunk = _self._preprocess_data(chunk)
+                            if not processed_chunk.empty:
+                                combined_df = pd.concat([combined_df, processed_chunk], ignore_index=True)
+                                chunk_count += 1
+                                total_rows += len(processed_chunk)
+                                del processed_chunk
+                                
+                                # Atualiza progresso
+                                status_text.text(f"Processados {total_rows:,} registros em {chunk_count} blocos...")
+                    
+                    progress_bar.progress(100)
+                    st.success(f"✅ {total_rows:,} registros em {chunk_count} blocos")
+
+                # Caso CSV completo
+                elif formato == 'csv':
+                    data["source_file"] = filename
+                    processed_df = _self._preprocess_data(data)
+                    if not processed_df.empty:
+                        st.success(f"✅ {len(processed_df):,} registros processados")
+                        combined_df = pd.concat([combined_df, processed_df], ignore_index=True)
+                        del processed_df
+
+        if not combined_df.empty:
             return combined_df
-            
+
+        st.warning("⚠️ Nenhum dado foi carregado.")
         return None
 
     def _extract_year_from_text(self, text):
