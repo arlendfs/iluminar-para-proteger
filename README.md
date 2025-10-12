@@ -31,6 +31,16 @@ Os dados de acidentes de trânsito utilizados neste projeto foram obtidos do por
 
 Para reproduzir as análises, baixe os arquivos correspondentes (2020–2024) e coloque-os na pasta `data/`.
 
+> 💡 **Nota sobre desempenho e limites de upload**
+>
+> - Ao executar o projeto **localmente**, é possível carregar **arquivos CSV acima de 200 MB** normalmente, pois o limite é controlado apenas pela sua máquina e pela memória disponível.
+> - Entretanto, na **versão hospedada no Streamlit Cloud**, o upload é limitado a **200 MB por arquivo** — conforme já indicado abaixo do botão de upload no dashboard.
+> - Para facilitar testes, o repositório **já inclui versões convertidas em Parquet** dentro da pasta `data/`, permitindo testar o sistema sem precisar subir arquivos grandes.
+> - Para processar arquivos **maiores que 200 MB**, utilize o novo sistema online independente:
+>   👉 [https://parquet-conversor.onrender.com](https://parquet-conversor.onrender.com)
+>
+> Esse novo sistema foi desenvolvido especialmente para lidar com bases maiores, mantendo compatibilidade total com o formato Parquet utilizado aqui.
+
 ---
 
 ### 📋 1. Descrição
@@ -59,140 +69,137 @@ O projeto **Iluminar para Proteger** foi desenvolvido em conformidade com os pri
 
 > 💬 *"Cada poste instalado é mais que luz — é uma faísca de esperança, segurança e sustentabilidade em movimento."*
 
+---
 
 ### 🛠️ 3. Tecnologias Utilizadas
 - **Linguagem:** Python 3.8+
 - **Web UI:** Streamlit
+- **Formato colunar:** Parquet (pyarrow)
+- **Leitura/Escrita Parquet:** pyarrow
 - **Manipulação de dados:** Pandas, NumPy
 - **Gráficos:** Plotly, Matplotlib
 - **Mapas:** Folium, streamlit-folium, branca
-- **Protótipo 3D:** Three.js embutido via componente HTML no Streamlit
-- **Relatórios:** ReportLab (geração de PDF), Openpyxl (Excel)
-- **Outros:** scikit-learn (análises estatísticas/ML futuras), streamlit.cache_data
-- **Configuração:** `config.py` (parâmetros financeiros, mapeamento de colunas, limites geográficos)
+- **Protótipo 3D:** Three.js (HTML incorporado)
+- **Relatórios:** ReportLab (PDF), Openpyxl (Excel)
+- **Detecção de encoding:** chardet
+- **Compressão:** snappy, gzip, brotli
+- **Machine Learning (futuro):** scikit-learn
 
 ---
 
 ### 📁 4. Estrutura do Projeto
-```
+```bash
 iluminar-para-proteger/
 ├── app.py                         # Aplicação principal Streamlit
+├── dashboard.py                   # Interface principal e componentes visuais
 ├── pdf_generator.py               # Gerador de relatórios PDF
-├── config.py                      # Configurações do sistema
-├── config_custom.py.example       # Exemplo de configurações personalizadas
+├── config.py                      # Configurações gerais
+├── config_custom.py.example       # Exemplo de configuração personalizada
 ├── requirements.txt               # Dependências do projeto
 ├── .gitignore                     # Arquivos ignorados pelo Git
+├── LICENSE                        # Licença MIT
 ├── README.md                      # Documentação
 ├── solar_post_3d.html             # Protótipo 3D standalone
-├── data/                          # Pasta para arquivos CSV
+├── data/                          # CSVs e Parquets de entrada
 │   ├── acidentes2020_todas_causas_tipos.csv
 │   ├── acidentes2021_todas_causas_tipos.csv
 │   ├── acidentes2022_todas_causas_tipos.csv
 │   ├── acidentes2023_todas_causas_tipos.csv
 │   └── acidentes2024_todas_causas_tipos.csv
+├── parquet_samples/               # Parquets já convertidos para testes
 ├── reports/                       # PDFs gerados
-├── temp/                          # Arquivos temporários
+└── temp/                          # Arquivos temporários
 ```
 
 ---
 
 ### ⚙️ 5. Instalação & Configuração
-**Pré-requisitos**: Python 3.8+, pip
+**Pré-requisitos:** Python 3.8+, pip
 
-1. Clone o repositório
+1. Clone o repositório:
 ```bash
 git clone <repository_url>
 cd iluminar-para-proteger
 ```
 
-2. Crie e ative ambiente virtual
-- Linux / macOS / WSL (bash/zsh):
+2. Crie e ative o ambiente virtual:
 ```bash
 python -m venv venv
-source venv/bin/activate
-```
-- Windows PowerShell:
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-- Windows CMD:
-```cmd
-python -m venv venv
-venv\Scripts\activate.bat
+source venv/bin/activate  # Linux/macOS
+.\\venv\\Scripts\\Activate.ps1  # Windows PowerShell
 ```
 
-3. Instale dependências
+3. Instale as dependências:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. (Opcional) Ajustes de configuração
-- `config.py` contém parâmetros financeiros e mapeamento de colunas; crie `config_custom.py` para sobrescrever valores em ambiente local (ex.: custos, chunk_size).
-
-5. Crie pastas (se não existirem)
+4. Crie as pastas necessárias (caso não existam):
 ```bash
-mkdir -p data reports temp
+mkdir -p data reports temp parquet_samples
+```
+
+5. Execute o app:
+```bash
+streamlit run app.py
 ```
 
 ---
 
 ### ▶️ 6. Passo a Passo Rápido
-1. Coloque seus CSVs na pasta `data/` ou use o upload via sidebar.
-2. Execute a aplicação:
+1. **Coloque seus arquivos CSV ou Parquet** na pasta `data/`. O sistema reconhece ambos e converte CSV automaticamente para Parquet quando necessário. Há exemplos prontos em `parquet_samples/`.
+2. Execute o comando:
 ```bash
 streamlit run app.py
 ```
-3. Acesse `http://localhost:8501` e use os filtros na sidebar.
-4. Gere relatórios com o botão **Gerar Relatório PDF** (arquivo é salvo em `reports/`).
+3. Acesse [http://localhost:8501](http://localhost:8501).
+4. Use os filtros e gere relatórios PDF (armazenados em `reports/`).
 
 ---
 
 ### 🗂️ 7. Formato dos Dados
+
 **Colunas obrigatórias (nomes flexíveis):**
-- `uf` / `estado` / `sigla_uf`
-- `br` / `rodovia` / `numero_br`
-- `km` / `quilometro`
+
+* uf / estado / sigla_uf
+* br / rodovia / numero_br
+* km / quilometro
 
 **Colunas recomendadas:**
-- `fase_dia` / `periodo` (noturno/diurno)
-- `mortos` / `obitos`
-- `feridos_leves` / `feridos_graves`
-- `latitude`, `longitude`
-- `ano` / `data_inversa`
-- `causa_acidente` / `causa`
-- `condicao_metereologica` / `tempo`
+
+- fase_dia / periodo (noturno/diurno)
+- mortos / obitos
+- feridos_leves / feridos_graves
+- latitude, longitude
+- ano / data_inversa
+- causa_acidente / causa
+- condicao_metereologica / tempo
 
 **Observações técnicas:**
-- Encoding comum: `latin1` (o código usa `encoding='latin1'` por padrão). Se necessário, converta para UTF-8.
-- Arquivos grandes: suportados até ~200 MB (leitura em chunks configurável em `config.py`).
-- Separador flexível; o loader usa `engine='python'` para maior tolerância a formatos.
+
+- Encodings comuns: latin1 e utf-8 (o loader usa detecção com chardet quando necessário). Se necessário, converta explicitamente seus CSVs para UTF-8.
+- Arquivos suportados: *.csv* e *.parquet*. Prefira Parquet para produção (mais rápido e eficiente).
+- Arquivos grandes: suportados até ~200 MB por upload no Streamlit Cloud; localmente, o limite depende da sua máquina.
+- Separador flexível; o loader tenta detectar delimitador automaticamente.
 
 ---
 
-### 🧭 8. Uso da Aplicação
-- **Upload**: sidebar → selecione múltiplos CSVs.
-- **Usar arquivos locais**: marque `Usar arquivos locais da pasta /data`.
-- **Filtros**: anos, UFs, BRs, fase do dia e condição meteorológica.
-- **Top trechos**: tabela com ranking por `score_prioridade` e indicadores financeiros.
-- **Mapa**: folium integrado, amostragem automática (max `max_map_points` em `config.py`).
-- **Protótipo 3D**: embutido com Three.js; controla-se dia/noite, LED e simulação de passagem.
-- **Relatórios**: botão gera PDF e salva em `reports/`; também há botão para download imediato.
-- **Gerenciamento de relatórios**: sidebar lista PDFs gerados, permite download e exclusão.
+### 🔧 8. Uso da Aplicação
 
-⚡ Upload Inteligente com Limite de 200 MB
+- Upload: sidebar → selecione múltiplos CSVs ou arraste Parquet.
+- Usar arquivos locais: marque Usar arquivos locais da pasta /data.
+- Filtros: anos, UFs, BRs, fase do dia e condição meteorológica.
+- Top trechos: tabela com ranking por score_prioridade e indicadores financeiros.
+- Mapa: folium integrado, amostragem automática (max max_map_points em config.py).
+- Protótipo 3D: embutido com Three.js; controla-se dia/noite, LED e simulação de passagem.
+- Relatórios: botão gera PDF e salva em reports/; também há botão para download imediato.
+- Gerenciamento de relatórios: sidebar lista PDFs gerados, permite download e exclusão.
 
-Para facilitar o uso da aplicação diretamente pelo link do Streamlit Cloud, o sistema possui um modo de upload inteligente, que respeita o limite de 200 MB por arquivo imposto pela plataforma.
+### ⚡ Upload Inteligente (Streamlit Cloud)
+- O Streamlit Cloud aceita até **200 MB por arquivo**. Localmente, não há limite.
+- O repositório já inclui **arquivos Parquet prontos** para teste.
+- Para bases maiores, use o sistema dedicado 👉 [https://parquet-conversor.onrender.com](https://parquet-conversor.onrender.com)
 
-💡 Importante: Mesmo que o código suporte 250 MB localmente, o Streamlit Cloud só permite envios de até 200 MB por arquivo.
-
-📂 Como funciona
-
-Você pode enviar múltiplos arquivos CSV (ex: acidentes_2020a.csv, acidentes_2020b.csv) — o sistema os unirá automaticamente.
-
-Caso o arquivo exceda 200 MB, divida-o em partes menores e envie todas de uma vez.
-
-Se estiver executando o projeto localmente (streamlit run app.py), também é possível marcar a opção “Usar arquivos locais da pasta /data”, sem limite de tamanho.
 ---
 
 ### 🧮 9. Metodologia de Cálculo (ROI e Score)
@@ -315,4 +322,4 @@ Conclusão principal: A experiência reforçou a responsabilidade social do prof
 ---
 
 **Última atualização**: Outubro 2025
-**Versão**: 1.1.0
+**Versão**: 1.2.0

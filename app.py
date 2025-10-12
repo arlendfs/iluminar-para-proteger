@@ -73,23 +73,60 @@ def main():
     # Lógica da Sidebar
     st.sidebar.header("📊 Controles do Dashboard")
     st.sidebar.subheader("📁 Carregamento de Dados")
-    uploaded_files = st.sidebar.file_uploader(
-        "Selecione os arquivos CSV de acidentes",
-        type=["csv"],
-        accept_multiple_files=True,
-        help="Arquivos de 2020-2024 com dados de acidentes rodoviários",
-    )
+    # Informação sobre formatos suportados
     st.sidebar.info("""
-    💡 **Dica:** O limite de upload no Streamlit Cloud é **200 MB por arquivo**.
-    Se o seu arquivo for maior, divida-o em partes menores (ex: 2020a.csv, 2020b.csv)
-    ou use a opção **"Usar arquivos locais"** se estiver rodando o app localmente.
+    📄 **Formatos aceitos:**
+    - CSV (.csv) - Tradicional
+    - Parquet (.parquet) - Otimizado e mais rápido
+    
+    💡 Para arquivos muito grandes, recomendamos usar Parquet para melhor desempenho.
     """)
+    
+    uploaded_files = st.sidebar.file_uploader(
+        "Selecione os arquivos de acidentes",
+        type=["csv", "parquet"],
+        accept_multiple_files=True,
+        help="Arquivos CSV ou Parquet com dados de acidentes rodoviários (2020-2024)",
+    )
+    
+    st.sidebar.info("""
+    ⚡ **Dica de Performance:**
+    - Limite CSV: 200 MB/arquivo no Streamlit Cloud
+    - Parquet: Formato comprimido, até 10x menor
+    - Para CSVs grandes, considere converter para Parquet
+    """)
+    
+    # Verificar tamanho dos arquivos CSV enviados
+    if uploaded_files:
+        for file in uploaded_files:
+            if file.name.lower().endswith('.csv'):
+                file_size_mb = file.size / (1024 * 1024)
+                if file_size_mb > 200:
+                    st.sidebar.warning(f"""
+                    ⚠️ **{file.name}** ({file_size_mb:.1f} MB)
+                    
+                    Arquivo muito grande! Considere:
+                    1. Dividir em partes menores, ou
+                    2. Converter para formato Parquet
+                    """)
+                elif file_size_mb > 150:
+                    st.sidebar.info(f"""
+                    💡 **{file.name}** ({file_size_mb:.1f} MB)
+                    
+                    Arquivo grande detectado. Para melhor performance, 
+                    considere converter para Parquet.
+                    """)
 
     # Usa a variável do config
     data_dir = str(DATA_DIR)
     local_files = []
     if os.path.exists(data_dir):
-        local_files = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
+
+        # Buscar arquivos CSV e Parquet na pasta /data
+        local_files = [
+            f for f in os.listdir(data_dir) 
+            if f.endswith((".csv", ".parquet"))
+        ]
 
     use_local_files = False
     if local_files:

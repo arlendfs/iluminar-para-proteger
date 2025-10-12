@@ -61,7 +61,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
         )
         st.metric("☀️ Acidentes Diurnos", f"{acidentes_diurnos:,}")
 
-    st.html("---")
+    st.markdown("---")
 
     # Análise Noturno vs Diurno
     st.subheader("🌗 Análise Comparativa: Acidentes Noturnos vs Diurnos")
@@ -113,9 +113,10 @@ def create_dashboard(analyzer: AccidentAnalyzer):
     # Top trechos críticos
     st.subheader("🚨 Top 20 Trechos Mais Críticos para Iluminação Solar")
 
-    # Inicializa trechos_criticos como um DataFrame vazio para garantir
-    #  que a variável sempre exista.
+    # Inicializa trechos_criticos e trechos_com_roi para garantir
+    # que as variáveis sempre existam antes do uso (evita NameError no export)
     trechos_criticos = pd.DataFrame()
+    trechos_com_roi = pd.DataFrame()
 
     if all(col in data.columns for col in ["br", "km", "uf"]):
         data["trecho"] = (
@@ -421,14 +422,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 html_code = f.read()
             components.html(html_code, height=600)
         except FileNotFoundError:
-            st.error(
-                (
-                    """Arquivo 'solar_post_3d. Verifique se ele está na
-                    mesma pasta que o"
-                    "app.py.
-                    """
-                )
-            )
+            st.error("Arquivo 'solar_post_3d.html' não encontrado. Coloque-o na raiz do projeto.")
     with col2:
         st.html(
             """

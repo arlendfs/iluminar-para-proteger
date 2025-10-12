@@ -20,23 +20,114 @@ class AccidentAnalyzer:
     def __init__(self):
         self.data = None
         self.filtered_data: Optional[DataFrame] = None
+    
+    @staticmethod
+    def _detectar_formato_arquivo(file):
+        """Detecta se o arquivo é CSV ou Parquet baseado na extensão."""
+        filename = getattr(file, "name", str(file))
+        if filename.lower().endswith('.parquet'):
+            return 'parquet'
+        elif filename.lower().endswith('.csv'):
+            return 'csv'
+        else:
+            return 'unknown'
+
+    @staticmethod
+    def _carregar_arquivo_unico(file, chunk_size=None):
+        """
+        Carrega um único arquivo, detectando automaticamente se é CSV ou Parquet.
+        Retorna um DataFrame ou um iterador de chunks (para CSV).
+        """
+        formato = AccidentAnalyzer._detectar_formato_arquivo(file)
+        filename = getattr(file, "name", "uploaded_file")
+        
+        if formato == 'parquet':
+            # Parquet é sempre carregado inteiro (já é eficiente)
+            try:
+                df = pd.read_parquet(file)
+                st.success(f"✅ Arquivo Parquet {filename} carregado com sucesso!")
+                return df, 'parquet'
+            except Exception as e:
+                st.error(f"❌ Erro ao carregar Parquet {filename}: {str(e)}")
+                return None, None
+                
+        elif formato == 'csv':
+            try:
+                if chunk_size:
+                    # Retorna um iterador de chunks
+                    csv_reader = pd.read_csv(
+                        file,
+                        encoding="latin1",
+                        sep=None,
+                        engine="python",
+                        chunksize=chunk_size,
+                        on_bad_lines='warn'
+                    )
+                    return csv_reader, 'csv_chunks'
+                else:
+                    # Carrega CSV completo
+                    df = pd.read_csv(
+                        file,
+                        encoding="latin1",
+                        sep=None,
+                        engine="python",
+                        on_bad_lines='warn'
+                    )
+                    st.success(f"✅ Arquivo CSV {filename} carregado com sucesso!")
+                    return df, 'csv'
+            except Exception as e:
+                st.error(f"❌ Erro ao carregar CSV {filename}: {str(e)}")
+                return None, None
+        else:
+            st.error(f"❌ Formato de arquivo não suportado: {filename}. Use CSV ou Parquet.")
+            return None, None
 
     @st.cache_data
     def load_local_files(_self, data_dir, local_files):
-        """Carrega arquivos CSV da pasta local e marca a origem."""
+        """
+        Carrega arquivos CSV ou Parquet da pasta local e marca a origem.
+        Detecta automaticamente o formato.
+        """
         all_data = []
         for filename in local_files:
             try:
                 filepath = os.path.join(data_dir, filename)
-
-                df = pd.read_csv(
-                    filepath, encoding="latin1", sep=None, engine="python"
-                )
-                df["source_file"] = filename
-                all_data.append(df)
-                st.success(f"Arquivo {filename} carregado com sucesso!")
+                
+                # Detectar formato pelo nome do arquivo
+                if filename.lower().endswith('.parquet'):
+                    df = pd.read_parquet(filepath)
+                    df["source_file"] = filename
+                    all_data.append(df)
+                    st.success(f"✅ Arquivo Parquet {filename} carregado com sucesso!")
+                    
+                elif filename.lower().endswith('.csv'):
+                    try:
+                        # Tenta com engine padrão (mais rápido)
+                        df = pd.read_csv(
+                            filepath,
+                            encoding="latin1",
+                            low_memory=False
+                        )
+                    except:
+                        # Se falhar, usa python para detectar separador
+                        df = pd.read_csv(
+                            filepath, 
+                            encoding="latin1", 
+                            sep=None, 
+                            engine="python",
+                            on_bad_lines='warn'
+                        )
+                    
+                    df["source_file"] = filename
+                    all_data.append(df)
+                    st.success(f"✅ Arquivo CSV {filename} carregado com sucesso!")
+                    
+                else:
+                    st.warning(f"⚠️ Arquivo {filename} ignorado (formato não suportado)")
+                    continue
+                    
             except Exception as e:
-                st.error(f"Erro ao carregar {filename}: {str(e)}")
+                st.error(f"❌ Erro ao carregar {filename}: {str(e)}")
                 continue
 
         if all_data:
@@ -46,41 +137,56 @@ class AccidentAnalyzer:
 
     @st.cache_data
     def load_data(_self, files):
-        """Carrega e processa dados em chunks para economizar memória."""
+        """
+        Carrega e processa dados de arquivos CSV ou Parquet.
+        CSV grandes são processados em chunks. Parquet é carregado diretamente.
+        """
         chunk_list = []
-        
-        # Pega o tamanho do chunk da configuração
         chunk_size = APP_CONFIG.get("chunk_size", 10000)
 
         for file in files:
-            try:
-                filename = getattr(file, "name", "uploaded_file")
-                st.write(f"Processando {filename} em blocos de {chunk_size:,} linhas...")
-                
-                # Cria um leitor de chunks
-                csv_reader = pd.read_csv(
-                    file,
-                    encoding="latin1",
-                    sep=None,
-                    engine="python",
-                    chunksize=chunk_size
-                )
-                
-                # Processa cada chunk individualmente
-                for chunk in csv_reader:
-                    chunk["source_file"] = filename
-                    processed_chunk = _self._preprocess_data(chunk)
-                    chunk_list.append(processed_chunk)
-
-                st.success(f"Arquivo {filename} carregado com sucesso!")
-
-            except Exception as e:
-                st.error(f"Erro ao carregar {filename}: {str(e)}")
+            filename = getattr(file, "name", "uploaded_file")
+            
+            # Detectar formato e carregar
+            data, formato = _self._carregar_arquivo_unico(file, chunk_size=chunk_size)
+            
+            if data is None:
                 continue
+                
+            if formato == 'parquet':
+                # Parquet: já vem como DataFrame completo
+                data["source_file"] = filename
+                processed_df = _self._preprocess_data(data)
+                if not processed_df.empty:
+                    chunk_list.append(processed_df)
+                
+            elif formato == 'csv_chunks':
+                # CSV com chunks
+                st.write(f"📊 Processando CSV {filename} em blocos de {chunk_size:,} linhas...")
+                chunk_count = 0
+                for chunk in data:
+                    if isinstance(chunk, pd.DataFrame):
+                        # Evita atribuições diretas que podem gerar avisos de typing
+                        # (por exemplo: '__setitem__' não definido no tipo Hashable)
+                        chunk = chunk.assign(source_file=filename)
+                        processed_chunk = _self._preprocess_data(chunk)
+                        if not processed_chunk.empty:
+                            chunk_list.append(processed_chunk)
+                            chunk_count += 1
+                    else:
+                        st.warning("⚠️ Chunk recebido não é um DataFrame e foi ignorado.")
+                st.success(f"✅ Arquivo CSV {filename} carregado: {chunk_count} chunks processados!")
+                
+            elif formato == 'csv':
+                # CSV completo (sem chunks)
+                data["source_file"] = filename
+                processed_df = _self._preprocess_data(data)
+                if not processed_df.empty:
+                    chunk_list.append(processed_df)
 
         if chunk_list:
-            # Concatena todos os chunks processados no final
             combined_df = pd.concat(chunk_list, ignore_index=True)
+            st.success(f"🎉 Total combinado: {len(combined_df):,} registros!")
             return combined_df
             
         return None
@@ -100,10 +206,18 @@ class AccidentAnalyzer:
 
     def _preprocess_data(self, df):
         """Preprocessa os dados para análise."""
-        df.columns = df.columns.str.lower().str.strip()
+        # Normalizar nomes das colunas ANTES de qualquer processamento
+        df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
 
+        # Aplicar mapeamento de colunas
         for standard_name, possible_names in COLUMN_MAPPING.items():
-            for possible_name in possible_names:
+            # Adicionar versão normalizada dos nomes possíveis
+            normalized_possible_names = [
+                name.lower().strip().replace(' ', '_') 
+                for name in possible_names
+            ]
+            
+            for possible_name in normalized_possible_names:
                 if (
                     possible_name in df.columns
                     and standard_name not in df.columns
@@ -113,53 +227,46 @@ class AccidentAnalyzer:
                     )
                     break
 
-        date_cols = [c for c in df.columns if "data" in c] # Procura por colunas como 'data' ou 'data_inversa'
+        # Processar coluna de data para extrair ano
+        date_cols = [c for c in df.columns if "data" in c]
         if date_cols:
-            # Usa a primeira coluna de data encontrada
             df["ano"] = pd.to_datetime(df[date_cols[0]], errors="coerce").dt.year
         
-        # Se uma coluna 'ano' já existe e pode preencher valores que a coluna de data não conseguiu
-        if "ano" in df.columns and "ano" in df.columns:
-             # Converte a coluna 'ano' original para numérico, tratando erros
+        # Se uma coluna 'ano' já existe, usar para preencher valores vazios
+        if "ano" in df.columns:
             original_ano_numeric = pd.to_numeric(df["ano"], errors='coerce')
-            # Preenche os valores que ainda estão vazios na nova coluna 'ano'
-            if "ano" in df:
-                df["ano"] = df["ano"].fillna(original_ano_numeric)
-            else:
-                df["ano"] = original_ano_numeric
+            df["ano"] = df["ano"].fillna(original_ano_numeric)
 
-        # Como último recurso, tenta extrair o ano do nome do arquivo
-        if "ano" not in df or df["ano"].isnull().all():
+        # Como último recurso, tentar extrair o ano do nome do arquivo
+        if "ano" not in df.columns or df["ano"].isnull().all():
             if "source_file" in df.columns:
                 df["ano"] = df["source_file"].apply(self._extract_year_from_text)
 
-        # Garante que a coluna 'ano' final seja do tipo numérico para os filtros funcionarem
+        # Garantir que a coluna 'ano' final seja do tipo numérico
         if "ano" in df.columns:
-            df["ano"] = pd.to_numeric(df["ano"], errors="coerce").astype(
-                "Int64"
-            )
+            df["ano"] = pd.to_numeric(df["ano"], errors="coerce").astype("Int64")
         else:
-            st.warning("Aviso: Não foi possível determinar a coluna 'ano'.")
+            st.warning("⚠️ Aviso: Não foi possível determinar a coluna 'ano'.")
 
+        # Processar fase_dia
         if "fase_dia" in df.columns:
             df["fase_dia"] = df["fase_dia"].astype(str).str.lower().str.strip()
             fase_map = {
                 var: std_val
-                for std_val, variations in VALUE_STANDARDIZATION[
-                    "fase_dia"
-                ].items()
+                for std_val, variations in VALUE_STANDARDIZATION["fase_dia"].items()
                 for var in variations
             }
             df["fase_dia"] = df["fase_dia"].map(fase_map).fillna("diurno")
         else:
             df["fase_dia"] = "Não informado"
 
+        # Processar estado_fisico para contar mortos
         if "estado_fisico" in df.columns:
             df["mortos"] = (
-                df["estado_fisico"].astype(str).str.lower().str.strip()
-                == "óbito"
+                df["estado_fisico"].astype(str).str.lower().str.strip() == "óbito"
             ).astype(int)
 
+        # Garantir colunas numéricas
         numeric_cols = [
             "mortos",
             "feridos_leves",
@@ -175,21 +282,24 @@ class AccidentAnalyzer:
             else:
                 df[col] = 0
 
+        # Calcular totais
         df["total_feridos"] = df["feridos_leves"] + df["feridos_graves"]
         df["total_vitimas"] = df["mortos"] + df["total_feridos"]
 
+        # Processar UF
         if "uf" in df.columns:
             df["uf"] = (
                 df["uf"]
                 .astype(str)
                 .str.strip()
                 .str.upper()
-                .replace({"NAN": None})
+                .replace({"NAN": None, "NONE": None})
             )
             df.dropna(subset=["uf"], inplace=True)
         else:
-            st.warning("Coluna 'uf' não encontrada.")
+            st.warning("⚠️ Coluna 'uf' não encontrada.")
 
+        # Processar BR
         if "br" in df.columns:
             df["br"] = (
                 pd.to_numeric(df["br"], errors="coerce")
@@ -198,23 +308,37 @@ class AccidentAnalyzer:
                 .replace("<NA>", "N/A")
             )
         else:
-            st.info("Coluna 'br' (rodovia) não encontrada.")
+            st.info("ℹ️ Coluna 'br' (rodovia) não encontrada.")
 
         return df
 
     def apply_filters(self, df, filters):
         """Aplica filtros aos dados."""
-        if df is None:
+        if df is None or df.empty:
             return pd.DataFrame()
+        
         filtered_df = df.copy()
-        if filters.get("anos") and "ano" in filtered_df.columns:
+        
+        if filters.get("anos") and len(filters["anos"]) > 0 and "ano" in filtered_df.columns:
             filtered_df = filtered_df[filtered_df["ano"].isin(filters["anos"])]
-        if filters.get("ufs"):
+        
+        if filters.get("ufs") and len(filters["ufs"]) > 0 and "uf" in filtered_df.columns:
             filtered_df = filtered_df[filtered_df["uf"].isin(filters["ufs"])]
-        if filters.get("brs"):
+        
+        if filters.get("brs") and len(filters["brs"]) > 0 and "br" in filtered_df.columns:
             filtered_df = filtered_df[
                 filtered_df["br"].isin([str(br) for br in filters["brs"]])
             ]
+        
+        if filters.get("fase_dia") and len(filters["fase_dia"]) > 0 and "fase_dia" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["fase_dia"].isin(filters["fase_dia"])]
+        
+        if filters.get("condicao_meteorologica") and len(filters["condicao_meteorologica"]) > 0:
+            if "condicao_metereologica" in filtered_df.columns:
+                filtered_df = filtered_df[
+                    filtered_df["condicao_metereologica"].isin(filters["condicao_meteorologica"])
+                ]
+        
         return filtered_df
 
     def analyze_top_n(
@@ -224,11 +348,17 @@ class AccidentAnalyzer:
         comprimento_km: float = DEFAULT_COMPRIMENTO_TRECHO_KM,
         spacing_m: float = DEFAULT_SPACING_M,
     ):
-        """Analisa os top N trechos prioritários e calcula métricas financeiras."""
         if df.empty:
             return pd.DataFrame(), {}
 
         df_res = df.copy()
+
+        if "mortos" not in df_res.columns: 
+            df_res['mortos'] = 0
+        if "total_feridos" not in df_res.columns: 
+            df_res['total_feridos'] = 0
+        
+        df_res["score_prioridade"] = df_res["mortos"] * 3 + df_res["total_feridos"]
 
         roi_results = df_res.apply(
             lambda row: calculate_roi(
@@ -277,7 +407,6 @@ class AccidentAnalyzer:
             ),
         }
         return df_res, agregados
-    
 
 
 def calculate_roi(
@@ -287,9 +416,6 @@ def calculate_roi(
     comprimento_trecho_km: float,
     spacing_m: float,
 ):
-    """
-    Calcula o ROI e outras métricas financeiras para um único trecho.
-    """
     reducao_estimada = EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"]
 
     posts_por_trecho = (1000 / spacing_m) * comprimento_trecho_km
