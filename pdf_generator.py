@@ -135,7 +135,6 @@ class ReportGenerator:
         periodo_stats = (
             filtered_data.groupby("fase_dia")
             .agg({"mortos": ["count", "mean"]})
-            .round(2)
         )
         periodo_text = "<b>Comparação Noturno vs Diurno:</b><br/>"
         if (

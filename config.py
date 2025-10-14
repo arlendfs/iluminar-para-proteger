@@ -29,8 +29,8 @@ APP_CONFIG = {
     "icon": "🚗",
     "layout": "wide",
     "max_file_size": 200,  # MB
-    "chunk_size": 10000,  # Registros por chunk
-    "max_map_points": 1000,  # Pontos máximos no mapa
+    "chunk_size": 50000,  # Registros por chunk
+    "max_map_points": 500,  # Pontos máximos no mapa
 }
 
 # =============================================================================

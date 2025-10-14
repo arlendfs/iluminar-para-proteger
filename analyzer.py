@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import re
+import gc
 from pandas import DataFrame
 from typing import Optional
 from config import (
@@ -42,10 +43,14 @@ class AccidentAnalyzer:
         filename = getattr(file, "name", "uploaded_file")
         
         if formato == 'parquet':
-            # Parquet é sempre carregado inteiro (já é eficiente)
             try:
-                df = pd.read_parquet(file)
-                st.success(f"✅ Arquivo Parquet {filename} carregado com sucesso!")
+                # Carregar arquivo completo
+                df = pd.read_parquet(file, columns=None)
+                
+                # OTIMIZAÇÃO: Converter tipos de dados para economizar memória
+                df = AccidentAnalyzer._otimizar_tipos_dados(df)
+                
+                st.success(f"✅ {filename}: {len(df):,} registros ({df.memory_usage(deep=True).sum() / 1024**2:.1f} MB)")
                 return df, 'parquet'
             except Exception as e:
                 st.error(f"❌ Erro ao carregar Parquet {filename}: {str(e)}")
@@ -54,62 +59,99 @@ class AccidentAnalyzer:
         elif formato == 'csv':
             try:
                 if chunk_size:
-                    # Retorna um iterador de chunks
                     csv_reader = pd.read_csv(
                         file,
                         encoding="latin1",
                         sep=None,
                         engine="python",
                         chunksize=chunk_size,
-                        on_bad_lines='warn'
+                        on_bad_lines='warn',
+                        low_memory=True
                     )
                     return csv_reader, 'csv_chunks'
                 else:
-                    # Carrega CSV completo
                     df = pd.read_csv(
                         file,
                         encoding="latin1",
                         sep=None,
                         engine="python",
-                        on_bad_lines='warn'
+                        on_bad_lines='warn',
+                        low_memory=True
                     )
-                    st.success(f"✅ Arquivo CSV {filename} carregado com sucesso!")
+                    df = AccidentAnalyzer._otimizar_tipos_dados(df)
+                    st.success(f"✅ {filename}: {len(df):,} registros ({df.memory_usage(deep=True).sum() / 1024**2:.1f} MB)")
                     return df, 'csv'
             except Exception as e:
                 st.error(f"❌ Erro ao carregar CSV {filename}: {str(e)}")
                 return None, None
         else:
-            st.error(f"❌ Formato de arquivo não suportado: {filename}. Use CSV ou Parquet.")
+            st.error(f"❌ Formato não suportado: {filename}")
             return None, None
 
-    @st.cache_data
-    def load_local_files(_self, data_dir, local_files):
+    @staticmethod
+    def _otimizar_tipos_dados(df):
         """
-        Carrega arquivos CSV ou Parquet da pasta local e marca a origem.
-        Detecta automaticamente o formato.
+        OTIMIZAÇÃO CRÍTICA: Converte tipos de dados para reduzir uso de memória
+        """
+        # Strings para category (economiza muito em colunas repetitivas)
+        for col in df.select_dtypes(include=['object']).columns:
+            num_unique = df[col].nunique()
+            num_total = len(df[col])
+            # Se menos de 50% dos valores são únicos, converte para category
+            if num_unique / num_total < 0.5:
+                df[col] = df[col].astype('category')
+        
+        # Otimizar colunas numéricas
+        for col in df.select_dtypes(include=['int']).columns:
+            if df[col].min() >= 0:
+                if df[col].max() < 255:
+                    df[col] = df[col].astype('uint8')
+                elif df[col].max() < 65535:
+                    df[col] = df[col].astype('uint16')
+                elif df[col].max() < 4294967295:
+                    df[col] = df[col].astype('uint32')
+            else:
+                if df[col].max() < 127 and df[col].min() > -128:
+                    df[col] = df[col].astype('int8')
+                elif df[col].max() < 32767 and df[col].min() > -32768:
+                    df[col] = df[col].astype('int16')
+        
+        # Float32 ao invés de Float64 para coordenadas
+        for col in ['latitude', 'longitude']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype('float32')
+        
+        return df
+
+    # Remover cache ou usar cache com key único
+    def load_local_files(self, data_dir, local_files):
+        """
+        Carrega arquivos locais com gestão eficiente de memória.
+        SEM cache para evitar reutilizar dados antigos.
         """
         all_data = []
-        for filename in local_files:
+        total_memory_mb = 0
+        
+        st.info(f"📁 Carregando {len(local_files)} arquivo(s) da pasta /data...")
+        
+        for idx, filename in enumerate(local_files, start=1):
             try:
                 filepath = os.path.join(data_dir, filename)
+                progress = idx / len(local_files)
                 
-                # Detectar formato pelo nome do arquivo
                 if filename.lower().endswith('.parquet'):
                     df = pd.read_parquet(filepath)
                     df["source_file"] = filename
+                    df = self._otimizar_tipos_dados(df)
+                    memory_mb = df.memory_usage(deep=True).sum() / 1024**2
+                    total_memory_mb += memory_mb
                     all_data.append(df)
-                    st.success(f"✅ Arquivo Parquet {filename} carregado com sucesso!")
+                    st.success(f"✅ [{idx}/{len(local_files)}] {filename}: {len(df):,} registros ({memory_mb:.1f} MB)")
                     
                 elif filename.lower().endswith('.csv'):
                     try:
-                        # Tenta com engine padrão (mais rápido)
-                        df = pd.read_csv(
-                            filepath,
-                            encoding="latin1",
-                            low_memory=False
-                        )
+                        df = pd.read_csv(filepath, encoding="latin1", low_memory=True)
                     except:
-                        # Se falhar, usa python para detectar separador
                         df = pd.read_csv(
                             filepath, 
                             encoding="latin1", 
@@ -119,86 +161,131 @@ class AccidentAnalyzer:
                         )
                     
                     df["source_file"] = filename
+                    df = self._otimizar_tipos_dados(df)
+                    memory_mb = df.memory_usage(deep=True).sum() / 1024**2
+                    total_memory_mb += memory_mb
                     all_data.append(df)
-                    st.success(f"✅ Arquivo CSV {filename} carregado com sucesso!")
+                    st.success(f"✅ [{idx}/{len(local_files)}] {filename}: {len(df):,} registros ({memory_mb:.1f} MB)")
                     
                 else:
-                    st.warning(f"⚠️ Arquivo {filename} ignorado (formato não suportado)")
+                    st.warning(f"⚠️ {filename} ignorado (formato não suportado)")
                     continue
+                    
+                # Liberar memória a cada arquivo
+                gc.collect()
                     
             except Exception as e:
                 st.error(f"❌ Erro ao carregar {filename}: {str(e)}")
                 continue
 
         if all_data:
+            st.info(f"💾 Memória total antes do concat: {total_memory_mb:.1f} MB")
             combined_df = pd.concat(all_data, ignore_index=True)
-            return _self._preprocess_data(combined_df)
+            
+            # Limpar lista intermediária
+            del all_data
+            gc.collect()
+            
+            # Processar e otimizar resultado final
+            processed_df = self._preprocess_data(combined_df)
+            del combined_df
+            gc.collect()
+            
+            final_memory_mb = processed_df.memory_usage(deep=True).sum() / 1024**2
+            st.success(f"✅ Total processado: {len(processed_df):,} registros ({final_memory_mb:.1f} MB)")
+            
+            return processed_df
         return None
     
-    @st.cache_data
-    def load_data(_self, files):
+    # Remover cache para upload de arquivos
+    def load_data(self, files):
         """
-        Carrega e processa dados de arquivos CSV ou Parquet.
-        Processa em fila para evitar estouro de memória no Streamlit Cloud (1GB).
-        Logs organizados em expander para não poluir a tela.
+        Carrega com gestão de memória e processamento incremental.
+        SEM cache para upload de arquivos (dados podem variar).
         """
         combined_df = pd.DataFrame()
         chunk_size = APP_CONFIG.get("chunk_size", 10000)
+        total_memory_mb = 0
         
-        # Cria um expander para logs detalhados
         with st.expander("📋 Ver detalhes do carregamento", expanded=False):
             for idx, file in enumerate(files, start=1):
                 filename = getattr(file, "name", "uploaded_file")
                 st.write(f"**[{idx}/{len(files)}]** {filename}")
 
-                # Detectar formato e carregar
-                data, formato = _self._carregar_arquivo_unico(file, chunk_size=chunk_size)
+                data, formato = self._carregar_arquivo_unico(file, chunk_size=chunk_size)
                 if data is None:
                     continue
 
-                # Caso Parquet
+                # Parquet: processar diretamente
                 if formato == 'parquet':
                     data["source_file"] = filename
-                    processed_df = _self._preprocess_data(data)
+                    processed_df = self._preprocess_data(data)
                     if not processed_df.empty:
-                        st.success(f"✅ {len(processed_df):,} registros processados")
+                        memory_mb = processed_df.memory_usage(deep=True).sum() / 1024**2
+                        total_memory_mb += memory_mb
+                        st.success(f"✅ {len(processed_df):,} registros ({memory_mb:.1f} MB)")
                         combined_df = pd.concat([combined_df, processed_df], ignore_index=True)
                         del processed_df
+                        gc.collect()
 
-                # Caso CSV com chunks
+                # CSV chunks: processar por partes
                 elif formato == 'csv_chunks':
                     chunk_count = 0
                     total_rows = 0
-                    
                     progress_bar = st.progress(0)
                     status_text = st.empty()
+                    
+                    # Agregar chunks antes de concatenar
+                    chunk_buffer = []
+                    buffer_size_limit = 100000  # Processa em lotes de 100k registros
                     
                     for chunk in data:
                         if isinstance(chunk, pd.DataFrame):
                             chunk = chunk.assign(source_file=filename)
-                            processed_chunk = _self._preprocess_data(chunk)
+                            processed_chunk = self._preprocess_data(chunk)
+                            
                             if not processed_chunk.empty:
-                                combined_df = pd.concat([combined_df, processed_chunk], ignore_index=True)
+                                chunk_buffer.append(processed_chunk)
                                 chunk_count += 1
                                 total_rows += len(processed_chunk)
-                                del processed_chunk
                                 
-                                # Atualiza progresso
-                                status_text.text(f"Processados {total_rows:,} registros em {chunk_count} blocos...")
+                                # Quando buffer atingir limite, concatenar e limpar
+                                if total_rows >= buffer_size_limit:
+                                    buffer_df = pd.concat(chunk_buffer, ignore_index=True)
+                                    combined_df = pd.concat([combined_df, buffer_df], ignore_index=True)
+                                    chunk_buffer = []
+                                    gc.collect()
+                                
+                                status_text.text(f"Processados {total_rows:,} registros...")
+                    
+                    # Processar chunks restantes no buffer
+                    if chunk_buffer:
+                        buffer_df = pd.concat(chunk_buffer, ignore_index=True)
+                        combined_df = pd.concat([combined_df, buffer_df], ignore_index=True)
+                        del chunk_buffer, buffer_df
+                        gc.collect()
                     
                     progress_bar.progress(100)
                     st.success(f"✅ {total_rows:,} registros em {chunk_count} blocos")
 
-                # Caso CSV completo
+                # CSV completo
                 elif formato == 'csv':
                     data["source_file"] = filename
-                    processed_df = _self._preprocess_data(data)
+                    processed_df = self._preprocess_data(data)
                     if not processed_df.empty:
                         st.success(f"✅ {len(processed_df):,} registros processados")
                         combined_df = pd.concat([combined_df, processed_df], ignore_index=True)
                         del processed_df
+                        gc.collect()
+                
+                # Liberar memória após cada arquivo
+                gc.collect()
 
         if not combined_df.empty:
+            # Otimização final
+            combined_df = self._otimizar_tipos_dados(combined_df)
+            final_memory_mb = combined_df.memory_usage(deep=True).sum() / 1024**2
+            st.info(f"💾 Memória total: {final_memory_mb:.1f} MB | {len(combined_df):,} registros")
             return combined_df
 
         st.warning("⚠️ Nenhum dado foi carregado.")
@@ -218,50 +305,33 @@ class AccidentAnalyzer:
         return None
 
     def _preprocess_data(self, df):
-        """Preprocessa os dados para análise."""
-        # Normalizar nomes das colunas ANTES de qualquer processamento
+        """OTIMIZADO: Preprocessa com economia de memória"""
+        # Normalizar colunas
         df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
 
-        # Aplicar mapeamento de colunas
+        # Mapear colunas
         for standard_name, possible_names in COLUMN_MAPPING.items():
-            # Adicionar versão normalizada dos nomes possíveis
             normalized_possible_names = [
                 name.lower().strip().replace(' ', '_') 
                 for name in possible_names
             ]
             
             for possible_name in normalized_possible_names:
-                if (
-                    possible_name in df.columns
-                    and standard_name not in df.columns
-                ):
-                    df.rename(
-                        columns={possible_name: standard_name}, inplace=True
-                    )
+                if possible_name in df.columns and standard_name not in df.columns:
+                    df.rename(columns={possible_name: standard_name}, inplace=True)
                     break
 
-        # Processar coluna de data para extrair ano
+        # Processar data para extrair ano (OTIMIZADO)
         date_cols = [c for c in df.columns if "data" in c]
-        if date_cols:
-            df["ano"] = pd.to_datetime(df[date_cols[0]], errors="coerce").dt.year
+        if date_cols and "ano" not in df.columns:
+            df["ano"] = pd.to_datetime(df[date_cols[0]], errors="coerce").dt.year.astype('Int16')
         
-        # Se uma coluna 'ano' já existe, usar para preencher valores vazios
-        if "ano" in df.columns:
-            original_ano_numeric = pd.to_numeric(df["ano"], errors='coerce')
-            df["ano"] = df["ano"].fillna(original_ano_numeric)
-
-        # Como último recurso, tentar extrair o ano do nome do arquivo
+        # Usar ano do arquivo se necessário
         if "ano" not in df.columns or df["ano"].isnull().all():
             if "source_file" in df.columns:
-                df["ano"] = df["source_file"].apply(self._extract_year_from_text)
+                df["ano"] = df["source_file"].apply(self._extract_year_from_text).astype('Int16')
 
-        # Garantir que a coluna 'ano' final seja do tipo numérico
-        if "ano" in df.columns:
-            df["ano"] = pd.to_numeric(df["ano"], errors="coerce").astype("Int64")
-        else:
-            st.warning("⚠️ Aviso: Não foi possível determinar a coluna 'ano'.")
-
-        # Processar fase_dia
+        # Processar fase_dia (category para economizar memória)
         if "fase_dia" in df.columns:
             df["fase_dia"] = df["fase_dia"].astype(str).str.lower().str.strip()
             fase_map = {
@@ -269,89 +339,74 @@ class AccidentAnalyzer:
                 for std_val, variations in VALUE_STANDARDIZATION["fase_dia"].items()
                 for var in variations
             }
-            df["fase_dia"] = df["fase_dia"].map(fase_map).fillna("diurno")
+            df["fase_dia"] = df["fase_dia"].map(fase_map).fillna("diurno").astype('category')
         else:
-            df["fase_dia"] = "Não informado"
+            df["fase_dia"] = pd.Categorical(["Não informado"] * len(df))
 
-        # Processar estado_fisico para contar mortos
+        # Processar estado_fisico para mortos
         if "estado_fisico" in df.columns:
-            df["mortos"] = (
-                df["estado_fisico"].astype(str).str.lower().str.strip() == "óbito"
-            ).astype(int)
+            df["mortos"] = (df["estado_fisico"].astype(str).str.lower().str.strip() == "óbito").astype('uint8')
 
-        # Garantir colunas numéricas
-        numeric_cols = [
-            "mortos",
-            "feridos_leves",
-            "feridos_graves",
-            "ileso",
-            "km",
-            "latitude",
-            "longitude",
-        ]
-        for col in numeric_cols:
+        # Garantir colunas numéricas (tipos otimizados)
+        numeric_cols = {
+            "mortos": 'uint8',
+            "feridos_leves": 'uint16',
+            "feridos_graves": 'uint16',
+            "ileso": 'uint16',
+            "km": 'float32',
+            "latitude": 'float32',
+            "longitude": 'float32',
+        }
+        
+        for col, dtype in numeric_cols.items():
             if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(dtype)
             else:
-                df[col] = 0
+                df[col] = pd.array([0] * len(df), dtype=dtype)
 
         # Calcular totais
-        df["total_feridos"] = df["feridos_leves"] + df["feridos_graves"]
-        df["total_vitimas"] = df["mortos"] + df["total_feridos"]
+        df["total_feridos"] = (df["feridos_leves"] + df["feridos_graves"]).astype('uint16')
+        df["total_vitimas"] = (df["mortos"] + df["total_feridos"]).astype('uint16')
 
-        # Processar UF
+        # Processar UF (category)
         if "uf" in df.columns:
-            df["uf"] = (
-                df["uf"]
-                .astype(str)
-                .str.strip()
-                .str.upper()
-                .replace({"NAN": None, "NONE": None})
-            )
+            df["uf"] = df["uf"].astype(str).str.strip().str.upper().replace({"NAN": None, "NONE": None})
             df.dropna(subset=["uf"], inplace=True)
-        else:
-            st.warning("⚠️ Coluna 'uf' não encontrada.")
+            df["uf"] = df["uf"].astype('category')
 
-        # Processar BR
+        # Processar BR (category)
         if "br" in df.columns:
-            df["br"] = (
-                pd.to_numeric(df["br"], errors="coerce")
-                .astype("Int64")
-                .astype(str)
-                .replace("<NA>", "N/A")
-            )
-        else:
-            st.info("ℹ️ Coluna 'br' (rodovia) não encontrada.")
+            df["br"] = pd.to_numeric(df["br"], errors="coerce").astype('Int16').astype(str).replace("<NA>", "N/A")
+            df["br"] = df["br"].astype('category')
 
         return df
 
     def apply_filters(self, df, filters):
-        """Aplica filtros aos dados."""
+        """Aplica filtros de forma eficiente"""
         if df is None or df.empty:
             return pd.DataFrame()
         
-        filtered_df = df.copy()
+        # Filtrar sem criar cópias desnecessárias
+        mask = pd.Series([True] * len(df), index=df.index)
         
-        if filters.get("anos") and len(filters["anos"]) > 0 and "ano" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["ano"].isin(filters["anos"])]
+        if filters.get("anos") and len(filters["anos"]) > 0 and "ano" in df.columns:
+            mask &= df["ano"].isin(filters["anos"])
         
-        if filters.get("ufs") and len(filters["ufs"]) > 0 and "uf" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["uf"].isin(filters["ufs"])]
+        if filters.get("ufs") and len(filters["ufs"]) > 0 and "uf" in df.columns:
+            mask &= df["uf"].isin(filters["ufs"])
         
-        if filters.get("brs") and len(filters["brs"]) > 0 and "br" in filtered_df.columns:
-            filtered_df = filtered_df[
-                filtered_df["br"].isin([str(br) for br in filters["brs"]])
-            ]
+        if filters.get("brs") and len(filters["brs"]) > 0 and "br" in df.columns:
+            mask &= df["br"].isin([str(br) for br in filters["brs"]])
         
-        if filters.get("fase_dia") and len(filters["fase_dia"]) > 0 and "fase_dia" in filtered_df.columns:
-            filtered_df = filtered_df[filtered_df["fase_dia"].isin(filters["fase_dia"])]
+        if filters.get("fase_dia") and len(filters["fase_dia"]) > 0 and "fase_dia" in df.columns:
+            mask &= df["fase_dia"].isin(filters["fase_dia"])
         
         if filters.get("condicao_meteorologica") and len(filters["condicao_meteorologica"]) > 0:
-            if "condicao_metereologica" in filtered_df.columns:
-                filtered_df = filtered_df[
-                    filtered_df["condicao_metereologica"].isin(filters["condicao_meteorologica"])
-                ]
+            if "condicao_metereologica" in df.columns:
+                mask &= df["condicao_metereologica"].isin(filters["condicao_meteorologica"])
         
+        filtered_df = df[mask].copy()
+        gc.collect()
         return filtered_df
 
     def analyze_top_n(
@@ -393,20 +448,13 @@ class AccidentAnalyzer:
         ]
 
         df_res = pd.concat([df_res, roi_results], axis=1)
-
         df_res = df_res.sort_values("score_prioridade", ascending=False)
         top_df = df_res.head(top_n)
 
         reducao = EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"]
-        economia_mortos = (top_df["mortos"].sum() * reducao) * ECONOMIC_VALUES[
-            "valor_vida_estatistica"
-        ]
-        economia_graves = (
-            top_df["feridos_graves"].sum() * reducao
-        ) * ECONOMIC_VALUES["custo_medio_acidente_grave"]
-        economia_leves = (
-            top_df["feridos_leves"].sum() * reducao
-        ) * ECONOMIC_VALUES["custo_medio_acidente_leve"]
+        economia_mortos = (top_df["mortos"].sum() * reducao) * ECONOMIC_VALUES["valor_vida_estatistica"]
+        economia_graves = (top_df["feridos_graves"].sum() * reducao) * ECONOMIC_VALUES["custo_medio_acidente_grave"]
+        economia_leves = (top_df["feridos_leves"].sum() * reducao) * ECONOMIC_VALUES["custo_medio_acidente_leve"]
 
         agregados = {
             "top_df": top_df,
@@ -415,11 +463,14 @@ class AccidentAnalyzer:
             "economia_mortos": float(economia_mortos),
             "economia_graves": float(economia_graves),
             "economia_leves": float(economia_leves),
-            "vitimas_evitadas_total": float(
-                top_df["acidentes_evitados_ano"].sum()
-            ),
+            "vitimas_evitadas_total": float(top_df["acidentes_evitados_ano"].sum()),
         }
-        return df_res, agregados
+        
+        # Limpar memória
+        del df_res, roi_results
+        gc.collect()
+        
+        return top_df, agregados
 
 
 def calculate_roi(
@@ -432,19 +483,11 @@ def calculate_roi(
     reducao_estimada = EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"]
 
     posts_por_trecho = (1000 / spacing_m) * comprimento_trecho_km
-    investimento_total_trecho = (
-        posts_por_trecho * FINANCIAL_PARAMS["custo_poste_solar"]
-    )
+    investimento_total_trecho = posts_por_trecho * FINANCIAL_PARAMS["custo_poste_solar"]
 
-    economia_mortos = (total_mortos * reducao_estimada) * ECONOMIC_VALUES[
-        "valor_vida_estatistica"
-    ]
-    economia_graves = (
-        total_feridos_graves * reducao_estimada
-    ) * ECONOMIC_VALUES["custo_medio_acidente_grave"]
-    economia_leves = (
-        total_feridos_leves * reducao_estimada
-    ) * ECONOMIC_VALUES["custo_medio_acidente_leve"]
+    economia_mortos = (total_mortos * reducao_estimada) * ECONOMIC_VALUES["valor_vida_estatistica"]
+    economia_graves = (total_feridos_graves * reducao_estimada) * ECONOMIC_VALUES["custo_medio_acidente_grave"]
+    economia_leves = (total_feridos_leves * reducao_estimada) * ECONOMIC_VALUES["custo_medio_acidente_leve"]
     valor_economizado_ano = economia_mortos + economia_graves + economia_leves
 
     payback_anos = (
@@ -453,25 +496,16 @@ def calculate_roi(
         else float("inf")
     )
 
-    custo_manutencao_anual_total = posts_por_trecho * FINANCIAL_PARAMS.get(
-        "custo_manutencao_anual_por_poste", 0
-    )
-    investimento_e_manutencao_10_anos = investimento_total_trecho + (
-        custo_manutencao_anual_total * 10
-    )
+    custo_manutencao_anual_total = posts_por_trecho * FINANCIAL_PARAMS.get("custo_manutencao_anual_por_poste", 0)
+    investimento_e_manutencao_10_anos = investimento_total_trecho + (custo_manutencao_anual_total * 10)
 
     if investimento_e_manutencao_10_anos > 0:
         economia_total_10_anos = valor_economizado_ano * 10
-        roi_10_anos = (
-            (economia_total_10_anos - investimento_e_manutencao_10_anos)
-            / investimento_e_manutencao_10_anos
-        ) * 100
+        roi_10_anos = ((economia_total_10_anos - investimento_e_manutencao_10_anos) / investimento_e_manutencao_10_anos) * 100
     else:
         roi_10_anos = 0.0
 
-    acidentes_evitados_ano = (
-        total_mortos + total_feridos_graves + total_feridos_leves
-    ) * reducao_estimada
+    acidentes_evitados_ano = (total_mortos + total_feridos_graves + total_feridos_leves) * reducao_estimada
 
     return (
         roi_10_anos,

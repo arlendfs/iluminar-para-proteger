@@ -7,69 +7,58 @@ from streamlit_folium import folium_static
 import branca.element
 from datetime import datetime
 import os
+import gc
 import streamlit.components.v1 as components
-from config import COLOR_PALETTE
+from config import COLOR_PALETTE, APP_CONFIG
 
 
 def _get_dynamic_year_range(data):
-    """
-    Cria uma string dinâmica listando todos os anos presentes (ex:
-    (2020-2022-2024)).
-    """
+    """Cria string dinâmica listando anos presentes"""
     if "ano" not in data.columns or data["ano"].dropna().empty:
         return ""
-    anos_presentes = sorted(
-        pd.Series(data["ano"].dropna().unique()).astype(int)
-    )
+    anos_presentes = sorted(pd.Series(data["ano"].dropna().unique()).astype(int))
     anos_formatados = [str(a) for a in anos_presentes]
     return f"({'-'.join(anos_formatados)})"
 
 
 def create_dashboard(analyzer: AccidentAnalyzer):
-    """Cria o dashboard principal com as análises"""
+    """OTIMIZADO: Dashboard com gestão eficiente de memória e performance"""
     data = analyzer.filtered_data
     if data is None or data.empty:
         st.warning("Não há dados filtrados para exibir no dashboard.")
         return
 
-    # Métricas principais
+    # Barra de progresso geral
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Métricas principais (usar agregação ao invés de copiar dados)
+    status_text.text("📊 Calculando métricas principais...")
+    progress_bar.progress(10)
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("🚗 Total de Acidentes", f"{len(data):,}")
     with col2:
-        mortos_total = data["mortos"].sum() if "mortos" in data.columns else 0
-        st.metric("💀 Total de Mortos", f"{int(mortos_total):,}")
+        mortos_total = int(data["mortos"].sum()) if "mortos" in data.columns else 0
+        st.metric("💀 Total de Mortos", f"{mortos_total:,}")
     with col3:
-        feridos_total = (
-            data["total_feridos"].sum()
-            if "total_feridos" in data.columns
-            else 0
-        )
-        st.metric("🤕 Total de Feridos", f"{int(feridos_total):,}")
+        feridos_total = int(data["total_feridos"].sum()) if "total_feridos" in data.columns else 0
+        st.metric("🤕 Total de Feridos", f"{feridos_total:,}")
     with col4:
-        acidentes_noturnos = (
-            len(data[data["fase_dia"] == "noturno"])
-            if "fase_dia" in data.columns
-            else 0
-        )
+        acidentes_noturnos = int((data["fase_dia"] == "noturno").sum()) if "fase_dia" in data.columns else 0
         st.metric("🌙 Acidentes Noturnos", f"{acidentes_noturnos:,}")
     with col5:
-        acidentes_diurnos = (
-            len(data[data["fase_dia"] == "diurno"])
-            if "fase_dia" in data.columns
-            else 0
-        )
+        acidentes_diurnos = int((data["fase_dia"] == "diurno").sum()) if "fase_dia" in data.columns else 0
         st.metric("☀️ Acidentes Diurnos", f"{acidentes_diurnos:,}")
 
     st.markdown("---")
 
-    # Análise Noturno vs Diurno
+    # Análise Noturno vs Diurno (OTIMIZADO)
     st.subheader("🌗 Análise Comparativa: Acidentes Noturnos vs Diurnos")
     if "fase_dia" in data.columns:
         col1, col2 = st.columns(2)
         with col1:
             fase_counts = data["fase_dia"].value_counts()
-            # Usa paleta de cores config
             color_map = {
                 "noturno": COLOR_PALETTE.get("primary", "#1f77b4"),
                 "diurno": COLOR_PALETTE.get("secondary", "#ff7f0e"),
@@ -82,18 +71,17 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 color_discrete_map=color_map,
             )
             st.plotly_chart(fig_pie, use_container_width=True)
+            del fase_counts  # Liberar memória
 
         with col2:
             if "mortos" in data.columns:
                 severidade_periodo = (
                     data.groupby("fase_dia")
-                    .agg(
-                        {
-                            "mortos": "mean",
-                            "total_feridos": "mean",
-                            "total_vitimas": "mean",
-                        }
-                    )
+                    .agg({
+                        "mortos": "mean",
+                        "total_feridos": "mean",
+                        "total_vitimas": "mean",
+                    })
                     .round(2)
                 )
                 fig_bar = px.bar(
@@ -109,58 +97,59 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     },
                 )
                 st.plotly_chart(fig_bar, use_container_width=True)
+                del severidade_periodo  # Liberar memória
 
-    # Top trechos críticos
+    # Top trechos críticos (SUPER OTIMIZADO)
     st.subheader("🚨 Top 20 Trechos Mais Críticos para Iluminação Solar")
 
-    # Inicializa trechos_criticos e trechos_com_roi para garantir
-    # que as variáveis sempre existam antes do uso (evita NameError no export)
     trechos_criticos = pd.DataFrame()
     trechos_com_roi = pd.DataFrame()
 
     if all(col in data.columns for col in ["br", "km", "uf"]):
-        data["trecho"] = (
-            data["br"].astype(str)
-            + " - KM "
-            + data["km"].astype(str)
-            + " ("
-            + data["uf"].astype(str)
-            + ")"
-        )
-        acidentes_noturnos_data = (
-            data[data["fase_dia"] == "noturno"]
-            if "fase_dia" in data.columns
-            else data
-        )
-
-        trechos_criticos_base = (
-            acidentes_noturnos_data.groupby(["br", "km", "uf"])
-            .agg(
-                {
+        with st.spinner("⚙️ Analisando trechos críticos..."):
+            # OTIMIZAÇÃO CRÍTICA: Filtrar ANTES de criar coluna trecho
+            mask_noturno = data["fase_dia"] == "noturno" if "fase_dia" in data.columns else pd.Series([True] * len(data))
+            
+            # Trabalhar apenas com colunas necessárias e dados noturnos
+            acidentes_noturnos = data.loc[mask_noturno, ["br", "km", "uf", "mortos", "feridos_graves", "feridos_leves", "total_feridos", "total_vitimas"]].copy()
+            
+            # Agregação otimizada em uma única operação
+            trechos_criticos = (
+                acidentes_noturnos.groupby(["br", "km", "uf"], observed=True)
+                .agg({
                     "mortos": "sum",
                     "feridos_graves": "sum",
                     "feridos_leves": "sum",
                     "total_feridos": "sum",
                     "total_vitimas": "sum",
-                    "trecho": "first",
-                }
+                })
+                .reset_index()
             )
-            .reset_index()
-        )
-
-        if not trechos_criticos_base.empty:
-            trechos_criticos_base["score_prioridade"] = (
-                trechos_criticos_base["mortos"] * 3
-                + trechos_criticos_base["total_feridos"]
+            
+            # Adicionar contagem de acidentes
+            trechos_criticos["n_acidentes"] = (
+                acidentes_noturnos.groupby(["br", "km", "uf"], observed=True).size().values
             )
-            contagem_acidentes = (
-                acidentes_noturnos_data.groupby(["br", "km", "uf"])
-                .size()
-                .reset_index(name="n_acidentes")
-            )
-            trechos_criticos = trechos_criticos_base.merge(
-                contagem_acidentes, on=["br", "km", "uf"]
-            )
+            
+            # Criar trecho apenas para os top resultados (não para todos)
+            if not trechos_criticos.empty:
+                trechos_criticos["score_prioridade"] = (
+                    trechos_criticos["mortos"] * 3 + trechos_criticos["total_feridos"]
+                )
+                
+                # Ordenar e pegar top 100 ANTES de criar string trecho
+                trechos_criticos = trechos_criticos.sort_values("score_prioridade", ascending=False).head(100)
+                
+                # Criar coluna trecho apenas para top 100
+                trechos_criticos["trecho"] = (
+                    trechos_criticos["br"].astype(str) + " - KM " + 
+                    trechos_criticos["km"].astype(str) + " (" + 
+                    trechos_criticos["uf"].astype(str) + ")"
+                )
+            
+            # Liberar memória
+            del acidentes_noturnos, mask_noturno
+            gc.collect()
 
         st.sidebar.subheader("🔧 Parâmetros de Dimensionamento")
         spacing_m = st.sidebar.number_input(
@@ -185,15 +174,16 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             step=1,
         )
 
-        # Chamar o método da classe
-        trechos_com_roi, agregados = analyzer.analyze_top_n(
-            df=trechos_criticos,
-            top_n=n_trechos_prioritarios,
-            comprimento_km=comprimento_km_default,
-            spacing_m=spacing_m,
-        )
+        # Análise ROI (OTIMIZADA - vetorização)
+        with st.spinner("💰 Calculando ROI dos trechos..."):
+            trechos_com_roi, agregados = analyzer.analyze_top_n(
+                df=trechos_criticos,
+                top_n=n_trechos_prioritarios,
+                comprimento_km=comprimento_km_default,
+                spacing_m=spacing_m,
+            )
 
-        # O Resumo Financeiro
+        # Resumo Financeiro
         st.html(
             f"""
             <div class="metric-container">
@@ -212,7 +202,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             """
         )
 
-        # A tabela de exibição agora usa o DataFrame 'top_df'
+        # Tabela de exibição
         st.dataframe(
             agregados["top_df"][
                 [
@@ -228,89 +218,92 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             ],
             column_config={
                 "trecho": "Trecho (BR-KM-UF)",
-                "n_acidentes": st.column_config.NumberColumn(
-                    "Acidentes Noturnos", format="%d"
-                ),
+                "n_acidentes": st.column_config.NumberColumn("Acidentes Noturnos", format="%d"),
                 "mortos": st.column_config.NumberColumn("Mortos", format="%d"),
-                "total_feridos": st.column_config.NumberColumn(
-                    "Feridos", format="%d"
-                ),
-                "score_prioridade": st.column_config.NumberColumn(
-                    "Score", format="%d"
-                ),
-                "investimento_trecho": st.column_config.NumberColumn(
-                    "Investimento (R$)", format="R$ %.2f"
-                ),
-                "payback_anos": st.column_config.NumberColumn(
-                    "Payback (anos)", format="%.2f"
-                ),
-                "roi_10anos": st.column_config.NumberColumn(
-                    "ROI 10 anos (%)", format="%.2f%%"
-                ),
+                "total_feridos": st.column_config.NumberColumn("Feridos", format="%d"),
+                "score_prioridade": st.column_config.NumberColumn("Score", format="%d"),
+                "investimento_trecho": st.column_config.NumberColumn("Investimento (R$)", format="R$ %.2f"),
+                "payback_anos": st.column_config.NumberColumn("Payback (anos)", format="%.2f"),
+                "roi_10anos": st.column_config.NumberColumn("ROI 10 anos (%)", format="%.2f%%"),
             },
             use_container_width=True,
             height=400,
         )
 
-    # Mapa de acidentes
+    # Mapa de acidentes (SUPER OTIMIZADO)
     if all(col in data.columns for col in ["latitude", "longitude"]):
         st.subheader("🗺️ Mapa de Acidentes")
-        map_data = data.dropna(subset=["latitude", "longitude"])
-        map_data = map_data[
-            (map_data["latitude"] >= -35) & (map_data["latitude"] <= 5)
-        ]
-        map_data = map_data[
-            (map_data["longitude"] >= -75) & (map_data["longitude"] <= -32)
-        ]
+        
+        with st.spinner("🗺️ Gerando mapa..."):
+            # OTIMIZAÇÃO: Limitar pontos no mapa
+            max_map_points = APP_CONFIG.get("max_map_points", 500)
+            
+            # Filtrar coordenadas válidas de uma vez
+            map_data = data.loc[
+                data["latitude"].notna() & 
+                data["longitude"].notna() &
+                (data["latitude"] >= -35) & (data["latitude"] <= 5) &
+                (data["longitude"] >= -75) & (data["longitude"] <= -32),
+                ["latitude", "longitude", "fase_dia", "br", "km", "uf"]
+            ].copy()
 
-        if not map_data.empty:
-            if len(map_data) > 1000:
-                map_data = map_data.sample(1000)
-            center_lat, center_lon = (
-                map_data["latitude"].mean(),
-                map_data["longitude"].mean(),
-            )
-            m = folium.Map(location=[center_lat, center_lon], zoom_start=6)
-            for _, row in map_data.iterrows():
-                color = "red" if row.get("fase_dia") == "noturno" else "blue"
-                folium.CircleMarker(
-                    location=[row["latitude"], row["longitude"]],
-                    radius=3,
-                    popup=f"BR-{row['br']} KM {row['km']} - {row['uf']}",
-                    color=color,
-                    fillColor=color,
-                    weight=1,
-                    fillOpacity=0.6,
+            if not map_data.empty:
+                if len(map_data) > max_map_points:
+                    st.info(f"ℹ️ Exibindo amostra de {max_map_points} pontos de {len(map_data):,} acidentes (performance)")
+                    map_data = map_data.sample(max_map_points, random_state=42)
+                
+                center_lat, center_lon = map_data["latitude"].mean(), map_data["longitude"].mean()
+                m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles='OpenStreetMap')
+                
+                # OTIMIZAÇÃO: Usar MarkerCluster (renderiza mais rápido)
+                from folium.plugins import MarkerCluster
+                marker_cluster = MarkerCluster(
+                    name="Acidentes",
+                    overlay=True,
+                    control=True,
+                    icon_create_function=None
                 ).add_to(m)
-            legend_html = """
-                <div style="position: fixed; 
-                    bottom: 50px; left: 50px; 
-                    width: 150px; height: 90px;                         
-                    background-color: white;
-                    border:2px solid grey; z-index:9999;                         
-                    font-size:14px;
-                    padding: 10px">             
-                    <b>Legenda</b><br>             
-                    <i class="fa fa-circle" style="color:red"></i> 
-                    Noturno<br>             
-                    <i class="fa fa-circle"
-                    style="color:blue">
-                    </i> Diurno             
-                </div>
+                
+                # Adicionar marcadores
+                for _, row in map_data.iterrows():
+                    color = "red" if row.get("fase_dia") == "noturno" else "blue"
+                    folium.CircleMarker(
+                        location=[row["latitude"], row["longitude"]],
+                        radius=3,
+                        popup=f"BR-{row['br']} KM {row['km']} - {row['uf']}",
+                        color=color,
+                        fillColor=color,
+                        weight=1,
+                        fillOpacity=0.6,
+                    ).add_to(marker_cluster)
+                
+                legend_html = """
+                    <div style="position: fixed; bottom: 50px; left: 50px; width: 150px; height: 90px;
+                        background-color: white; border:2px solid grey; z-index:9999; font-size:14px; padding: 10px">
+                        <b>Legenda</b><br>
+                        <i class="fa fa-circle" style="color:red"></i> Noturno<br>
+                        <i class="fa fa-circle" style="color:blue"></i> Diurno
+                    </div>
                 """
-            legend_macro = branca.element.Element(legend_html)
-            m.add_child(legend_macro)
-            folium_static(m)
+                legend_macro = branca.element.Element(legend_html)
+                m.add_child(legend_macro)
+                
+                folium_static(m, width=1400, height=600)
+                
+                # Liberar memória
+                del map_data
+                gc.collect()
 
-    # Tendências temporais
+    # Tendências temporais (OTIMIZADO)
     if "ano" in data.columns and not data["ano"].empty:
         year_range_str = _get_dynamic_year_range(data)
         title_text = f"Evolução dos Acidentes por Período {year_range_str}"
 
         st.subheader(f"📈 Tendências Temporais {year_range_str}")
 
+        # OTIMIZAÇÃO: Agregar antes de plotar
         tendencia_ano = (
-            data.groupby(["ano", "fase_dia"])
+            data.groupby(["ano", "fase_dia"], observed=True)
             .size()
             .reset_index(name="Número de Acidentes")
         )
@@ -326,28 +319,25 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             labels={"fase_dia": "Período"},
         )
 
-        fig_tendencia.update_layout(
-            hovermode="x unified",
-            xaxis_type="category",
-        )
+        fig_tendencia.update_layout(hovermode="x unified", xaxis_type="category")
         st.plotly_chart(fig_tendencia, use_container_width=True)
+        del tendencia_ano
+        gc.collect()
 
-    # Análises estatísticas avançadas
+    # Análises estatísticas avançadas (OTIMIZADO)
     st.subheader("📊 Análises Estatísticas Avançadas")
     col1, col2 = st.columns(2)
+    
     with col1:
         if "uf" in data.columns:
             acidentes_uf = (
-                data.groupby("uf")
+                data.groupby("uf", observed=True)
                 .agg({"mortos": "sum", "total_feridos": "sum"})
                 .reset_index()
             )
-            acidentes_uf["total_vitimas"] = (
-                acidentes_uf["mortos"] + acidentes_uf["total_feridos"]
-            )
-            acidentes_uf = acidentes_uf.sort_values(
-                "total_vitimas", ascending=False
-            ).head(10)
+            acidentes_uf["total_vitimas"] = acidentes_uf["mortos"] + acidentes_uf["total_feridos"]
+            acidentes_uf = acidentes_uf.sort_values("total_vitimas", ascending=False).head(10)
+            
             fig_uf = px.bar(
                 acidentes_uf,
                 x="uf",
@@ -357,6 +347,9 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 color_continuous_scale="Reds",
             )
             st.plotly_chart(fig_uf, use_container_width=True)
+            del acidentes_uf
+            gc.collect()
+    
     with col2:
         if "causa_acidente" in data.columns:
             causas = data["causa_acidente"].value_counts().head(10)
@@ -370,74 +363,68 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             )
             fig_causas.update_layout(height=400)
             st.plotly_chart(fig_causas, use_container_width=True)
+            del causas
+            gc.collect()
 
     # Conclusões e recomendações
     st.subheader("🎯 Conclusões e Recomendações")
 
     if "fase_dia" in data.columns:
         total_acidentes = len(data)
-        acidentes_noturnos = len(data[data["fase_dia"] == "noturno"])
-        perc_noturnos = (
-            (acidentes_noturnos / total_acidentes) * 100
-            if total_acidentes > 0
-            else 0
-        )
-        mortalidade_noturna = (
-            data[data["fase_dia"] == "noturno"]["mortos"].mean()
-            if "mortos" in data.columns
-            else 0
-        )
-        mortalidade_diurna = (
-            data[data["fase_dia"] == "diurno"]["mortos"].mean()
-            if "mortos" in data.columns
-            else 0
-        )
+        acidentes_noturnos = int((data["fase_dia"] == "noturno").sum())
+        perc_noturnos = (acidentes_noturnos / total_acidentes) * 100 if total_acidentes > 0 else 0
+        
+        mortalidade_noturna = data[data["fase_dia"] == "noturno"]["mortos"].mean() if "mortos" in data.columns else 0
+        mortalidade_diurna = data[data["fase_dia"] == "diurno"]["mortos"].mean() if "mortos" in data.columns else 0
+        
         st.html(
             f"""
-                <div class="highlight-box">         
+            <div class="highlight-box">
                 <h4>🔍 Principais Descobertas:</h4>
-                <ul>             
-                <li>📊 <strong>{perc_noturnos:.1f}%</strong> dos acidentes ocorrem no período noturno</li>             
-                <li>💀 Taxa de mortalidade noturna: <strong>{mortalidade_noturna:.2f}</strong> mortos/acidente</li>
-                <li>💀 Taxa de mortalidade diurna: <strong>{mortalidade_diurna:.2f}</strong> mortos/acidente</li>             
-                <li>🔺 Acidentes noturnos são <strong>{(mortalidade_noturna/mortalidade_diurna if mortalidade_diurna > 0 else 1):.1f}x</strong> mais letais</li>         
-                </ul>         
-                <h4>💡 Recomendações Estratégicas:</h4>         
-                <ol>             
-                <li><strong>Priorização Imediata:</strong> Implementar iluminação solar nos top 100 trechos críticos</li>           
-                <li><strong>Investimento Focado:</strong> Concentrar recursos em rodovias com maior ROI</li>
-                <li><strong>Monitoramento:</strong> Acompanhar redução de acidentes pós-instalação</li>             
-                <li><strong>Expansão Gradual:</strong> Expandir programa baseado em resultados iniciais</li>         
-                </ol>         
-                </div>
+                <ul>
+                    <li>📊 <strong>{perc_noturnos:.1f}%</strong> dos acidentes ocorrem no período noturno</li>
+                    <li>💀 Taxa de mortalidade noturna: <strong>{mortalidade_noturna:.2f}</strong> mortos/acidente</li>
+                    <li>💀 Taxa de mortalidade diurna: <strong>{mortalidade_diurna:.2f}</strong> mortos/acidente</li>
+                    <li>📺 Acidentes noturnos são <strong>{(mortalidade_noturna/mortalidade_diurna if mortalidade_diurna > 0 else 1):.1f}x</strong> mais letais</li>
+                </ul>
+                <h4>💡 Recomendações Estratégicas:</h4>
+                <ol>
+                    <li><strong>Priorização Imediata:</strong> Implementar iluminação solar nos top 100 trechos críticos</li>
+                    <li><strong>Investimento Focado:</strong> Concentrar recursos em rodovias com maior ROI</li>
+                    <li><strong>Monitoramento:</strong> Acompanhar redução de acidentes pós-instalação</li>
+                    <li><strong>Expansão Gradual:</strong> Expandir programa baseado em resultados iniciais</li>
+                </ol>
+            </div>
             """
         )
 
     # Protótipo 3D do Poste Solar
     st.subheader("🌟 Protótipo 3D - Poste Solar Inteligente")
     col1, col2 = st.columns([2, 1])
+    
     with col1:
         try:
             with open("solar_post_3d.html", encoding="UTF-8") as f:
                 html_code = f.read()
             components.html(html_code, height=600)
         except FileNotFoundError:
-            st.error("Arquivo 'solar_post_3d.html' não encontrado. Coloque-o na raiz do projeto.")
+            st.error("Arquivo 'solar_post_3d.html' não encontrado na raiz do projeto.")
+    
     with col2:
         st.html(
             """
-         <div class="metric-container">             
-            <h4>🎮 Como Usar o Protótipo 3D</h4>             
-            <p>Use o mouse para rotacionar a câmera e os botões de controle para interagir com a cena.</p>             
-            <p><strong>Botões de Controle:</strong></p>             
-            <p>• 🌙 Alternar Dia/Noite</p>
-            <p>• 💡 Ligar/Desligar LED</p>             
-            <p>• 🚶 Simular Movimento</p>
-            <p>• 📷 Reset Câmera</p>             
-            <p><strong>Atalhos do Teclado:</strong></p>
-            <p>Pressione 'H' dentro do protótipo para ver todos os atalhos.</p>
+            <div class="metric-container">
+                <h4>🎮 Como Usar o Protótipo 3D</h4>
+                <p>Use o mouse para rotacionar a câmera e os botões de controle para interagir.</p>
+                <p><strong>Botões de Controle:</strong></p>
+                <p>• 🌙 Alternar Dia/Noite</p>
+                <p>• 💡 Ligar/Desligar LED</p>
+                <p>• 🚶 Simular Movimento</p>
+                <p>• 📷 Reset Câmera</p>
+                <p><strong>Atalhos do Teclado:</strong></p>
+                <p>Pressione 'H' dentro do protótipo para ver todos os atalhos.</p>
             </div>
-        """,
+            """
         )
 
     # Impacto da tecnologia
@@ -446,19 +433,12 @@ def create_dashboard(analyzer: AccidentAnalyzer):
         """
         <div class="highlight-box">
             <h4>💻 Tecnologia para Salvar Vidas</h4>
-            <p>Este projeto demonstra como a análise de dados pode ser
-            uma ferramenta poderosa para:</p>
+            <p>Este projeto demonstra como a análise de dados pode ser uma ferramenta poderosa para:</p>
             <ul>
-            <li>🎯
-             <strong>Identificar Padrões:</strong>
-             Correlações entre iluminação e acidentes</li>
-             <li>📍 <strong>Localizar Prioridades:</strong> Trechos
-            com maior potencial de impacto</li>
-            <li>💰 <strong>Otimizar
-            Recursos:</strong> Maximizar retorno do investimento público</li>
-            <li>📊
-            <strong>Mensurar Resultados:</strong> Acompanhar efetividade das
-            intervenções</li>
+                <li>🎯 <strong>Identificar Padrões:</strong> Correlações entre iluminação e acidentes</li>
+                <li>📍 <strong>Localizar Prioridades:</strong> Trechos com maior potencial de impacto</li>
+                <li>💰 <strong>Otimizar Recursos:</strong> Maximizar retorno do investimento público</li>
+                <li>📊 <strong>Mensurar Resultados:</strong> Acompanhar efetividade das intervenções</li>
             </ul>
         </div>
         """
@@ -475,7 +455,6 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     filtered_data=data, top_segments=trechos_com_roi
                 )
 
-                # Salvar e oferecer para download
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 file_name = f"relatorio_acidentes_{timestamp}.pdf"
                 save_path = os.path.join("reports", file_name)
@@ -496,3 +475,6 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             st.error("❌ Módulo pdf_generator não encontrado.")
         except Exception as e:
             st.error(f"❌ Erro ao gerar relatório: {str(e)}")
+    
+    # Liberar memória ao final
+    gc.collect()
