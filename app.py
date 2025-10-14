@@ -101,7 +101,7 @@ def main():
         for file in uploaded_files:
             if file.name.lower().endswith('.csv'):
                 file_size_mb = file.size / (1024 * 1024)
-                if file_size_mb > 250:
+                if file_size_mb > 200:
                     st.sidebar.warning(f"""
                     ⚠️ **{file.name}** ({file_size_mb:.1f} MB)
                     
@@ -109,7 +109,7 @@ def main():
                     1. Dividir em partes menores, ou
                     2. Converter para formato Parquet
                     """)
-                elif file_size_mb > 250:
+                elif file_size_mb > 150:
                     st.sidebar.info(f"""
                     💡 **{file.name}** ({file_size_mb:.1f} MB)
                     
