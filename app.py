@@ -1,320 +1,287 @@
-import streamlit as st
-from datetime import datetime
+"""
+Ponto de Entrada da Aplicação Streamlit — Iluminar para Proteger.
+Configura interface, gerencia upload/carregamento em cache,
+controles de sidebar e delega renderização ao dashboard.
+"""
+
 import os
 import warnings
+from datetime import datetime
+import streamlit as st
 from analyzer import AccidentAnalyzer
 from dashboard import create_dashboard
-from config import APP_CONFIG, DATA_DIR, REPORTS_DIR
+from config import APP_CONFIG, DATA_DIR, REPORTS_DIR, FASES_DIA_OFICIAIS, CAUSAS_VISIBILIDADE_REACAO
 
 warnings.filterwarnings("ignore")
 
 # Configuração da página
 st.set_page_config(
-    page_title=APP_CONFIG["title"] + " - Análise de Acidentes Rodoviários",
+    page_title=APP_CONFIG["title"] + " — Análise Científica de Segurança Viária",
     page_icon=APP_CONFIG["icon"],
     layout=APP_CONFIG["layout"],
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS customizado
+# Estilo CSS customizado (preserva identidade visual escura/clara)
 st.html(
     """
-     <style>
-        .main-header {
-        font-size: 3rem;
+    <style>
+    .main-header {
+        font-size: 2.6rem;
         color: #1f77b4;
         text-align: center;
-        margin-bottom:
-        2rem;
-        font-weight: bold;
+        margin-bottom: 0.5rem;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+    }
+    .main-subtitle {
+        text-align: center;
+        font-size: 1.15rem;
+        color: #6c757d;
+        margin-bottom: 1.8rem;
     }
     .metric-container, .highlight-box {
-        background-color: #fff;
-        color: #222 !important;
-        padding: 1rem;
+        background-color: #ffffff;
+        color: #222222 !important;
+        padding: 1.2rem;
         border-left: 5px solid #1f77b4;
         margin: 1rem 0;
-        border-radius: 10px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
     .metric-container h4, .highlight-box h3, .highlight-box h4 {
         color: #1f77b4 !important;
+        margin-top: 0;
     }
 
     @media (prefers-color-scheme: dark) {
         .metric-container, .highlight-box {
-        background-color: #1a2332;
-        color: #f0f2f6 !important;
-        border-left: 5px solid #4fa3ff;
-    }
-    .metric-container h4, .highlight-box h3, .highlight-box h4 {
-        color: #4fa3ff !important;
+            background-color: #1a2332;
+            color: #f0f2f6 !important;
+            border-left: 5px solid #4fa3ff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .metric-container h4, .highlight-box h3, .highlight-box h4 {
+            color: #4fa3ff !important;
+        }
+        .main-subtitle {
+            color: #a0aec0;
         }
     }
     </style>
-    """,
+    """
 )
 
 
 def main():
+    st.markdown('<h1 class="main-header">🌟 Iluminar para Proteger</h1>', unsafe_allow_html=True)
     st.markdown(
-        '<h1 class="main-header">🌟 Iluminar para Proteger</h1>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """<p style="text-align: center; font-size: 1.2rem;">
-        Análise Inteligente de Acidentes Rodoviários para Implementação de
-        Iluminação Solar</p>""",
+        f'<p class="main-subtitle">{APP_CONFIG["subtitle"]}</p>',
         unsafe_allow_html=True,
     )
 
     analyzer = AccidentAnalyzer()
 
-    # Lógica da Sidebar
-    st.sidebar.header("📊 Controles do Dashboard")
+    # =========================================================================
+    # SIDEBAR: CONTROLES DE CARREGAMENTO
+    # =========================================================================
+    st.sidebar.header("📊 Controles do Sistema")
     st.sidebar.subheader("📁 Carregamento de Dados")
-    # Informação sobre formatos suportados
+
     st.sidebar.info("""
-    📄 **Formatos aceitos:**
-    - CSV (.csv) - Tradicional
-    - Parquet (.parquet) - Otimizado e mais rápido
-    
-    💡 Para arquivos muito grandes, recomendamos usar Parquet para melhor desempenho.
+    📄 **Formatos suportados:**
+    - Parquet (.parquet) — Alta performance e leitura rápida
+    - CSV (.csv) — Microdados oficiais da PRF
     """)
-    
+
     uploaded_files = st.sidebar.file_uploader(
-        "Selecione os arquivos de acidentes",
+        "Selecione arquivos de acidentes",
         type=["csv", "parquet"],
         accept_multiple_files=True,
-        help="Arquivos CSV ou Parquet com dados de acidentes rodoviários (2020-2024)",
+        help="Arquivos CSV ou Parquet da PRF (ex: acidentes_todas_causas_tipos)",
     )
-    
-    st.sidebar.info("""
-    ⚡ **Dica de Performance:**
-    - Limite CSV: 200 MB/arquivo no Streamlit Cloud
-    - Parquet: Formato comprimido, até 10x menor
-    - Para CSVs grandes, considere converter para Parquet
-    """)
-    
-    # Verificar tamanho dos arquivos CSV enviados
-    if uploaded_files:
-        for file in uploaded_files:
-            if file.name.lower().endswith('.csv'):
-                file_size_mb = file.size / (1024 * 1024)
-                if file_size_mb > 200:
-                    st.sidebar.warning(f"""
-                    ⚠️ **{file.name}** ({file_size_mb:.1f} MB)
-                    
-                    Arquivo muito grande! Considere:
-                    1. Dividir em partes menores, ou
-                    2. Converter para formato Parquet
-                    """)
-                elif file_size_mb > 150:
-                    st.sidebar.info(f"""
-                    💡 **{file.name}** ({file_size_mb:.1f} MB)
-                    
-                    Arquivo grande detectado. Para melhor performance, 
-                    considere converter para Parquet.
-                    """)
 
-    # Usa a variável do config
     data_dir = str(DATA_DIR)
     local_files = []
     if os.path.exists(data_dir):
-
-        # Buscar arquivos CSV e Parquet na pasta /data
-        local_files = [
-            f for f in os.listdir(data_dir) 
-            if f.endswith((".csv", ".parquet"))
-        ]
+        local_files = [f for f in os.listdir(data_dir) if f.endswith((".csv", ".parquet"))]
 
     use_local_files = False
     if local_files:
-        st.sidebar.info(
-            f"📂 {len(local_files)} arquivo(s) encontrado(s) na pasta /data"
-        )
+        st.sidebar.caption(f"📂 {len(local_files)} arquivo(s) local(is) na pasta `/data`")
         use_local_files = st.sidebar.checkbox(
             "Usar arquivos locais da pasta /data",
+            value=True if not uploaded_files else False,
             key="use_local_files_checkbox",
         )
 
-    # Seção para listar, baixar e apagar relatórios salvos
-    st.sidebar.subheader("📄 Relatórios Salvos")
-
+    # =========================================================================
+    # SIDEBAR: RELATÓRIOS SALVOS
+    # =========================================================================
+    st.sidebar.subheader("📄 Relatórios Técnicos Salvos")
     reports_dir = str(REPORTS_DIR)
     try:
-        report_files = [
-            f for f in os.listdir(reports_dir) if f.endswith(".pdf")
-        ]
+        report_files = [f for f in os.listdir(reports_dir) if f.endswith(".pdf")]
         if not report_files:
-            st.sidebar.info("Nenhum relatório foi gerado ainda.")
+            st.sidebar.caption("Nenhum relatório gerado ainda.")
         else:
             reports_with_dates = []
-            for report_name in report_files:
-                report_path = os.path.join(reports_dir, report_name)
-                mod_time = os.path.getmtime(report_path)
-                reports_with_dates.append(
-                    {
-                        "name": report_name,
-                        "path": report_path,
-                        "date": datetime.fromtimestamp(mod_time),
-                    }
-                )
+            for r_name in report_files:
+                r_path = os.path.join(reports_dir, r_name)
+                reports_with_dates.append({
+                    "name": r_name,
+                    "path": r_path,
+                    "date": datetime.fromtimestamp(os.path.getmtime(r_path)),
+                })
             reports_with_dates.sort(key=lambda x: x["date"], reverse=True)
 
-            for report in reports_with_dates:
-                report_name = report["name"]
-                report_path = report["path"]
-                report_date = report["date"].strftime("%d/%m/%Y %H:%M")
-                col1, col2 = st.sidebar.columns([3, 1])
-                with col1:
-                    with open(report_path, "rb") as f:
-                        pdf_bytes = f.read()
+            for rep in reports_with_dates[:5]:
+                col_btn, col_del = st.sidebar.columns([3, 1])
+                with col_btn:
+                    with open(rep["path"], "rb") as f_rep:
+                        pdf_bytes = f_rep.read()
                     st.download_button(
-                        label=f"📥 {report_name.replace('.pdf', '')}",
+                        label=f"📥 {rep['name'][:22]}...",
                         data=pdf_bytes,
-                        file_name=report_name,
+                        file_name=rep["name"],
                         mime="application/pdf",
-                        help=f"Gerado em: {report_date}",
+                        help=f"{rep['name']} — Gerado em: {rep['date'].strftime('%d/%m/%Y %H:%M')}",
                     )
-                with col2:
-                    if st.button(
-                        "🗑️",
-                        key=f"delete_{report_name}",
-                        help="Apagar este relatório",
-                    ):
-                        os.remove(report_path)
+                with col_del:
+                    if st.button("🗑️", key=f"del_{rep['name']}", help="Excluir relatório"):
+                        os.remove(rep["path"])
                         st.rerun()
-    except FileNotFoundError:
-        st.sidebar.error("A pasta '/reports' não foi encontrada.")
+    except Exception:
+        pass
 
-    # Lógica Principal de Carregamento e Filtros
-    if uploaded_files or (use_local_files and local_files):
-        with st.spinner("🔄 Carregando e processando dados..."):
-            if use_local_files and local_files:
-                analyzer.data = analyzer.load_local_files(
-                    data_dir, local_files
-                )
+    # =========================================================================
+    # CARREGAMENTO COM GESTÃO DE CACHE EM MEMÓRIA
+    # =========================================================================
+    has_data_source = uploaded_files or (use_local_files and local_files)
+
+    if has_data_source:
+        # Assinatura dos arquivos para detecção de mudança
+        file_signature = (
+            "local_" + "_".join(sorted(local_files))
+            if (use_local_files and local_files)
+            else "upload_" + "_".join(sorted([f.name for f in uploaded_files]))
+        )
+
+        # Se já estiver carregado no session_state para esta mesma assinatura, reusa
+        if (
+            "cached_analyzer_data" in st.session_state
+            and st.session_state.get("cached_file_signature") == file_signature
+        ):
+            analyzer.data = st.session_state["cached_analyzer_data"]
+            analyzer.causas_data = st.session_state["cached_analyzer_causas"]
+            analyzer.quality_summary = st.session_state["cached_analyzer_quality"]
+        else:
+            with st.spinner("🔄 Carregando e auditando dados com desduplicação..."):
+                if use_local_files and local_files:
+                    analyzer.data = analyzer.load_local_files(data_dir, local_files)
+                else:
+                    analyzer.data = analyzer.load_data(uploaded_files)
+
+            if analyzer.data is not None:
+                st.session_state["cached_analyzer_data"] = analyzer.data
+                st.session_state["cached_analyzer_causas"] = analyzer.causas_data
+                st.session_state["cached_analyzer_quality"] = analyzer.quality_summary
+                st.session_state["cached_file_signature"] = file_signature
+
+        if analyzer.data is not None and not analyzer.data.empty:
+            # =================================================================
+            # SIDEBAR: FILTROS DINÂMICOS
+            # =================================================================
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("🔍 Filtros Dinâmicos")
+
+            # 1. Filtro de Anos
+            if "ano" in analyzer.data.columns:
+                anos_disp = sorted([int(a) for a in analyzer.data["ano"].dropna().unique()])
+                anos_sel = st.sidebar.multiselect("📅 Ano(s)", anos_disp, default=anos_disp)
             else:
-                analyzer.data = analyzer.load_data(uploaded_files)
+                anos_sel = []
 
-        if analyzer.data is not None:
-            st.success(
-                f"""✅ Dados carregados com sucesso!
-                    Total: {len(analyzer.data):,} registros
-                """
+            # 2. Filtro de Estados (UF)
+            if "uf" in analyzer.data.columns:
+                ufs_disp = sorted([str(u) for u in analyzer.data["uf"].dropna().unique()])
+                ufs_sel = st.sidebar.multiselect("📍 Estados (UF)", ufs_disp, default=ufs_disp)
+            else:
+                ufs_sel = []
+
+            # 3. Filtro de Rodovias (BR)
+            if "br" in analyzer.data.columns:
+                brs_disp = sorted([str(b) for b in analyzer.data["br"].dropna().unique() if str(b) != "N/A"])
+                brs_sel = st.sidebar.multiselect("🛣️ Rodovias Federais (BR)", brs_disp, default=brs_disp)
+            else:
+                brs_sel = []
+
+            # 4. Filtro de Fase do Dia (Oficial da PRF)
+            col_fase = "fase_dia_oficial" if "fase_dia_oficial" in analyzer.data.columns else "fase_dia"
+            fases_disp = sorted([str(f) for f in analyzer.data[col_fase].dropna().unique()])
+            fases_sel = st.sidebar.multiselect(
+                "🌙 Fase do Dia",
+                fases_disp,
+                default=fases_disp,
+                help="Categorias oficiais da PRF: Pleno dia, Plena Noite, Amanhecer, Anoitecer",
             )
 
-            st.sidebar.subheader("🔍 Filtros de Análise")
-
-            # Filtro de anos
-            if "ano" in analyzer.data.columns:
-                anos_disponiveis = sorted(
-                    analyzer.data["ano"].dropna().unique()
-                )
-                anos_selecionados = st.sidebar.multiselect(
-                    "📅 Anos", anos_disponiveis, default=anos_disponiveis
-                )
-            else:
-                anos_selecionados = []
-
-            # Filtro de UF
-            if "uf" in analyzer.data.columns:
-                ufs_disponiveis = sorted(analyzer.data["uf"].dropna().unique())
-                default_ufs = ufs_disponiveis
-                ufs_selecionadas = st.sidebar.multiselect(
-                    "📍 Estados (UF)",
-                    ufs_disponiveis,
-                    default=default_ufs,
-                )
-            else:
-                ufs_selecionadas = []
-
-            # Filtro de BR
-            if "br" in analyzer.data.columns:
-                brs_disponiveis = sorted(analyzer.data["br"].dropna().unique())
-                brs_selecionadas = st.sidebar.multiselect(
-                    "🛣️ Rodovias (BR)",
-                    brs_disponiveis,
-                    default=brs_disponiveis,
-                )
-            else:
-                brs_selecionadas = []
-
-            # Filtro de fase do dia
-            if "fase_dia" in analyzer.data.columns:
-                fases_disponiveis = analyzer.data["fase_dia"].dropna().unique()
-                fases_selecionadas = st.sidebar.multiselect(
-                    "🌙 Fase do Dia",
-                    fases_disponiveis,
-                    default=fases_disponiveis,
-                )
-            else:
-                fases_selecionadas = []
-
-            # Filtro de condição meteorológica
+            # 5. Filtro de Condição Meteorológica
             if "condicao_metereologica" in analyzer.data.columns:
-                condicoes_disponiveis = (
-                    analyzer.data["condicao_metereologica"].dropna().unique()
-                )
-                condicoes_selecionadas = st.sidebar.multiselect(
-                    "🌤️ Condição Meteorológica",
-                    condicoes_disponiveis,
-                    default=(
-                        condicoes_disponiveis[:5]
-                        if len(condicoes_disponiveis) > 5
-                        else condicoes_disponiveis
-                    ),
-                )
+                cond_disp = sorted([str(c) for c in analyzer.data["condicao_metereologica"].dropna().unique()])
+                cond_sel = st.sidebar.multiselect("🌤️ Condição Meteorológica", cond_disp, default=cond_disp)
             else:
-                condicoes_selecionadas = []
+                cond_sel = []
+
+            # 6. Filtro Opcional por Grupo de Causas
+            causas_sel = []
+            if analyzer.causas_data is not None and not analyzer.causas_data.empty:
+                opcoes_causas = st.sidebar.checkbox("Filtrar apenas causas de visibilidade/reação", value=False)
+                if opcoes_causas:
+                    causas_disp = sorted([
+                        c for c in analyzer.causas_data["causa_acidente"].dropna().unique()
+                        if any(term.lower() in str(c).lower() for term in ["reação", "dormindo", "velocidade", "ultrapassagem", "atenção", "álcool", "pedestre", "faixa"])
+                    ])
+                    causas_sel = st.sidebar.multiselect("Causas Selecionadas", causas_disp, default=causas_disp[:10])
 
             # Aplicar filtros
             filters = {
-                "anos": anos_selecionados,
-                "ufs": ufs_selecionadas,
-                "brs": brs_selecionadas,
-                "fase_dia": fases_selecionadas,
-                "condicao_meteorologica": condicoes_selecionadas,
+                "anos": anos_sel,
+                "ufs": ufs_sel,
+                "brs": brs_sel,
+                "fase_dia": fases_sel,
+                "condicao_meteorologica": cond_sel,
+                "causas_selecionadas": causas_sel,
             }
-            analyzer.filtered_data = analyzer.apply_filters(
-                analyzer.data, filters
-            )
+            analyzer.filtered_data = analyzer.apply_filters(analyzer.data, filters)
 
             if not analyzer.filtered_data.empty:
                 create_dashboard(analyzer)
             else:
-                st.warning(
-                    "⚠️ Nenhum dado encontrado com os filtros aplicados."
-                )
+                st.warning("⚠️ Nenhum registro encontrado com a combinação atual de filtros.")
+
     else:
-        st.info(
-            (
-                """📤 Faça upload dos arquivos CSV ou coloque-os na pasta
-                /data para começar a análise."""
-            )
-        )
-        st.markdown(
+        # Mensagem inicial quando não há arquivos selecionados
+        st.info("📤 Faça upload dos arquivos CSV/Parquet ou ative a opção de arquivos locais na barra lateral para iniciar a análise.")
+        st.html(
             """
-             <div class="highlight-box"> <h3>🎯 Sobre o Projeto
-            "Iluminar para Proteger"</h3> <p>Este aplicativo analisa dados de
-            acidentes rodoviários no Brasil (2020-2024) para identificar
-            trechos críticos onde a instalação de iluminação solar pode
-            reduzir acidentes
-            noturnos.</p>
-            <h4>📋 Funcionalidades Principais:</h4>
-            <ul>
-            <li>🔍 Análise comparativa de acidentes noturnos vsdiurnos</li>
-            <li>📊 Identificação de trechos prioritários (BR + KM + UF)</li>
-            <li>💰 Cálculo de ROI para instalação de postes solares</li>
-            <li>🗺️ Visualização geográfica de acidentes</li>
-            <li>📈 Tendências temporais e análises estatísticas</li>
-            <li>📑
-            Relatórios em PDF para tomada de decisão</li>
-            </ul>
+            <div class="highlight-box">
+                <h3>🎯 Sobre o Projeto Iluminar para Proteger</h3>
+                <p>Este sistema realiza a auditoria e análise científica dos acidentes registrados pela Polícia Rodoviária Federal (PRF), 
+                investigando a severidade das ocorrências noturnas e modelando a viabilidade de postes solares inteligentes autônomos 
+                como contramedida comprovada de segurança viária.</p>
+                <h4>📋 Módulos Principais do Sistema:</h4>
+                <ul>
+                    <li>🛡️ <strong>Auditoria de Dados:</strong> Desduplicação estrita de pessoas e causas e eliminação do erro de KM 0,0</li>
+                    <li>🌗 <strong>Comparação Dia vs Noite:</strong> Indicadores de letalidade e severidade por 100 acidentes</li>
+                    <li>👁️ <strong>Tempo de Reação e Visibilidade:</strong> Avaliação empírica do mecanismo PIEV com rigor causal</li>
+                    <li>🚨 <strong>Segmentação Viária:</strong> Identificação de trechos críticos de 2 km baseada em severidade noturna</li>
+                    <li>💰 <strong>Viabilidade Financeira:</strong> Dimensionamento físico, CAPEX, OPEX, VPL, TIR e Payback</li>
+                    <li>🌟 <strong>Protótipo 3D:</strong> Simulação interativa do poste solar inteligente</li>
+                    <li>📄 <strong>Relatório Científico:</strong> Exportação completa em PDF com todas as 15 seções acadêmicas</li>
+                </ul>
             </div>
-            """,
-            unsafe_allow_html=True,
+            """
         )
 
 
