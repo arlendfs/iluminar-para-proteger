@@ -46,7 +46,17 @@ from demographic_analysis import (
     compute_tipo_acidente_analysis,
 )
 from financial_model import calcular_orcamento_cenarios, calcular_balanco_energetico_detalhado
-from pdf_generator import ReportGenerator
+from pathlib import Path
+from folium.plugins import MarkerCluster
+from pdf_generator import ReportGenerator, format_pt_br_currency, format_pt_br_number
+
+def format_pt_br_currency(val: float) -> str:
+    """Formata valor em Real brasileiro: R$ 1.234.567,89"""
+    if pd.isna(val) or val is None:
+        return "R$ 0,00"
+    s = f"{val:,.2f}"
+    return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 
 def create_dashboard(analyzer: AccidentAnalyzer):
