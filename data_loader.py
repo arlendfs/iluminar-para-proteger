@@ -7,7 +7,7 @@ desduplicar ocorrências e gerar relatório de qualidade de dados.
 import os
 import re
 import gc
-from typing import Tuple, Dict, Any, Optional, List
+from typing import Tuple, Dict, Any, Optional, List, Union
 import pandas as pd
 import numpy as np
 from config import (
@@ -15,6 +15,8 @@ from config import (
     VALIDATION_RULES,
     FASES_DIA_OFICIAIS,
     VALUE_STANDARDIZATION,
+    FAIXAS_ETARIAS_ORDEM,
+    TIPOS_ENVOLVIDO_PADRAO,
 )
 
 
@@ -64,6 +66,120 @@ def clean_coordinate_series(series: pd.Series, coord_type: str) -> pd.Series:
     max_val = VALIDATION_RULES[coord_type]["max"]
     cleaned = cleaned.apply(lambda x: x if (x is not None and min_val <= x <= max_val) else np.nan)
     return cleaned.astype("float32")
+
+
+def clean_age_series(series: pd.Series) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    """
+    Processa a coluna de idade dos envolvidos com validação epidemiológica:
+    - Idades válidas: 0 <= idade <= 110 anos.
+    - Idades ausentes ou superiores a 110 anos (erros de digitação, ex: 1985, 2020)
+      NÃO são convertidas para zero, pois 0 representa bebês < 1 ano.
+    - Retorna tupla:
+        - idade_limpa: pd.Series float com NaN para inválidas.
+        - faixa_etaria: pd.Series com categorias demográficas padronizadas.
+        - idade_valida_flag: pd.Series booleana (True para 0 <= idade <= 110).
+    """
+    num_series = pd.to_numeric(series.apply(clean_brazilian_float), errors="coerce")
+    idade_valida_flag = num_series.notna() & (num_series >= 0) & (num_series <= 110)
+    idade_limpa = num_series.where(idade_valida_flag, np.nan)
+
+    # Atribuição vetorizada das faixas etárias
+    condicoes = [
+        idade_valida_flag & (idade_limpa < 18),
+        idade_valida_flag & (idade_limpa >= 18) & (idade_limpa <= 24),
+        idade_valida_flag & (idade_limpa >= 25) & (idade_limpa <= 34),
+        idade_valida_flag & (idade_limpa >= 35) & (idade_limpa <= 49),
+        idade_valida_flag & (idade_limpa >= 50) & (idade_limpa <= 64),
+        idade_valida_flag & (idade_limpa >= 65),
+    ]
+    escolhas = [
+        "0 a 17 anos",
+        "18 a 24 anos",
+        "25 a 34 anos",
+        "35 a 49 anos",
+        "50 a 64 anos",
+        "65 anos ou mais",
+    ]
+    faixa_etaria = pd.Series(
+        np.select(condicoes, escolhas, default="Não informada / Inconsistente"),
+        index=series.index,
+    )
+
+    return idade_limpa, faixa_etaria, idade_valida_flag
+
+
+def clean_tipo_envolvido_series(series: pd.Series) -> pd.Series:
+    """
+    Normaliza a categoria de envolvimento dos ocupantes / pedestres.
+    """
+    def _norm(val):
+        if pd.isna(val):
+            return "Não informado"
+        s = str(val).strip().lower()
+        if "condutor" in s:
+            return "Condutor"
+        if "passageir" in s:
+            return "Passageiro"
+        if "pedestre" in s:
+            return "Pedestre"
+        if "cavaleir" in s:
+            return "Cavaleiro"
+        if "testemunha" in s:
+            return "Testemunha"
+        return str(val).strip().title()
+
+    return series.apply(_norm)
+
+
+def clean_sexo_series(series: pd.Series) -> pd.Series:
+    """
+    Normaliza sexo para Masculino, Feminino ou Não informado / Ignorado.
+    """
+    def _norm(val):
+        if pd.isna(val):
+            return "Não informado / Ignorado"
+        s = str(val).strip().lower()
+        if s in ["masculino", "m"]:
+            return "Masculino"
+        if s in ["feminino", "f"]:
+            return "Feminino"
+        return "Não informado / Ignorado"
+
+    return series.apply(_norm)
+
+
+def clean_estado_fisico_series(series: pd.Series) -> pd.Series:
+    """
+    Normaliza o estado físico das vítimas da PRF.
+    """
+    def _norm(val):
+        if pd.isna(val):
+            return "Não Informado"
+        s = str(val).strip().lower()
+        if "obito" in s or "óbito" in s or "mort" in s or "bito" in s or "\xf3bito" in s:
+            return "Óbito"
+        if "grave" in s:
+            return "Lesões Graves"
+        if "leve" in s:
+            return "Lesões Leves"
+        if "ileso" in s:
+            return "Ileso"
+        return "Não Informado"
+
+    return series.apply(_norm)
+
+
+def clean_tipo_veiculo_series(series: pd.Series) -> pd.Series:
+    """
+    Normaliza o tipo de veículo envolvido.
+    """
+    def _norm(val):
+        if pd.isna(val):
+            return "Não informado"
+        s = str(val).strip().title()
+        return s
+
+    return series.apply(_norm)
 
 
 def normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -120,31 +236,40 @@ def get_fase_dia_agrupada(fase_original: str) -> str:
     return "Outro"
 
 
-def process_raw_dataframe(raw_df: pd.DataFrame, source_name: str = "") -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+def process_raw_dataframe(
+    raw_df: pd.DataFrame,
+    source_name: str = "",
+    return_relational: bool = True,
+) -> Any:
     """
-    Processa o DataFrame bruto da PRF:
-    - Normaliza colunas e tipos
-    - Detecta se a base possui granularidade de pessoas/causas (ex: pesid, causas múltiplas)
-    - Desduplica ocorrências usando 'id' único
-    - Agrega fatalidades e feridos reais por ocorrência
-    - Separa base de ocorrências únicas e base de causas associadas
-    - Gera métricas completas de auditoria e qualidade dos dados
+    Processa o DataFrame bruto da PRF preservando a granularidade relacional:
+    1. Tabela de Ocorrências: 1 linha por 'id' único.
+    2. Tabela de Pessoas: 1 linha por '(id, pesid)', preservando perfil demográfico.
+    3. Tabela de Veículos: 1 linha por '(id, id_veiculo)', preservando frota.
+    4. Tabela de Causas: todas as causas e tipos de acidentes associados.
+    5. Resumo de Qualidade: métricas dinâmicas de integridade, KMs nulos e divergências.
+
+    Se return_relational=True: retorna (ocorrencias, pessoas, veiculos, causas, quality_summary).
+    Se return_relational=False: retorna (ocorrencias, causas, quality_summary) para compatibilidade legada.
     """
     df = normalize_column_names(raw_df)
     total_linhas_brutas = len(df)
-    
-    # Extrair ano da data ou do nome do arquivo se não existir
+
+    # 1. Extrair ano, mês, dia e período
     if "data_inversa" in df.columns:
         df["data_dt"] = pd.to_datetime(df["data_inversa"], errors="coerce")
         df["ano"] = df["data_dt"].dt.year
         df["mes"] = df["data_dt"].dt.month
         df["ano_mes"] = df["data_dt"].dt.to_period("M").astype(str)
+        if "dia_semana" not in df.columns:
+            dias_semana_pt = {0: "segunda-feira", 1: "terça-feira", 2: "quarta-feira", 3: "quinta-feira", 4: "sexta-feira", 5: "sábado", 6: "domingo"}
+            df["dia_semana"] = df["data_dt"].dt.dayofweek.map(dias_semana_pt)
     elif "ano" not in df.columns and source_name:
         m = re.search(r"(20[0-9]{2})", source_name)
         if m:
             df["ano"] = int(m.group(1))
 
-    # Limpeza de KM e Coordenadas
+    # 2. Limpeza de KM e Coordenadas
     if "km" in df.columns:
         df["km_limpo"] = clean_km_series(df["km"])
     else:
@@ -160,7 +285,7 @@ def process_raw_dataframe(raw_df: pd.DataFrame, source_name: str = "") -> Tuple[
     else:
         df["longitude_limpa"] = np.nan
 
-    # Normalização de Fase do Dia
+    # 3. Normalização de Fase do Dia
     if "fase_dia" in df.columns:
         df["fase_dia_oficial"] = df["fase_dia"].apply(standardize_fase_dia)
         df["fase_dia_agrupada"] = df["fase_dia_oficial"].apply(get_fase_dia_agrupada)
@@ -168,13 +293,12 @@ def process_raw_dataframe(raw_df: pd.DataFrame, source_name: str = "") -> Tuple[
         df["fase_dia_oficial"] = "Não informado"
         df["fase_dia_agrupada"] = "Não informado"
 
-    # Tratar UF e BR
+    # 4. Tratar UF e BR
     if "uf" in df.columns:
         df["uf"] = df["uf"].astype(str).str.strip().str.upper()
         df.loc[df["uf"].isin(["NAN", "NONE", "", "NULL"]), "uf"] = np.nan
-    
+
     if "br" in df.columns:
-        # Limpar BR (ex: '101', '101.0' -> '101')
         def clean_br(v):
             if pd.isna(v):
                 return "N/A"
@@ -182,124 +306,196 @@ def process_raw_dataframe(raw_df: pd.DataFrame, source_name: str = "") -> Tuple[
             return s if s else "N/A"
         df["br"] = df["br"].apply(clean_br)
 
-    # Identificar ocorrências e pessoas
     tem_id = "id" in df.columns
+    if not tem_id:
+        df["id"] = np.arange(1, len(df) + 1)
+
     tem_pesid = "pesid" in df.columns
+    total_linhas_sem_pesid = int(df["pesid"].isna().sum()) if tem_pesid else 0
 
-    if tem_id:
-        # Desduplicar pessoas para contagem precisa de mortos e feridos
-        if tem_pesid:
-            # Pessoas únicas por (id, pesid)
-            pessoas_validas = df.dropna(subset=["pesid"]).drop_duplicates(subset=["id", "pesid"])
-            
-            # Somar vítimas por ocorrência (id)
-            for col in ["mortos", "feridos_graves", "feridos_leves", "ilesos"]:
-                if col in pessoas_validas.columns:
-                    pessoas_validas[col] = pd.to_numeric(
-                        pessoas_validas[col].apply(clean_brazilian_float), errors="coerce"
-                    ).fillna(0)
-                else:
-                    pessoas_validas[col] = 0.0
-
-            vitimas_por_id = (
-                pessoas_validas.groupby("id")
-                .agg({
-                    "mortos": "sum",
-                    "feridos_graves": "sum",
-                    "feridos_leves": "sum",
-                    "ilesos": "sum",
-                })
-                .reset_index()
-            )
-        else:
-            # Se não tem pesid, verificar se já está agregada por ocorrência
-            # Agrupar por id pegando o máximo de vítimas registradas para não inflar
-            for col in ["mortos", "feridos_graves", "feridos_leves", "ilesos"]:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(
-                        df[col].apply(clean_brazilian_float), errors="coerce"
-                    ).fillna(0)
-                else:
-                    df[col] = 0.0
-            
-            vitimas_por_id = (
-                df.groupby("id")
-                .agg({
-                    "mortos": "max",
-                    "feridos_graves": "max",
-                    "feridos_leves": "max",
-                    "ilesos": "max",
-                })
-                .reset_index()
-            )
-
-        # Montar a tabela desduplicada de ocorrências únicas
-        # Colunas de nível de ocorrência:
-        cols_ocorrencia = [
-            "id", "data_inversa", "ano", "mes", "ano_mes", "horario",
-            "uf", "br", "km_limpo", "latitude_limpa", "longitude_limpa",
-            "fase_dia_oficial", "fase_dia_agrupada", "condicao_metereologica",
-            "tipo_pista", "tracado_via", "municipio", "classificacao_acidente"
-        ]
-        cols_existentes = [c for c in cols_ocorrencia if c in df.columns]
-        
-        # Pega a primeira ocorrência não nula para cada atributo do acidente
-        ocorrencias = df.groupby("id", as_index=False)[cols_existentes].first()
-        
-        # Fazer merge com as vítimas desduplicadas
-        ocorrencias = ocorrencias.merge(vitimas_por_id, on="id", how="left")
-        ocorrencias["mortos"] = ocorrencias["mortos"].fillna(0).astype("uint16")
-        ocorrencias["feridos_graves"] = ocorrencias["feridos_graves"].fillna(0).astype("uint16")
-        ocorrencias["feridos_leves"] = ocorrencias["feridos_leves"].fillna(0).astype("uint16")
-        ocorrencias["ilesos"] = ocorrencias["ilesos"].fillna(0).astype("uint16")
-        ocorrencias["total_feridos"] = (ocorrencias["feridos_graves"] + ocorrencias["feridos_leves"]).astype("uint16")
-        ocorrencias["total_vitimas"] = (ocorrencias["mortos"] + ocorrencias["total_feridos"]).astype("uint16")
-        ocorrencias["acidente_fatal"] = (ocorrencias["mortos"] > 0).astype("uint8")
-        
-        # Manter compatibilidade com colunas padrão usadas no sistema
-        ocorrencias["km"] = ocorrencias["km_limpo"]
-        ocorrencias["latitude"] = ocorrencias["latitude_limpa"]
-        ocorrencias["longitude"] = ocorrencias["longitude_limpa"]
-        ocorrencias["fase_dia"] = ocorrencias["fase_dia_agrupada"].str.lower()
-        
-        # Tabela de causas (preserva cada causa associada ao id)
-        cols_causas = ["id", "causa_acidente", "causa_principal", "tipo_acidente"]
-        cols_causas_existentes = [c for c in cols_causas if c in df.columns]
-        if "causa_acidente" in df.columns:
-            causas_df = df[cols_causas_existentes].dropna(subset=["causa_acidente"]).drop_duplicates()
-        else:
-            causas_df = pd.DataFrame(columns=["id", "causa_acidente"])
-
+    # =========================================================================
+    # TABELA 1: PESSOAS (pessoas_df)
+    # =========================================================================
+    if tem_pesid:
+        pessoas_raw = df.dropna(subset=["pesid"]).drop_duplicates(subset=["id", "pesid"]).copy()
     else:
-        # Base sem coluna ID (cada linha é tratada como ocorrência)
-        ocorrencias = df.copy()
-        ocorrencias["id"] = np.arange(1, len(ocorrencias) + 1)
-        for col in ["mortos", "feridos_graves", "feridos_leves", "ilesos"]:
-            if col in ocorrencias.columns:
-                ocorrencias[col] = pd.to_numeric(
-                    ocorrencias[col].apply(clean_brazilian_float), errors="coerce"
-                ).fillna(0).astype("uint16")
-            else:
-                ocorrencias[col] = 0
-        ocorrencias["total_feridos"] = ocorrencias["feridos_graves"] + ocorrencias["feridos_leves"]
-        ocorrencias["total_vitimas"] = ocorrencias["mortos"] + ocorrencias["total_feridos"]
-        ocorrencias["acidente_fatal"] = (ocorrencias["mortos"] > 0).astype("uint8")
-        ocorrencias["km"] = ocorrencias["km_limpo"]
-        ocorrencias["latitude"] = ocorrencias["latitude_limpa"]
-        ocorrencias["longitude"] = ocorrencias["longitude_limpa"]
-        ocorrencias["fase_dia"] = ocorrencias["fase_dia_agrupada"].str.lower()
-        causas_df = ocorrencias[["id", "causa_acidente"]].copy() if "causa_acidente" in ocorrencias.columns else pd.DataFrame()
+        pessoas_raw = df.copy()
+        pessoas_raw["pesid"] = np.arange(1, len(pessoas_raw) + 1)
 
-    # Relatório de Auditoria e Qualidade
+    # Limpeza e padronização demográfica de pessoas
+    if "idade" in pessoas_raw.columns:
+        id_limpa, fx_etaria, id_val_flag = clean_age_series(pessoas_raw["idade"])
+        pessoas_raw["idade_limpa"] = id_limpa
+        pessoas_raw["faixa_etaria"] = fx_etaria
+        pessoas_raw["idade_valida_flag"] = id_val_flag
+    else:
+        pessoas_raw["idade_limpa"] = np.nan
+        pessoas_raw["faixa_etaria"] = "Não informada / Inconsistente"
+        pessoas_raw["idade_valida_flag"] = False
+
+    if "tipo_envolvido" in pessoas_raw.columns:
+        pessoas_raw["tipo_envolvido"] = clean_tipo_envolvido_series(pessoas_raw["tipo_envolvido"])
+    else:
+        pessoas_raw["tipo_envolvido"] = "Não informado"
+
+    if "sexo" in pessoas_raw.columns:
+        pessoas_raw["sexo"] = clean_sexo_series(pessoas_raw["sexo"])
+    else:
+        pessoas_raw["sexo"] = "Não informado / Ignorado"
+
+    if "estado_fisico" in pessoas_raw.columns:
+        pessoas_raw["estado_fisico"] = clean_estado_fisico_series(pessoas_raw["estado_fisico"])
+    else:
+        pessoas_raw["estado_fisico"] = "Não Informado"
+
+    if "tipo_veiculo" in pessoas_raw.columns:
+        pessoas_raw["tipo_veiculo"] = clean_tipo_veiculo_series(pessoas_raw["tipo_veiculo"])
+
+    # Conversão rigorosa de vítimas por pessoa
+    # Se estado_fisico for Óbito ou mortos > 0, pessoa conta como 1 óbito
+    for col in ["mortos", "feridos_graves", "feridos_leves", "ilesos"]:
+        if col in pessoas_raw.columns:
+            pessoas_raw[col] = pd.to_numeric(pessoas_raw[col].apply(clean_brazilian_float), errors="coerce").fillna(0)
+        else:
+            pessoas_raw[col] = 0.0
+
+    pessoas_raw["mortos"] = ((pessoas_raw["estado_fisico"] == "Óbito") | (pessoas_raw["mortos"] > 0)).astype("uint16")
+    pessoas_raw["feridos_graves"] = ((pessoas_raw["estado_fisico"] == "Lesões Graves") | (pessoas_raw["feridos_graves"] > 0)).astype("uint16")
+    pessoas_raw["feridos_leves"] = ((pessoas_raw["estado_fisico"] == "Lesões Leves") | (pessoas_raw["feridos_leves"] > 0)).astype("uint16")
+    pessoas_raw["ilesos"] = ((pessoas_raw["estado_fisico"] == "Ileso") | (pessoas_raw["ilesos"] > 0)).astype("uint16")
+    pessoas_raw["total_feridos"] = (pessoas_raw["feridos_graves"] + pessoas_raw["feridos_leves"]).astype("uint16")
+    pessoas_raw["total_vitimas"] = (pessoas_raw["mortos"] + pessoas_raw["total_feridos"]).astype("uint16")
+
+    # Colunas finais da tabela de pessoas
+    cols_pessoa = [
+        "id", "pesid", "tipo_envolvido", "estado_fisico", "sexo", "idade",
+        "idade_limpa", "faixa_etaria", "idade_valida_flag",
+        "mortos", "feridos_graves", "feridos_leves", "ilesos", "total_feridos", "total_vitimas",
+        "id_veiculo", "tipo_veiculo", "ano", "mes", "uf", "br", "km_limpo",
+        "fase_dia_oficial", "fase_dia_agrupada", "condicao_metereologica", "tipo_acidente"
+    ]
+    cols_existentes_p = [c for c in cols_pessoa if c in pessoas_raw.columns]
+    pessoas_df = pessoas_raw[cols_existentes_p].copy()
+    pessoas_df["km"] = pessoas_df["km_limpo"] if "km_limpo" in pessoas_df.columns else np.nan
+
+    # =========================================================================
+    # TABELA 2: VEÍCULOS (veiculos_df)
+    # =========================================================================
+    if "id_veiculo" in df.columns:
+        veic_validos = df.dropna(subset=["id_veiculo"]).drop_duplicates(subset=["id", "id_veiculo"]).copy()
+        if "tipo_veiculo" in veic_validos.columns:
+            veic_validos["tipo_veiculo"] = clean_tipo_veiculo_series(veic_validos["tipo_veiculo"])
+        cols_veic = ["id", "id_veiculo", "tipo_veiculo", "marca", "ano_fabricacao_veiculo", "uf", "br", "ano", "fase_dia_oficial", "fase_dia_agrupada"]
+        cols_existentes_v = [c for c in cols_veic if c in veic_validos.columns]
+        veiculos_df = veic_validos[cols_existentes_v].copy()
+    else:
+        veiculos_df = pd.DataFrame(columns=["id", "id_veiculo", "tipo_veiculo", "marca", "ano_fabricacao_veiculo"])
+
+    # =========================================================================
+    # TABELA 3: CAUSAS (causas_df)
+    # =========================================================================
+    cols_causas = ["id", "causa_acidente", "causa_principal", "ordem_tipo_acidente", "tipo_acidente"]
+    cols_causas_existentes = [c for c in cols_causas if c in df.columns]
+    if "causa_acidente" in df.columns:
+        causas_df = df[cols_causas_existentes].dropna(subset=["causa_acidente"]).drop_duplicates().copy()
+    else:
+        causas_df = pd.DataFrame(columns=["id", "causa_acidente"])
+
+    # =========================================================================
+    # TABELA 4: OCORRÊNCIAS (ocorrencias_df)
+    # =========================================================================
+    cols_ocorrencia = [
+        "id", "data_inversa", "data_dt", "ano", "mes", "ano_mes", "horario", "dia_semana",
+        "uf", "br", "km_limpo", "latitude_limpa", "longitude_limpa",
+        "fase_dia_oficial", "fase_dia_agrupada", "condicao_metereologica",
+        "tipo_pista", "tracado_via", "uso_solo", "sentido_via",
+        "tipo_acidente", "classificacao_acidente", "municipio"
+    ]
+    cols_existentes_o = [c for c in cols_ocorrencia if c in df.columns]
+    ocorrencias = df.groupby("id", as_index=False)[cols_existentes_o].first()
+
+    # Agregar vítimas das pessoas únicas por ocorrência (id)
+    vitimas_por_id = (
+        pessoas_df.groupby("id")
+        .agg({
+            "mortos": "sum",
+            "feridos_graves": "sum",
+            "feridos_leves": "sum",
+            "ilesos": "sum",
+        })
+        .reset_index()
+    )
+    ocorrencias = ocorrencias.merge(vitimas_por_id, on="id", how="left")
+    ocorrencias["mortos"] = ocorrencias["mortos"].fillna(0).astype("uint16")
+    ocorrencias["feridos_graves"] = ocorrencias["feridos_graves"].fillna(0).astype("uint16")
+    ocorrencias["feridos_leves"] = ocorrencias["feridos_leves"].fillna(0).astype("uint16")
+    ocorrencias["ilesos"] = ocorrencias["ilesos"].fillna(0).astype("uint16")
+    ocorrencias["total_feridos"] = (ocorrencias["feridos_graves"] + ocorrencias["feridos_leves"]).astype("uint16")
+    ocorrencias["total_vitimas"] = (ocorrencias["mortos"] + ocorrencias["total_feridos"]).astype("uint16")
+    ocorrencias["acidente_fatal"] = (ocorrencias["mortos"] > 0).astype("uint8")
+
+    # Preservar colunas padrão
+    ocorrencias["km"] = ocorrencias["km_limpo"]
+    ocorrencias["latitude"] = ocorrencias["latitude_limpa"]
+    ocorrencias["longitude"] = ocorrencias["longitude_limpa"]
+    ocorrencias["fase_dia"] = ocorrencias["fase_dia_agrupada"].str.lower()
+
+    # Validação da classificação de acidente e identificação de divergências
+    if "classificacao_acidente" in ocorrencias.columns:
+        ocorrencias["classificacao_acidente_original"] = ocorrencias["classificacao_acidente"].copy()
+    else:
+        ocorrencias["classificacao_acidente_original"] = np.nan
+        ocorrencias["classificacao_acidente"] = np.nan
+
+    ocorrencias["classificacao_acidente"] = ocorrencias["classificacao_acidente"].astype(object)
+    divergencias_classificacao = []
+    # Ocorrências com mortos > 0 onde a classificação original era ausente ou não-fatal
+    fatais_mask = ocorrencias["acidente_fatal"] == 1
+    for idx_row, row_oc in ocorrencias[fatais_mask].iterrows():
+        orig_class = str(row_oc["classificacao_acidente_original"])
+        if "fatal" not in orig_class.lower():
+            divergencias_classificacao.append({
+                "id": row_oc["id"],
+                "mortos": int(row_oc["mortos"]),
+                "classificacao_original": orig_class if orig_class not in ["nan", "None", ""] else "Ausente",
+                "motivo": "Morte confirmada nos registros de pessoas, porém classificação de acidente ausente ou não-fatal no boletim original"
+            })
+            # Atualiza classificação consolidada para 'Com Vítimas Fatais (Auditada)'
+            ocorrencias.at[idx_row, "classificacao_acidente"] = "Com Vítimas Fatais (Auditada)"
+
+    # =========================================================================
+    # RELATÓRIO DE AUDITORIA E QUALIDADE DOS DADOS (quality_summary)
+    # =========================================================================
     total_ocorrencias = len(ocorrencias)
     ocorrencias_com_km = int(ocorrencias["km_limpo"].notna().sum())
     ocorrencias_sem_km = total_ocorrencias - ocorrencias_com_km
+    
+    # Mortos e feridos nas ocorrências sem marco quilométrico
+    sem_km_df = ocorrencias[ocorrencias["km_limpo"].isna()]
+    mortos_sem_km = int(sem_km_df["mortos"].sum())
+    feridos_sem_km = int(sem_km_df["total_feridos"].sum())
+
     ocorrencias_com_geo = int((ocorrencias["latitude_limpa"].notna() & ocorrencias["longitude_limpa"].notna()).sum())
     ocorrencias_sem_geo = total_ocorrencias - ocorrencias_com_geo
-    
+
+    total_mortos_real = int(ocorrencias["mortos"].sum())
+    total_feridos_graves_real = int(ocorrencias["feridos_graves"].sum())
+    total_feridos_leves_real = int(ocorrencias["feridos_leves"].sum())
+    total_feridos_real = int(ocorrencias["total_feridos"].sum())
+    acidentes_fatais_real = int(ocorrencias["acidente_fatal"].sum())
+
+    # Estatísticas de idade
+    idades_validas_count = int(pessoas_df["idade_valida_flag"].sum()) if "idade_valida_flag" in pessoas_df.columns else 0
+    idades_invalidas_count = len(pessoas_df) - idades_validas_count
+    idades_maior_110_count = int((pd.to_numeric(pessoas_raw.get("idade", pd.Series()), errors="coerce") > 110).sum())
+
+    # Mortos por tipo de envolvimento
+    mortos_envolvidos = (
+        pessoas_df[pessoas_df["mortos"] > 0]["tipo_envolvido"].value_counts().to_dict()
+        if "tipo_envolvido" in pessoas_df.columns else {}
+    )
+
     anos_presentes = sorted([int(a) for a in ocorrencias["ano"].dropna().unique()]) if "ano" in ocorrencias.columns else []
-    
-    # Identificar anos incompletos (ex: 2026 com meses até agosto)
     anos_incompletos = []
     if "ano" in ocorrencias.columns and "mes" in ocorrencias.columns:
         for a in anos_presentes:
@@ -311,22 +507,41 @@ def process_raw_dataframe(raw_df: pd.DataFrame, source_name: str = "") -> Tuple[
         "arquivo_origem": source_name,
         "registros_brutos": total_linhas_brutas,
         "ocorrencias_unicas": total_ocorrencias,
-        "duplicatas_linhas_evitadas": total_linhas_brutas - total_ocorrencias,
-        "taxa_desduplicacao": (total_linhas_brutas / total_ocorrencias) if total_ocorrencias > 0 else 1.0,
+        "pessoas_unicas_pesid": len(pessoas_df),
+        "linhas_sem_pesid": total_linhas_sem_pesid,
+        "veiculos_unicos": len(veiculos_df),
+        "desdobramentos_consolidados": total_linhas_brutas - total_ocorrencias,
+        "duplicatas_linhas_evitadas": total_linhas_brutas - total_ocorrencias,  # alias mantido para compatibilidade
+        "taxa_consolidacao": (total_linhas_brutas / total_ocorrencias) if total_ocorrencias > 0 else 1.0,
         "ocorrencias_com_km": ocorrencias_com_km,
         "ocorrencias_sem_km": ocorrencias_sem_km,
+        "mortos_sem_km": mortos_sem_km,
+        "feridos_sem_km": feridos_sem_km,
         "perc_com_km": (ocorrencias_com_km / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
         "ocorrencias_com_geo": ocorrencias_com_geo,
         "ocorrencias_sem_geo": ocorrencias_sem_geo,
         "perc_com_geo": (ocorrencias_com_geo / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
-        "total_mortos_real": int(ocorrencias["mortos"].sum()),
-        "total_feridos_real": int(ocorrencias["total_feridos"].sum()),
-        "acidentes_fatais_real": int(ocorrencias["acidente_fatal"].sum()),
+        "total_mortos_real": total_mortos_real,
+        "total_feridos_graves_real": total_feridos_graves_real,
+        "total_feridos_leves_real": total_feridos_leves_real,
+        "total_feridos_real": total_feridos_real,
+        "acidentes_fatais_real": acidentes_fatais_real,
+        "taxa_acidentes_fatais_pct": (acidentes_fatais_real / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+        "obitos_por_100_acidentes": (total_mortos_real / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+        "idades_validas": idades_validas_count,
+        "idades_inconsistentes_ou_ausentes": idades_invalidas_count,
+        "idades_superiores_110_anos": idades_maior_110_count,
+        "divergencias_classificacao": divergencias_classificacao,
+        "mortos_por_envolvimento": mortos_envolvidos,
         "anos_presentes": anos_presentes,
         "anos_incompletos": anos_incompletos,
         "data_minima": str(ocorrencias["data_inversa"].min()) if "data_inversa" in ocorrencias.columns else "N/A",
         "data_maxima": str(ocorrencias["data_inversa"].max()) if "data_inversa" in ocorrencias.columns else "N/A",
     }
 
-    return ocorrencias, causas_df, quality_summary
+    if return_relational:
+        return ocorrencias, pessoas_df, veiculos_df, causas_df, quality_summary
+    else:
+        return ocorrencias, causas_df, quality_summary
+
 

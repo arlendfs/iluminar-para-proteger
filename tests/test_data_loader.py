@@ -84,7 +84,7 @@ def test_process_raw_dataframe_deduplication():
     }
     raw_df = pd.DataFrame(raw_data)
 
-    ocorrencias, causas, quality = process_raw_dataframe(raw_df, "teste_sintetico")
+    ocorrencias, pessoas, veiculos, causas, quality = process_raw_dataframe(raw_df, "teste_sintetico")
 
     # Deve ter exatamente 1 ocorrência desduplicada
     assert len(ocorrencias) == 1
@@ -93,6 +93,10 @@ def test_process_raw_dataframe_deduplication():
     assert ocorrencias["feridos_graves"].iloc[0] == 1
     assert ocorrencias["total_vitimas"].iloc[0] == 2
     assert ocorrencias["acidente_fatal"].iloc[0] == 1
+
+    # Tabela de pessoas: 2 pessoas únicas (501 e 502)
+    assert len(pessoas) == 2
+    assert set(pessoas["pesid"]) == {501, 502}
 
     # KM deve ser float 145.5, não 0.0
     assert pytest.approx(ocorrencias["km"].iloc[0], 0.01) == 145.5
@@ -104,13 +108,14 @@ def test_process_raw_dataframe_deduplication():
     # Resumo de qualidade
     assert quality["registros_brutos"] == 4
     assert quality["ocorrencias_unicas"] == 1
+    assert quality["desdobramentos_consolidados"] == 3
     assert quality["duplicatas_linhas_evitadas"] == 3
 
 
 def test_missing_km_audit_tracking():
     """
     Testa a rastreabilidade exata de ocorrências sem KM, replicando a matemática
-    auditada de 267 ocorrências sem quilômetro.
+    auditada de ocorrências sem quilômetro e compatibilidade com return_relational=False.
     """
     raw_data = {
         "id": [101, 102, 103, 103],  # 103 duplicado em pessoas
@@ -123,11 +128,13 @@ def test_missing_km_audit_tracking():
         "causa_acidente": ["Falta de Atenção"] * 4,
     }
     raw_df = pd.DataFrame(raw_data)
-    ocorrencias, causas, quality = process_raw_dataframe(raw_df, "teste_km")
+    # Testa modo legado return_relational=False
+    ocorrencias, causas, quality = process_raw_dataframe(raw_df, "teste_km", return_relational=False)
 
     assert quality["registros_brutos"] == 4
     assert quality["ocorrencias_unicas"] == 3
     assert quality["duplicatas_linhas_evitadas"] == 1  # 4 - 3 = 1
+    assert quality["desdobramentos_consolidados"] == 1
     assert quality["ocorrencias_sem_km"] == 1          # 101 tem KM nulo
     assert quality["ocorrencias_com_km"] == 2          # 102 e 103
 
@@ -135,5 +142,71 @@ def test_missing_km_audit_tracking():
     sem_km = ocorrencias[ocorrencias["id"] == 101]
     assert len(sem_km) == 1
     assert pd.isna(sem_km["km"].iloc[0])
+
+
+def test_clean_age_series_and_brackets():
+    """
+    Testa a limpeza rigorosa de idades:
+    - Idades válidas entre 0 e 110 anos;
+    - Idades > 110 anos tratadas como inconsistentes (sem converter para 0);
+    - Idades ausentes/nulas tratadas como 'Não informada / Inconsistente'.
+    """
+    from data_loader import clean_age_series
+
+    idades = pd.Series([0, 15, 22, 30, 45, 60, 75, 110, 115, 140, None, np.nan, "inválido"])
+    limpa, faixas, flags = clean_age_series(idades)
+
+    # 115, 140, None, np.nan, 'inválido' não são válidas
+    assert flags.iloc[0] == True   # 0 anos (bebê)
+    assert flags.iloc[7] == True   # 110 anos
+    assert flags.iloc[8] == False  # 115 anos (> 110)
+    assert flags.iloc[9] == False  # 140 anos (> 110)
+    assert flags.iloc[10] == False # None
+    assert flags.iloc[11] == False # NaN
+
+    assert pd.isna(limpa.iloc[8])  # Preserva NaN, não converte para 0!
+    assert pd.isna(limpa.iloc[10]) # Preserva NaN, não converte para 0!
+
+    assert faixas.iloc[0] == "0 a 17 anos"
+    assert faixas.iloc[1] == "0 a 17 anos"
+    assert faixas.iloc[2] == "18 a 24 anos"
+    assert faixas.iloc[3] == "25 a 34 anos"
+    assert faixas.iloc[4] == "35 a 49 anos"
+    assert faixas.iloc[5] == "50 a 64 anos"
+    assert faixas.iloc[6] == "65 anos ou mais"
+    assert faixas.iloc[7] == "65 anos ou mais"
+    assert faixas.iloc[8] == "Não informada / Inconsistente"
+    assert faixas.iloc[9] == "Não informada / Inconsistente"
+    assert faixas.iloc[10] == "Não informada / Inconsistente"
+
+
+def test_audited_classification_when_death_present():
+    """
+    Testa se uma ocorrência com mortos > 0 mas classificacao_acidente ausente
+    (como os casos reais ID 652519 e 742921) é identificada como fatal auditada.
+    """
+    raw_data = {
+        "id": [9999],
+        "pesid": [8888],
+        "data_inversa": ["2025-05-10"],
+        "uf": ["GO"],
+        "br": ["060"],
+        "km": ["100,0"],
+        "fase_dia": ["Plena Noite"],
+        "causa_acidente": ["Reação tardia"],
+        "mortos": [1],
+        "feridos_graves": [0],
+        "feridos_leves": [0],
+        "ilesos": [0],
+        "classificacao_acidente": [None],  # Ausente no boletim
+    }
+    raw_df = pd.DataFrame(raw_data)
+    ocorrencias, pessoas, veiculos, causas, quality = process_raw_dataframe(raw_df, "teste_classificacao")
+
+    assert ocorrencias["mortos"].iloc[0] == 1
+    assert ocorrencias["acidente_fatal"].iloc[0] == 1
+    assert ocorrencias["classificacao_acidente"].iloc[0] == "Com Vítimas Fatais (Auditada)"
+    assert len(quality["divergencias_classificacao"]) == 1
+    assert quality["divergencias_classificacao"][0]["id"] == 9999
 
 

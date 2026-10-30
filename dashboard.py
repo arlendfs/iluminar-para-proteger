@@ -38,6 +38,13 @@ from config import (
 from analyzer import AccidentAnalyzer
 from metrics import compute_period_metrics, compute_day_vs_night_comparison
 from reaction_analysis import analyze_visibility_and_reaction
+from demographic_analysis import (
+    compute_envolvimento_analysis,
+    compute_sexo_analysis,
+    compute_faixa_etaria_analysis,
+    compute_veiculo_analysis,
+    compute_tipo_acidente_analysis,
+)
 from financial_model import calcular_orcamento_cenarios, calcular_balanco_energetico_detalhado
 from pdf_generator import ReportGenerator
 
@@ -57,29 +64,34 @@ def create_dashboard(analyzer: AccidentAnalyzer):
     quality = analyzer.quality_summary or {}
     total_linhas_brutas = quality.get("registros_brutos", len(data))
     ocorrencias_unicas = len(data)
-    duplicatas_evitadas = quality.get("duplicatas_linhas_evitadas", total_linhas_brutas - ocorrencias_unicas)
+    desdobramentos_consolidados = quality.get("desdobramentos_consolidados", quality.get("duplicatas_linhas_evitadas", total_linhas_brutas - ocorrencias_unicas))
     com_km = int(data["km"].notna().sum())
-    sem_km = ocorrencias_unicas - com_km
+    sem_km = quality.get("ocorrencias_sem_km", ocorrencias_unicas - com_km)
+    mortos_sem_km = quality.get("mortos_sem_km", 0)
+    feridos_sem_km = quality.get("feridos_sem_km", 0)
     com_geo = int((data["latitude"].notna() & data["longitude"].notna()).sum())
+    pessoas_unicas = quality.get("pessoas_unicas_pesid", len(analyzer.pessoas_data) if analyzer.pessoas_data is not None else 0)
+    veiculos_unicos = quality.get("veiculos_unicos", len(analyzer.veiculos_data) if analyzer.veiculos_data is not None else 0)
 
     with st.expander("🛡️ Auditoria Metodológica e Resumo de Qualidade dos Dados", expanded=False):
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Linhas Brutas Lidas", f"{total_linhas_brutas:,}")
         c2.metric("Ocorrências Únicas", f"{ocorrencias_unicas:,}", help="Desduplicadas pelo ID de sinistro")
-        c3.metric("Duplicidades Evitadas", f"{duplicatas_evitadas:,}", help="Evitou multiplicar acidentes por pessoas/veículos")
+        c3.metric("Desdobramentos Consolidados", f"{desdobramentos_consolidados:,}", help="Consolidação de linhas múltiplas por ocupante, veículo e causa em ocorrências únicas")
         c4.metric("Com Coordenadas Válidas", f"{com_geo:,} ({(com_geo/ocorrencias_unicas*100):.1f}%)" if ocorrencias_unicas > 0 else "0")
 
         st.markdown(
             f"""
-            **Auditoria dos 267 Registros e Regras de Elegibilidade Metodológica:**
+            **Auditoria dos Registros e Regras de Elegibilidade Metodológica:**
             - **Total de linhas brutas nos arquivos de entrada:** **{total_linhas_brutas:,}**.
             - **Ocorrências únicas totais no banco de dados:** **{quality.get('ocorrencias_unicas', ocorrencias_unicas):,}** (desduplicadas estritamente pelo ID de sinistro).
-            - **Duplicidades de pessoas/causas evitadas:** `{total_linhas_brutas:,} - {quality.get('ocorrencias_unicas', ocorrencias_unicas):,} = {duplicatas_evitadas:,}`.
+            - **Pessoas únicas com pesid informado:** **{pessoas_unicas:,}** | **Veículos únicos envolvidos:** **{veiculos_unicos:,}**.
+            - **Desdobramentos por Ocupante e Causa Consolidados:** `{total_linhas_brutas:,} - {quality.get('ocorrencias_unicas', ocorrencias_unicas):,} = {desdobramentos_consolidados:,}`.
             - **Ocorrências com marco quilométrico (KM) verificado:** **{com_km:,}**.
-            - **Ocorrências com KM ausente / desconhecido na PRF:** **{sem_km:,}** (todas possuem coordenadas GPS válidas, 0 óbitos e 104 feridos).
+            - **Ocorrências com KM ausente / desconhecido na PRF:** **{sem_km:,}** ({mortos_sem_km:,} óbito(s) e {feridos_sem_km:,} ferido(s)).
             
             **Diretrizes de Elegibilidade por Módulo:**
-            1. **Análise Nacional, Regional, Temporal, Fatais e Causas:** Utilizam **todas as {ocorrencias_unicas:,} ocorrências elegíveis**, garantindo que nenhum acidente real seja descartado das estatísticas gerais.
+            1. **Análise Nacional, Regional, Temporal, Fatais, Causas e Demografia:** Utilizam **todas as {ocorrencias_unicas:,} ocorrências elegíveis**, garantindo que nenhum acidente real seja descartado das estatísticas gerais.
             2. **Ranking Segmentado por Quilômetro:** Utiliza **exclusivamente as {com_km:,} ocorrências com KM e BR válidos**, impedindo a distorção física de concentração artificial em KM 0,0.
             3. **Mapa Geográfico:** Mapeia **todas as {com_geo:,} ocorrências com coordenadas geográficas válidas**.
             """
@@ -391,7 +403,313 @@ def create_dashboard(analyzer: AccidentAnalyzer):
     st.markdown("---")
 
     # =========================================================================
-    # 6. RANKING DE TRECHOS CRÍTICOS E DIMENSIONAMENTO SOLAR
+    # 6. PERFIL DEMOGRÁFICO DOS ENVOLVIDOS, FROTA VEICULAR E TIPOLOGIA DOS ACIDENTES
+    # =========================================================================
+    st.subheader("👥 Perfil Demográfico dos Envolvidos, Frota Veicular e Tipologia dos Acidentes")
+    st.markdown(
+        """
+        Esta seção detalha o perfil dos indivíduos envolvidos nos sinistros, estratificando por tipo de envolvimento,
+        sexo, faixas etárias, frota veicular e tipologia dos acidentes cruzada com as fases do dia.
+        """
+    )
+
+    pessoas_data = analyzer.filtered_pessoas if analyzer.filtered_pessoas is not None else pd.DataFrame()
+    veiculos_data = analyzer.filtered_veiculos if analyzer.filtered_veiculos is not None else pd.DataFrame()
+
+    tab_env, tab_idade, tab_sexo, tab_frota, tab_tipo_acid = st.tabs([
+        "👥 Tipo de Envolvimento",
+        "🎂 Faixa Etária & Gravidade",
+        "⚧️ Sexo & Letalidade",
+        "🚛 Frota Veicular",
+        "💥 Tipologia do Acidente",
+    ])
+
+    with tab_env:
+        if not pessoas_data.empty:
+            res_env = compute_envolvimento_analysis(pessoas_data)
+            tbl_env = res_env.get("resumo_envolvimento", pd.DataFrame())
+            cruz_env = res_env.get("cruzamento_fase_dia", pd.DataFrame())
+
+            if not tbl_env.empty:
+                col_e1, col_e2 = st.columns([3, 2])
+                with col_e1:
+                    fig_env = px.bar(
+                        tbl_env,
+                        x="tipo_envolvido",
+                        y=["mortos", "feridos_graves", "feridos_leves"],
+                        title="Vítimas por Tipo de Envolvimento",
+                        labels={"value": "Pessoas", "tipo_envolvido": "Envolvimento", "variable": "Gravidade"},
+                        color_discrete_map={
+                            "mortos": COLOR_PALETTE["danger"],
+                            "feridos_graves": COLOR_PALETTE["warning"],
+                            "feridos_leves": COLOR_PALETTE["info"],
+                        },
+                        barmode="stack",
+                    )
+                    st.plotly_chart(fig_env, use_container_width=True)
+
+                with col_e2:
+                    fig_taxa_env = px.bar(
+                        tbl_env,
+                        x="tipo_envolvido",
+                        y="taxa_mortalidade_pct",
+                        title="Taxa de Mortalidade por Envolvimento (%)",
+                        labels={"taxa_mortalidade_pct": "Mortalidade (%)", "tipo_envolvido": "Envolvimento"},
+                        color="tipo_envolvido",
+                    )
+                    st.plotly_chart(fig_taxa_env, use_container_width=True)
+
+                st.dataframe(
+                    tbl_env[[
+                        "tipo_envolvido", "total_envolvidos", "mortos", "feridos_graves",
+                        "feridos_leves", "ilesos", "taxa_mortalidade_pct", "prop_total_mortos_pct"
+                    ]],
+                    column_config={
+                        "tipo_envolvido": "Tipo de Envolvimento",
+                        "total_envolvidos": st.column_config.NumberColumn("Total Envolvidos", format="%d"),
+                        "mortos": st.column_config.NumberColumn("Óbitos", format="%d"),
+                        "feridos_graves": st.column_config.NumberColumn("Feridos Graves", format="%d"),
+                        "feridos_leves": st.column_config.NumberColumn("Feridos Leves", format="%d"),
+                        "ilesos": st.column_config.NumberColumn("Ilesos", format="%d"),
+                        "taxa_mortalidade_pct": st.column_config.NumberColumn("Taxa Mortalidade (%)", format="%.2f%%"),
+                        "prop_total_mortos_pct": st.column_config.NumberColumn("Part. nos Óbitos (%)", format="%.2f%%"),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+                if not cruz_env.empty and "fase_dia_oficial" in cruz_env.columns:
+                    st.markdown("##### 🌙 Cruzamento: Tipo de Envolvimento por Fase do Dia")
+                    fig_cruz_env = px.bar(
+                        cruz_env,
+                        x="tipo_envolvido",
+                        y="mortos",
+                        color="fase_dia_oficial",
+                        barmode="group",
+                        title="Óbitos por Tipo de Envolvimento e Fase do Dia",
+                        labels={"mortos": "Óbitos", "tipo_envolvido": "Envolvimento", "fase_dia_oficial": "Fase do Dia"},
+                        color_discrete_map={
+                            "Pleno dia": COLOR_PALETTE["diurno"],
+                            "Plena Noite": COLOR_PALETTE["noturno"],
+                            "Amanhecer": COLOR_PALETTE["amanhecer"],
+                            "Anoitecer": COLOR_PALETTE["anoitecer"],
+                        },
+                    )
+                    st.plotly_chart(fig_cruz_env, use_container_width=True)
+        else:
+            st.info("ℹ️ Dados de pessoas não disponíveis para os filtros atuais.")
+
+    with tab_idade:
+        if not pessoas_data.empty:
+            res_idade = compute_faixa_etaria_analysis(pessoas_data)
+            tbl_faixa = res_idade.get("resumo_faixa_etaria", pd.DataFrame())
+            tbl_estat = res_idade.get("idade_por_gravidade", pd.DataFrame())
+            qual_idade = res_idade.get("metricas_qualidade_idade", {})
+
+            col_q1, col_q2, col_q3 = st.columns(3)
+            col_q1.metric("Idades Válidas (0 a 110 anos)", f"{qual_idade.get('idades_validas', 0):,} ({qual_idade.get('perc_idades_validas', 0.0):.1f}%)")
+            col_q2.metric("Inconsistentes / Não Informadas", f"{qual_idade.get('idades_inconsistentes_ou_ausentes', 0):,} ({qual_idade.get('perc_inconsistentes', 0.0):.1f}%)")
+            col_q3.metric("Registros com Idade > 110 anos", f"{qual_idade.get('idades_superiores_110_anos', 0):,}", help="Valores biológicos implausíveis tratados estritamente como inconsistentes")
+
+            if not tbl_faixa.empty:
+                col_i1, col_i2 = st.columns(2)
+                with col_i1:
+                    fig_faixa = px.bar(
+                        tbl_faixa,
+                        x="faixa_etaria",
+                        y="total_pessoas",
+                        title="Distribuição de Pessoas Envolvidas por Faixa Etária",
+                        labels={"faixa_etaria": "Faixa Etária", "total_pessoas": "Pessoas"},
+                        color="faixa_etaria",
+                    )
+                    fig_faixa.update_layout(showlegend=False, xaxis_tickangle=-25)
+                    st.plotly_chart(fig_faixa, use_container_width=True)
+
+                with col_i2:
+                    fig_obitos_faixa = px.bar(
+                        tbl_faixa,
+                        x="faixa_etaria",
+                        y="mortos",
+                        title="Óbitos por Faixa Etária",
+                        labels={"faixa_etaria": "Faixa Etária", "mortos": "Óbitos"},
+                        color="mortos",
+                        color_continuous_scale="Reds",
+                    )
+                    fig_obitos_faixa.update_layout(coloraxis_showscale=False, xaxis_tickangle=-25)
+                    st.plotly_chart(fig_obitos_faixa, use_container_width=True)
+
+                st.markdown("##### 📊 Estatísticas Descritivas de Idade por Nível de Severidade")
+                if not tbl_estat.empty:
+                    st.dataframe(
+                        tbl_estat,
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+        else:
+            st.info("ℹ️ Dados de idade não disponíveis.")
+
+    with tab_sexo:
+        if not pessoas_data.empty:
+            res_sexo = compute_sexo_analysis(pessoas_data)
+            tbl_sexo = res_sexo.get("resumo_sexo", pd.DataFrame())
+
+            if not tbl_sexo.empty:
+                col_s1, col_s2 = st.columns(2)
+                with col_s1:
+                    fig_sexo_p = px.pie(
+                        tbl_sexo,
+                        names="sexo",
+                        values="total_pessoas",
+                        title="Distribuição de Envolvidos por Sexo",
+                        hole=0.4,
+                    )
+                    st.plotly_chart(fig_sexo_p, use_container_width=True)
+
+                with col_s2:
+                    fig_sexo_m = px.bar(
+                        tbl_sexo,
+                        x="sexo",
+                        y="taxa_mortalidade_pct",
+                        title="Taxa de Mortalidade por Sexo (%)",
+                        labels={"taxa_mortalidade_pct": "Mortalidade (%)", "sexo": "Sexo"},
+                        color="sexo",
+                    )
+                    st.plotly_chart(fig_sexo_m, use_container_width=True)
+
+                st.dataframe(
+                    tbl_sexo[[
+                        "sexo", "total_pessoas", "mortos", "feridos_graves",
+                        "feridos_leves", "ilesos", "taxa_mortalidade_pct", "prop_total_mortos_pct"
+                    ]],
+                    column_config={
+                        "sexo": "Sexo",
+                        "total_pessoas": st.column_config.NumberColumn("Total Pessoas", format="%d"),
+                        "mortos": st.column_config.NumberColumn("Óbitos", format="%d"),
+                        "feridos_graves": st.column_config.NumberColumn("Feridos Graves", format="%d"),
+                        "feridos_leves": st.column_config.NumberColumn("Feridos Leves", format="%d"),
+                        "ilesos": st.column_config.NumberColumn("Ilesos", format="%d"),
+                        "taxa_mortalidade_pct": st.column_config.NumberColumn("Taxa Mortalidade (%)", format="%.2f%%"),
+                        "prop_total_mortos_pct": st.column_config.NumberColumn("Part. nos Óbitos (%)", format="%.2f%%"),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+        else:
+            st.info("ℹ️ Dados de sexo não disponíveis.")
+
+    with tab_frota:
+        if not veiculos_data.empty:
+            tbl_veic = compute_veiculo_analysis(veiculos_data, pessoas_data)
+            if not tbl_veic.empty:
+                top_v = tbl_veic.head(10)
+                fig_v = px.bar(
+                    top_v,
+                    x="tipo_veiculo",
+                    y="total_veiculos",
+                    title="Top 10 Tipos de Veículos Envolvidos em Sinistros",
+                    labels={"total_veiculos": "Veículos", "tipo_veiculo": "Tipo de Veículo"},
+                    color="total_veiculos",
+                    color_continuous_scale="Blues",
+                )
+                fig_v.update_layout(coloraxis_showscale=False, xaxis_tickangle=-30)
+                st.plotly_chart(fig_v, use_container_width=True)
+
+                st.dataframe(
+                    tbl_veic,
+                    column_config={
+                        "tipo_veiculo": "Tipo de Veículo",
+                        "total_veiculos": st.column_config.NumberColumn("Total Veículos", format="%d"),
+                        "total_ocupantes": st.column_config.NumberColumn("Total Ocupantes", format="%d"),
+                        "mortos": st.column_config.NumberColumn("Óbitos de Ocupantes", format="%d"),
+                        "feridos_graves": st.column_config.NumberColumn("Feridos Graves", format="%d"),
+                        "feridos_leves": st.column_config.NumberColumn("Feridos Leves", format="%d"),
+                        "taxa_letalidade_ocupante_pct": st.column_config.NumberColumn("Letalidade Ocupante (%)", format="%.2f%%"),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+        else:
+            st.info("ℹ️ Dados de frota veicular não disponíveis.")
+
+    with tab_tipo_acid:
+        res_tipo = compute_tipo_acidente_analysis(data)
+        tbl_tipo = res_tipo.get("resumo_tipo_acidente", pd.DataFrame())
+        cruz_tipo = res_tipo.get("cruzamento_fase_dia", pd.DataFrame())
+
+        if not tbl_tipo.empty:
+            top_t = tbl_tipo.head(10)
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                fig_tipo_acid = px.bar(
+                    top_t,
+                    x="tipo_acidente",
+                    y="mortos",
+                    title="Top 10 Tipos de Acidentes por Número de Óbitos",
+                    labels={"mortos": "Óbitos", "tipo_acidente": "Tipo de Acidente"},
+                    color="mortos",
+                    color_continuous_scale="Reds",
+                )
+                fig_tipo_acid.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
+                st.plotly_chart(fig_tipo_acid, use_container_width=True)
+
+            with col_t2:
+                fig_tipo_taxa = px.bar(
+                    top_t,
+                    x="tipo_acidente",
+                    y="obitos_por_100_acidentes",
+                    title="Óbitos por 100 Acidentes por Tipologia",
+                    labels={"obitos_por_100_acidentes": "Óbitos / 100 Ac.", "tipo_acidente": "Tipo de Acidente"},
+                    color="obitos_por_100_acidentes",
+                    color_continuous_scale="Oranges",
+                )
+                fig_tipo_taxa.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
+                st.plotly_chart(fig_tipo_taxa, use_container_width=True)
+
+            st.dataframe(
+                tbl_tipo[[
+                    "tipo_acidente", "n_acidentes", "mortos", "feridos_graves",
+                    "total_feridos", "acidentes_fatais", "obitos_por_100_acidentes", "prop_acidentes_fatais_pct"
+                ]],
+                column_config={
+                    "tipo_acidente": "Tipo de Acidente",
+                    "n_acidentes": st.column_config.NumberColumn("Acidentes", format="%d"),
+                    "mortos": st.column_config.NumberColumn("Óbitos", format="%d"),
+                    "feridos_graves": st.column_config.NumberColumn("Feridos Graves", format="%d"),
+                    "total_feridos": st.column_config.NumberColumn("Total Feridos", format="%d"),
+                    "acidentes_fatais": st.column_config.NumberColumn("Sinistros Fatais", format="%d"),
+                    "obitos_por_100_acidentes": st.column_config.NumberColumn("Óbitos / 100 Ac.", format="%.2f"),
+                    "prop_acidentes_fatais_pct": st.column_config.NumberColumn("% Fatais", format="%.2f%%"),
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            if not cruz_tipo.empty and "fase_dia_oficial" in cruz_tipo.columns:
+                st.markdown("##### 🌙 Tipologia de Acidentes Cruzada com a Fase do Dia")
+                top_tipos_nomes = list(top_t["tipo_acidente"].head(6))
+                cruz_top = cruz_tipo[cruz_tipo["tipo_acidente"].isin(top_tipos_nomes)].copy()
+                fig_cruz_t = px.bar(
+                    cruz_top,
+                    x="tipo_acidente",
+                    y="mortos",
+                    color="fase_dia_oficial",
+                    barmode="group",
+                    title="Óbitos por Tipologia de Sinistro nas Fases do Dia (Top Tipos)",
+                    labels={"mortos": "Óbitos", "tipo_acidente": "Tipo de Acidente", "fase_dia_oficial": "Fase do Dia"},
+                    color_discrete_map={
+                        "Pleno dia": COLOR_PALETTE["diurno"],
+                        "Plena Noite": COLOR_PALETTE["noturno"],
+                        "Amanhecer": COLOR_PALETTE["amanhecer"],
+                        "Anoitecer": COLOR_PALETTE["anoitecer"],
+                    },
+                )
+                fig_cruz_t.update_layout(xaxis_tickangle=-25)
+                st.plotly_chart(fig_cruz_t, use_container_width=True)
+
+    st.markdown("---")
+
+    # =========================================================================
+    # 7. RANKING DE TRECHOS CRÍTICOS E DIMENSIONAMENTO SOLAR
     # =========================================================================
     st.subheader("🚨 Priorização de Trechos Críticos para Iluminação Solar")
 
@@ -854,6 +1172,8 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     causas_df=analyzer.filtered_causas,
                     financial_summary=agregados,
                     quality_summary=quality,
+                    pessoas_df=analyzer.filtered_pessoas,
+                    veiculos_df=analyzer.filtered_veiculos,
                 )
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

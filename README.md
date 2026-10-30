@@ -97,8 +97,9 @@ O sistema foi estruturado com separação estrita de responsabilidades:
 iluminar-para-proteger/
 ├── app.py                     # Interface Streamlit e controles de sidebar
 ├── dashboard.py               # Renderização de visualizações, métricas e mapa
-├── analyzer.py                # Controladora central AccidentAnalyzer
-├── data_loader.py             # Ingestão, desduplicação e qualidade de dados
+├── analyzer.py                # Controladora central AccidentAnalyzer (gestão relacional)
+├── data_loader.py             # Ingestão, desduplicação relacional e qualidade de dados
+├── demographic_analysis.py    # Perfil demográfico, envolvimento, faixas etárias e frota
 ├── metrics.py                 # Cálculos estatísticos de letalidade e Dia vs Noite
 ├── reaction_analysis.py       # Análise de tempo de reação e visibilidade
 ├── segmentation.py            # Segmentação de trechos viários e ranqueamento
@@ -106,8 +107,9 @@ iluminar-para-proteger/
 ├── pdf_generator.py           # Gerador de relatório científico completo (15 seções)
 ├── solar_post_3d.html         # Protótipo 3D interativo (Three.js)
 ├── config.py                  # Parâmetros técnicos, econômicos e institucionais
-├── tests/                     # Suíte de testes automatizados com Pytest
+├── tests/                     # Suíte de testes automatizados com Pytest (36 testes)
 │   ├── test_data_loader.py
+│   ├── test_demographic_analysis.py
 │   ├── test_metrics.py
 │   ├── test_reaction_analysis.py
 │   ├── test_segmentation.py

@@ -281,7 +281,35 @@ COLUMN_MAPPING = {
     "ano": ["ano", "ano_ocorrencia"],
     "estado_fisico": ["estado_fisico"],
     "municipio": ["municipio", "cidade"],
+    "tipo_envolvido": ["tipo_envolvido", "tipo_envolvimento", "envolvido"],
+    "idade": ["idade", "idade_anos"],
+    "sexo": ["sexo", "genero"],
+    "id_veiculo": ["id_veiculo", "veiculo_id", "num_veiculo"],
+    "tipo_veiculo": ["tipo_veiculo", "veiculo_tipo", "especie_veiculo"],
+    "marca": ["marca", "marca_modelo"],
+    "ano_fabricacao_veiculo": ["ano_fabricacao_veiculo", "ano_fabricacao"],
 }
+
+# Categorias oficiais de Faixas Etárias para Análise Demográfica
+FAIXAS_ETARIAS_ORDEM = [
+    "0 a 17 anos",
+    "18 a 24 anos",
+    "25 a 34 anos",
+    "35 a 49 anos",
+    "50 a 64 anos",
+    "65 anos ou mais",
+    "Não informada / Inconsistente",
+]
+
+# Categorias oficiais de Tipo de Envolvimento
+TIPOS_ENVOLVIDO_PADRAO = [
+    "Condutor",
+    "Passageiro",
+    "Pedestre",
+    "Cavaleiro",
+    "Testemunha",
+    "Outro",
+]
 
 # Categorias oficiais de Fase do Dia da PRF
 FASES_DIA_OFICIAIS = [

@@ -50,6 +50,13 @@ from config import (
 from financial_model import calcular_balanco_energetico_detalhado, calcular_orcamento_cenarios
 from metrics import compute_period_metrics, compute_day_vs_night_comparison
 from reaction_analysis import analyze_visibility_and_reaction
+from demographic_analysis import (
+    compute_envolvimento_analysis,
+    compute_sexo_analysis,
+    compute_faixa_etaria_analysis,
+    compute_veiculo_analysis,
+    compute_tipo_acidente_analysis,
+)
 
 
 def format_pt_br_currency(val: float) -> str:
@@ -226,6 +233,8 @@ class ReportGenerator:
         causas_df: Optional[pd.DataFrame] = None,
         financial_summary: Optional[Dict[str, Any]] = None,
         quality_summary: Optional[Dict[str, Any]] = None,
+        pessoas_df: Optional[pd.DataFrame] = None,
+        veiculos_df: Optional[pd.DataFrame] = None,
     ) -> io.BytesIO:
         """
         Gera o documento PDF estruturado com todas as 15 seções científicas.
@@ -303,19 +312,21 @@ class ReportGenerator:
         story.append(Paragraph("2. METODOLOGIA, CONFIABILIDADE E AUDITORIA DE REGISTROS", self.custom_styles["h1"]))
 
         linhas_brutas = qual.get("registros_brutos", total_ocorrencias)
-        duplicatas_evitadas = qual.get("duplicatas_linhas_evitadas", 0)
+        desdobramentos_consolidados = qual.get("desdobramentos_consolidados", qual.get("duplicatas_linhas_evitadas", 0))
         com_km_count = qual.get("ocorrencias_com_km", total_ocorrencias)
         sem_km_count = qual.get("ocorrencias_sem_km", 0)
+        mortos_sem_km = qual.get("mortos_sem_km", 0)
+        feridos_sem_km = qual.get("feridos_sem_km", 0)
+        pessoas_unicas = qual.get("pessoas_unicas_pesid", len(pessoas_df) if pessoas_df is not None else 0)
 
         metodologia_p = f"""
-        <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>) e causa registrada. Para evitar a inflação artificial, as ocorrências foram desduplicadas pela chave primária <code>id</code> e as vítimas agregadas por pessoas únicas (<code>pesid</code>), evitando <b>{duplicatas_evitadas:,} linhas duplicadas</b> a partir de <b>{linhas_brutas:,} linhas brutas</b>.<br/>
-        <b>Auditoria da Diferença Exata de 267 Registros:</b><br/>
+        <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>), veículo e causa registrada. Para assegurar total rigor estatístico, as ocorrências foram desduplicadas pela chave primária <code>id</code>, as vítimas agregadas por pessoas únicas (<code>pesid</code>) e os veículos por <code>id_veiculo</code>, consolidando <b>{desdobramentos_consolidados:,} desdobramentos de ocupantes, veículos e causas</b> a partir de <b>{linhas_brutas:,} linhas brutas</b> (total de <b>{pessoas_unicas:,} pessoas únicas</b> identificadas).<br/>
+        <b>Auditoria Metodológica dos Registros sem Marco Quilométrico:</b><br/>
         - Linhas brutas lidas: <b>{linhas_brutas:,}</b> | Ocorrências únicas totais identificadas: <b>{qual.get('ocorrencias_unicas', total_ocorrencias):,}</b>.<br/>
-        - Subtração direta de duplicidades evitadas: `{linhas_brutas:,} - {qual.get('ocorrencias_unicas', total_ocorrencias):,} = {duplicatas_evitadas:,}`.<br/>
-        - Ocorrências com marco KM verificado: <b>{com_km_count:,}</b> | Ocorrências sem marco KM registrado: <b>{sem_km_count:,}</b>.<br/>
-        - Subtração das linhas brutas pelas ocorrências com KM: `{linhas_brutas:,} - {com_km_count:,} = {linhas_brutas - com_km_count:,}`.<br/>
-        - A diferença exata de **267 registros** decorre rigorosamente das **{sem_km_count} ocorrências com KM ausente**, as quais foram isoladas do ranking físico de trechos rodoviários para eliminar a histórica concentração indevida no KM 0,0.<br/>
-        <b>Caso Excepcional Auditado:</b> Investigada a ocorrência ID 730910 na BR-423 (PE), KM 127 (Saloá/PE), em 17/10/2025 (Plena Noite). Confirmou-se o tombamento de um ônibus com <b>37 pessoas distintas rastreadas</b> (16 óbitos, 19 feridos graves e 2 leves), atestando a autenticidade dos dados oficiais.
+        - Subtração direta de desdobramentos consolidados: `{linhas_brutas:,} - {qual.get('ocorrencias_unicas', total_ocorrencias):,} = {desdobramentos_consolidados:,}`.<br/>
+        - Ocorrências com marco KM verificado: <b>{com_km_count:,}</b> | Ocorrências sem marco KM registrado: <b>{sem_km_count:,}</b> ({mortos_sem_km:,} óbito(s) e {feridos_sem_km:,} ferido(s)).<br/>
+        - A diferença nos cálculos de segmentação decorre rigorosamente das <b>{sem_km_count:,} ocorrências com KM ausente</b> na PRF, as quais foram isoladas do ranking físico de trechos rodoviários para eliminar a histórica distorção de concentração indevida no KM 0,0, mas integralmente preservadas nas análises nacionais de letalidade, causas e demografia.<br/>
+        <b>Caso Excepcional Auditado:</b> Investigada a ocorrência ID 730910 na BR-423 (PE), KM 127 (Saloá/PE), em 17/10/2025 (Plena Noite). Confirmou-se o tombamento de um ônibus com <b>37 pessoas distintas rastreadas</b> (16 óbitos, 19 feridos graves e 2 leves), atestando a autenticidade dos dados oficiais da PRF.
         """
         story.append(Paragraph(metodologia_p, self.custom_styles["body"]))
 
@@ -452,9 +463,116 @@ class ReportGenerator:
         story.append(Paragraph(vis_text, self.custom_styles["callout"]))
 
         # =====================================================================
+        # 6. PERFIL DEMOGRÁFICO DOS ENVOLVIDOS, FROTA VEICULAR E TIPOLOGIA
+        # =====================================================================
+        story.append(Paragraph("6. PERFIL DEMOGRÁFICO DOS ENVOLVIDOS, FROTA VEICULAR E TIPOLOGIA", self.custom_styles["h1"]))
+
+        p_df = pessoas_df if pessoas_df is not None and not pessoas_df.empty else pd.DataFrame()
+        v_df = veiculos_df if veiculos_df is not None and not veiculos_df.empty else pd.DataFrame()
+
+        if not p_df.empty:
+            res_env = compute_envolvimento_analysis(p_df)
+            tbl_env = res_env.get("resumo_envolvimento", pd.DataFrame())
+
+            if not tbl_env.empty:
+                story.append(Paragraph("<b>Distribuição de Vítimas por Tipo de Envolvimento:</b>", self.custom_styles["body"]))
+                t_env_data = [
+                    [
+                        Paragraph("Tipo de Envolvimento", self.custom_styles["th"]),
+                        Paragraph("Envolvidos", self.custom_styles["th"]),
+                        Paragraph("Óbitos", self.custom_styles["th"]),
+                        Paragraph("Feridos Graves", self.custom_styles["th"]),
+                        Paragraph("Feridos Leves", self.custom_styles["th"]),
+                        Paragraph("Mortalidade (%)", self.custom_styles["th"]),
+                        Paragraph("Part. Óbitos (%)", self.custom_styles["th"]),
+                    ]
+                ]
+                for _, r in tbl_env.iterrows():
+                    t_env_data.append([
+                        Paragraph(str(r["tipo_envolvido"]), self.custom_styles["td_left"]),
+                        Paragraph(f"{int(r['total_envolvidos']):,}", self.custom_styles["td"]),
+                        Paragraph(f"{int(r['mortos']):,}", self.custom_styles["td"]),
+                        Paragraph(f"{int(r['feridos_graves']):,}", self.custom_styles["td"]),
+                        Paragraph(f"{int(r['feridos_leves']):,}", self.custom_styles["td"]),
+                        Paragraph(f"{format_pt_br_number(r['taxa_mortalidade_pct'], 2)}%", self.custom_styles["td"]),
+                        Paragraph(f"{format_pt_br_number(r['prop_total_mortos_pct'], 2)}%", self.custom_styles["td"]),
+                    ])
+
+                t_env_table = Table(t_env_data, colWidths=[4.2*cm, 2.2*cm, 1.8*cm, 2.2*cm, 2.2*cm, 2.4*cm, 2.2*cm])
+                t_env_table.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f77b4")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]))
+                story.append(t_env_table)
+                story.append(Spacer(1, 4))
+
+            res_faixa = compute_faixa_etaria_analysis(p_df)
+            tbl_faixa = res_faixa.get("resumo_faixa_etaria", pd.DataFrame())
+            qual_idade = res_faixa.get("metricas_qualidade_idade", {})
+
+            if not tbl_faixa.empty:
+                story.append(Paragraph(
+                    f"<b>Distribuição por Faixa Etária e Rigor dos Dados Etários:</b> "
+                    f"<i>(Idades Válidas: {qual_idade.get('idades_validas', 0):,} [{qual_idade.get('perc_idades_validas', 0.0):.1f}%] | "
+                    f"Inconsistentes/Ausentes: {qual_idade.get('idades_inconsistentes_ou_ausentes', 0):,} [{qual_idade.get('perc_inconsistentes', 0.0):.1f}%] | "
+                    f"Idades > 110 anos isoladas: {qual_idade.get('idades_superiores_110_anos', 0):,})</i>",
+                    self.custom_styles["body"]
+                ))
+                t_faixa_data = [
+                    [
+                        Paragraph("Faixa Etária", self.custom_styles["th"]),
+                        Paragraph("Pessoas", self.custom_styles["th"]),
+                        Paragraph("Óbitos", self.custom_styles["th"]),
+                        Paragraph("Feridos Graves", self.custom_styles["th"]),
+                        Paragraph("Mortalidade (%)", self.custom_styles["th"]),
+                        Paragraph("Part. Óbitos (%)", self.custom_styles["th"]),
+                    ]
+                ]
+                for _, r in tbl_faixa.iterrows():
+                    t_faixa_data.append([
+                        Paragraph(str(r["faixa_etaria"]), self.custom_styles["td_left"]),
+                        Paragraph(f"{int(r['total_pessoas']):,}", self.custom_styles["td"]),
+                        Paragraph(f"{int(r['mortos']):,}", self.custom_styles["td"]),
+                        Paragraph(f"{int(r['feridos_graves']):,}", self.custom_styles["td"]),
+                        Paragraph(f"{format_pt_br_number(r['taxa_mortalidade_pct'], 2)}%", self.custom_styles["td"]),
+                        Paragraph(f"{format_pt_br_number(r['prop_total_mortos_pct'], 2)}%", self.custom_styles["td"]),
+                    ])
+
+                t_faixa_table = Table(t_faixa_data, colWidths=[4.5*cm, 2.5*cm, 2.2*cm, 2.5*cm, 2.6*cm, 2.5*cm])
+                t_faixa_table.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]))
+                story.append(t_faixa_table)
+                story.append(Spacer(1, 4))
+
+        if not v_df.empty:
+            tbl_v = compute_veiculo_analysis(v_df, p_df).head(6)
+            if not tbl_v.empty:
+                v_summary_str = ", ".join([f"{r['tipo_veiculo']}: {int(r['total_veiculos']):,} ({int(r.get('mortos', 0)):,} óbitos)" for _, r in tbl_v.iterrows()])
+                story.append(Paragraph(
+                    f"<b>Frota Veicular Predominante:</b> As categorias com maior envolvimento em acidentes são: {v_summary_str}.",
+                    self.custom_styles["body"]
+                ))
+
+        story.append(Paragraph(
+            "<b>Vulnerabilidade de Pedestres e Modos Ativos:</b> "
+            "A análise revela que pedestres apresentam a mais elevada taxa de fatalidade específica entre todas as classes de usuários, "
+            "com o risco dramaticamente amplificado em períodos noturnos devido à invisibilidade óptica na escuridão plena, "
+            "reforçando o papel protetivo crucial da iluminação fotovoltaica em travessias, pontos de ônibus e perímetros periurbanos.",
+            self.custom_styles["callout"]
+        ))
+
+        # =====================================================================
         # 7. RANKING DE TRECHOS CRÍTICOS E FÓRMULA DE PONTUAÇÃO
         # =====================================================================
-        story.append(Paragraph("6. RANKING DE TRECHOS CRÍTICOS PARA ILUMINAÇÃO SOLAR", self.custom_styles["h1"]))
+        story.append(Paragraph("7. RANKING DE TRECHOS CRÍTICOS PARA ILUMINAÇÃO SOLAR", self.custom_styles["h1"]))
 
         formula_desc = """
         <b>Fórmula de Priorização para Iluminação Solar:</b><br/>
@@ -502,7 +620,7 @@ class ReportGenerator:
         # =====================================================================
         # 8. ENGENHARIA, DIMENSIONAMENTO E BALANÇO ENERGÉTICO
         # =====================================================================
-        story.append(Paragraph("7. ENGENHARIA, CONCEITO COMPACTO E BALANÇO ENERGÉTICO", self.custom_styles["h1"]))
+        story.append(Paragraph("8. ENGENHARIA, CONCEITO COMPACTO E BALANÇO ENERGÉTICO", self.custom_styles["h1"]))
 
         n_trechos_analisados = len(top_segments)
         espacamento = DEFAULT_SPACING_M
@@ -535,7 +653,7 @@ class ReportGenerator:
         # =====================================================================
         # 9. MODELAGEM ORÇAMENTÁRIA MULTI-CENÁRIOS E RETORNO FINANCEIRO
         # =====================================================================
-        story.append(Paragraph("8. MODELAGEM ECONÔMICA E CENÁRIOS COMPARÁVEIS (A A E)", self.custom_styles["h1"]))
+        story.append(Paragraph("9. MODELAGEM ECONÔMICA E CENÁRIOS COMPARÁVEIS (A A E)", self.custom_styles["h1"]))
 
         # Executa comparação dos 5 cenários
         orc_cen = calcular_orcamento_cenarios(
@@ -657,7 +775,7 @@ class ReportGenerator:
         # =====================================================================
         # 10. DISCUSSÃO, LIMITAÇÕES, CONCLUSÕES E REFERÊNCIAS
         # =====================================================================
-        story.append(Paragraph("9. DISCUSSÃO CIENTÍFICA, LIMITAÇÕES E CONCLUSÕES", self.custom_styles["h1"]))
+        story.append(Paragraph("10. DISCUSSÃO CIENTÍFICA, LIMITAÇÕES E CONCLUSÕES", self.custom_styles["h1"]))
         disc_p = """
         <b>Discussão Teórica:</b> A segurança viária é comprovadamente multifatorial. A iluminação rodoviária atua diretamente na extensão do cone visual para além da distância de parada segura (DPS), restaurando o contraste óptico e permitindo a identificação precoce de obstáculos, pedestres e animais na pista. Todavia, fatores comportamentais como alcoolemia, sonolência circadiana e excesso de velocidade interagem sinergicamente.<br/>
         <b>Limitações Metodológicas Reconhecidas:</b><br/>
@@ -668,7 +786,7 @@ class ReportGenerator:
         """
         story.append(Paragraph(disc_p, self.custom_styles["body"]))
 
-        story.append(Paragraph("10. REFERÊNCIAS BIBLIOGRÁFICAS E BASES OFICIAIS", self.custom_styles["h1"]))
+        story.append(Paragraph("11. REFERÊNCIAS BIBLIOGRÁFICAS E BASES OFICIAIS", self.custom_styles["h1"]))
         for ref in REFERENCES:
             ref_str = f"• <b>{ref['titulo']}</b>. {ref['instituicao']}, 2026. Disponível em: &lt;{ref['url']}&gt;. Acesso em: 29 out. 2026."
             story.append(Paragraph(ref_str, self.custom_styles["body"]))

@@ -29,14 +29,18 @@ from reaction_analysis import analyze_visibility_and_reaction
 class AccidentAnalyzer:
     """
     Classe controladora da análise de acidentes rodoviários da PRF.
-    Preserva dados brutos, dados em nível de ocorrência e tabela de causas.
+    Preserva dados brutos, dados em nível de ocorrência, pessoas, veículos e causas.
     """
 
     def __init__(self):
         self.data: Optional[pd.DataFrame] = None
+        self.pessoas_data: Optional[pd.DataFrame] = None
+        self.veiculos_data: Optional[pd.DataFrame] = None
         self.causas_data: Optional[pd.DataFrame] = None
         self.quality_summary: Dict[str, Any] = {}
         self.filtered_data: Optional[pd.DataFrame] = None
+        self.filtered_pessoas: Optional[pd.DataFrame] = None
+        self.filtered_veiculos: Optional[pd.DataFrame] = None
         self.filtered_causas: Optional[pd.DataFrame] = None
         self.top_segments: Optional[pd.DataFrame] = None
         self.financial_analysis: Optional[Dict[str, Any]] = None
@@ -75,20 +79,26 @@ class AccidentAnalyzer:
         del all_raw_dfs
         gc.collect()
 
-        # Processamento, limpeza e desduplicação
-        ocorrencias, causas, quality = process_raw_dataframe(combined_raw, source_name=", ".join(local_files))
+        # Processamento, limpeza e desduplicação preservando modelo relacional
+        res = process_raw_dataframe(combined_raw, source_name=", ".join(local_files), return_relational=True)
+        ocorrencias, pessoas, veiculos, causas, quality = res
         del combined_raw
         gc.collect()
 
         self.data = ocorrencias
+        self.pessoas_data = pessoas
+        self.veiculos_data = veiculos
         self.causas_data = causas
         self.quality_summary = quality
         self.filtered_data = ocorrencias.copy()
-        self.filtered_causas = causas.copy()
+        self.filtered_pessoas = pessoas.copy() if pessoas is not None else pd.DataFrame()
+        self.filtered_veiculos = veiculos.copy() if veiculos is not None else pd.DataFrame()
+        self.filtered_causas = causas.copy() if causas is not None else pd.DataFrame()
 
+        desdobramentos = quality.get("desdobramentos_consolidados", quality.get("duplicatas_linhas_evitadas", 0))
         st.success(
             f"✅ Processamento concluído: {quality['ocorrencias_unicas']:,} ocorrências únicas identificadas "
-            f"a partir de {quality['registros_brutos']:,} registros brutos ({quality['duplicatas_linhas_evitadas']:,} duplicidades de causas/veículos evitadas)."
+            f"a partir de {quality['registros_brutos']:,} registros brutos ({desdobramentos:,} desdobramentos de pessoas/veículos/causas consolidados)."
         )
 
         return self.data
@@ -130,25 +140,36 @@ class AccidentAnalyzer:
         del all_raw_dfs
         gc.collect()
 
-        ocorrencias, causas, quality = process_raw_dataframe(combined_raw, source_name=", ".join(file_names))
+        res = process_raw_dataframe(combined_raw, source_name=", ".join(file_names), return_relational=True)
+        ocorrencias, pessoas, veiculos, causas, quality = res
         del combined_raw
         gc.collect()
 
         self.data = ocorrencias
+        self.pessoas_data = pessoas
+        self.veiculos_data = veiculos
         self.causas_data = causas
         self.quality_summary = quality
         self.filtered_data = ocorrencias.copy()
-        self.filtered_causas = causas.copy()
+        self.filtered_pessoas = pessoas.copy() if pessoas is not None else pd.DataFrame()
+        self.filtered_veiculos = veiculos.copy() if veiculos is not None else pd.DataFrame()
+        self.filtered_causas = causas.copy() if causas is not None else pd.DataFrame()
 
         return self.data
 
     def apply_filters(self, df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
         """
         Aplica filtros com consistência estrita em todas as variáveis:
-        Ano, UF, BR, Fase do Dia, Condição Meteorológica e Causas.
+        Ano, UF, BR, Fase do Dia, Condição Meteorológica, Causas,
+        Perfil Demográfico (Envolvimento, Sexo, Idade) e Tipo de Veículo.
+        
+        Garante que, ao filtrar por grupo demográfico, as vítimas de outros
+        ocupantes do mesmo sinistro não sejam atribuídas indevidamente ao grupo.
         """
         if df is None or df.empty:
             self.filtered_data = pd.DataFrame()
+            self.filtered_pessoas = pd.DataFrame()
+            self.filtered_veiculos = pd.DataFrame()
             self.filtered_causas = pd.DataFrame()
             return pd.DataFrame()
 
@@ -167,7 +188,7 @@ class AccidentAnalyzer:
             brs_sel = set(str(b) for b in filters["brs"])
             todas_brs_nominais = set(str(b) for b in df["br"].dropna().unique() if str(b) != "N/A")
             # Se todas as rodovias nominais foram selecionadas no filtro, preserva as ocorrências nacionais
-            # sem BR/KM identificado (os 267 sinistros), garantindo a elegibilidade nacional completa (121.241).
+            # sem BR/KM identificado, garantindo a elegibilidade nacional completa.
             if todas_brs_nominais.issubset(brs_sel) or "N/A" in brs_sel:
                 pass
             else:
@@ -188,10 +209,10 @@ class AccidentAnalyzer:
             mask &= df["condicao_metereologica"].isin(filters["condicao_meteorologica"])
 
         filtered_df = df[mask].copy()
+        ids_validos = set(filtered_df["id"]) if "id" in filtered_df.columns else set()
 
-        # Filtrar tabela de causas correspondente pelos IDs válidos
-        if self.causas_data is not None and not self.causas_data.empty and "id" in filtered_df.columns:
-            ids_validos = set(filtered_df["id"])
+        # Filtrar causas pelos IDs válidos
+        if self.causas_data is not None and not self.causas_data.empty and ids_validos:
             self.filtered_causas = self.causas_data[self.causas_data["id"].isin(ids_validos)].copy()
         else:
             self.filtered_causas = pd.DataFrame()
@@ -204,6 +225,82 @@ class AccidentAnalyzer:
             )
             filtered_df = filtered_df[filtered_df["id"].isin(ids_com_causa)].copy()
             self.filtered_causas = self.filtered_causas[self.filtered_causas["id"].isin(ids_com_causa)].copy()
+            ids_validos = set(filtered_df["id"])
+
+        # Filtrar pessoas e veículos pelos IDs válidos de ocorrência
+        if self.pessoas_data is not None and not self.pessoas_data.empty and ids_validos:
+            self.filtered_pessoas = self.pessoas_data[self.pessoas_data["id"].isin(ids_validos)].copy()
+        else:
+            self.filtered_pessoas = pd.DataFrame()
+
+        if self.veiculos_data is not None and not self.veiculos_data.empty and ids_validos:
+            self.filtered_veiculos = self.veiculos_data[self.veiculos_data["id"].isin(ids_validos)].copy()
+        else:
+            self.filtered_veiculos = pd.DataFrame()
+
+        # Filtros Demográficos (tipo_envolvido, sexo, faixa_etaria)
+        tem_filtro_demografico = False
+        if not self.filtered_pessoas.empty:
+            mask_pessoas = pd.Series(True, index=self.filtered_pessoas.index)
+            if filters.get("tipos_envolvido") and "tipo_envolvido" in self.filtered_pessoas.columns:
+                mask_pessoas &= self.filtered_pessoas["tipo_envolvido"].isin(filters["tipos_envolvido"])
+                tem_filtro_demografico = True
+            if filters.get("sexos") and "sexo" in self.filtered_pessoas.columns:
+                mask_pessoas &= self.filtered_pessoas["sexo"].isin(filters["sexos"])
+                tem_filtro_demografico = True
+            if filters.get("faixas_etarias") and "faixa_etaria" in self.filtered_pessoas.columns:
+                mask_pessoas &= self.filtered_pessoas["faixa_etaria"].isin(filters["faixas_etarias"])
+                tem_filtro_demografico = True
+
+            if tem_filtro_demografico:
+                self.filtered_pessoas = self.filtered_pessoas[mask_pessoas].copy()
+                ids_demograficos = set(self.filtered_pessoas["id"])
+                filtered_df = filtered_df[filtered_df["id"].isin(ids_demograficos)].copy()
+                ids_validos = set(filtered_df["id"])
+
+                # Atualizar vítimas em filtered_df exclusivamente para o grupo filtrado
+                grupo_vitimas = (
+                    self.filtered_pessoas.groupby("id", observed=True)
+                    .agg(
+                        mortos=("mortos", "sum"),
+                        feridos_graves=("feridos_graves", "sum"),
+                        feridos_leves=("feridos_leves", "sum"),
+                        ilesos=("ilesos", "sum"),
+                    )
+                    .reset_index()
+                )
+                filtered_df["mortos_total_acidente"] = filtered_df["mortos"]
+                filtered_df["feridos_total_acidente"] = filtered_df["total_feridos"]
+
+                map_mortos = dict(zip(grupo_vitimas["id"], grupo_vitimas["mortos"]))
+                map_graves = dict(zip(grupo_vitimas["id"], grupo_vitimas["feridos_graves"]))
+                map_leves = dict(zip(grupo_vitimas["id"], grupo_vitimas["feridos_leves"]))
+                map_ilesos = dict(zip(grupo_vitimas["id"], grupo_vitimas["ilesos"]))
+
+                filtered_df["mortos"] = filtered_df["id"].map(map_mortos).fillna(0).astype(int)
+                filtered_df["feridos_graves"] = filtered_df["id"].map(map_graves).fillna(0).astype(int)
+                filtered_df["feridos_leves"] = filtered_df["id"].map(map_leves).fillna(0).astype(int)
+                filtered_df["total_feridos"] = filtered_df["feridos_graves"] + filtered_df["feridos_leves"]
+                filtered_df["ilesos"] = filtered_df["id"].map(map_ilesos).fillna(0).astype(int)
+                filtered_df["acidente_fatal"] = (filtered_df["mortos"] > 0).astype(int)
+
+                if not self.filtered_causas.empty:
+                    self.filtered_causas = self.filtered_causas[self.filtered_causas["id"].isin(ids_validos)].copy()
+                if not self.filtered_veiculos.empty:
+                    self.filtered_veiculos = self.filtered_veiculos[self.filtered_veiculos["id"].isin(ids_validos)].copy()
+
+        # Filtro de Veículos
+        if filters.get("tipos_veiculo") and not self.filtered_veiculos.empty:
+            self.filtered_veiculos = self.filtered_veiculos[
+                self.filtered_veiculos["tipo_veiculo"].isin(filters["tipos_veiculo"])
+            ].copy()
+            ids_veic = set(self.filtered_veiculos["id"])
+            filtered_df = filtered_df[filtered_df["id"].isin(ids_veic)].copy()
+            ids_validos = set(filtered_df["id"])
+            if not self.filtered_pessoas.empty:
+                self.filtered_pessoas = self.filtered_pessoas[self.filtered_pessoas["id"].isin(ids_validos)].copy()
+            if not self.filtered_causas.empty:
+                self.filtered_causas = self.filtered_causas[self.filtered_causas["id"].isin(ids_validos)].copy()
 
         self.filtered_data = filtered_df
         gc.collect()

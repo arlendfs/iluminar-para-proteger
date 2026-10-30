@@ -173,6 +173,8 @@ def main():
             and st.session_state.get("cached_file_signature") == file_signature
         ):
             analyzer.data = st.session_state["cached_analyzer_data"]
+            analyzer.pessoas_data = st.session_state.get("cached_analyzer_pessoas")
+            analyzer.veiculos_data = st.session_state.get("cached_analyzer_veiculos")
             analyzer.causas_data = st.session_state["cached_analyzer_causas"]
             analyzer.quality_summary = st.session_state["cached_analyzer_quality"]
         else:
@@ -184,6 +186,8 @@ def main():
 
             if analyzer.data is not None:
                 st.session_state["cached_analyzer_data"] = analyzer.data
+                st.session_state["cached_analyzer_pessoas"] = analyzer.pessoas_data
+                st.session_state["cached_analyzer_veiculos"] = analyzer.veiculos_data
                 st.session_state["cached_analyzer_causas"] = analyzer.causas_data
                 st.session_state["cached_analyzer_quality"] = analyzer.quality_summary
                 st.session_state["cached_file_signature"] = file_signature
@@ -249,6 +253,42 @@ def main():
                     ])
                     causas_sel = st.sidebar.multiselect("Causas Selecionadas", causas_disp, default=causas_disp[:10])
 
+            # 7. Filtros Demográficos e de Frota (Opcionais)
+            tipos_env_sel = []
+            sexos_sel = []
+            faixas_sel = []
+            tipos_veic_sel = []
+
+            if analyzer.pessoas_data is not None and not analyzer.pessoas_data.empty:
+                with st.sidebar.expander("👥 Perfil Demográfico e Frota", expanded=False):
+                    # Envolvimento
+                    if "tipo_envolvido" in analyzer.pessoas_data.columns:
+                        env_disp = sorted([str(e) for e in analyzer.pessoas_data["tipo_envolvido"].dropna().unique()])
+                        env_user = st.multiselect("Tipo de Envolvimento", env_disp, default=env_disp)
+                        if len(env_user) < len(env_disp):
+                            tipos_env_sel = env_user
+
+                    # Sexo
+                    if "sexo" in analyzer.pessoas_data.columns:
+                        sex_disp = sorted([str(s) for s in analyzer.pessoas_data["sexo"].dropna().unique()])
+                        sex_user = st.multiselect("Sexo", sex_disp, default=sex_disp)
+                        if len(sex_user) < len(sex_disp):
+                            sexos_sel = sex_user
+
+                    # Faixa Etária
+                    if "faixa_etaria" in analyzer.pessoas_data.columns:
+                        faixas_disp = sorted([str(f) for f in analyzer.pessoas_data["faixa_etaria"].dropna().unique()])
+                        faixas_user = st.multiselect("Faixa Etária", faixas_disp, default=faixas_disp)
+                        if len(faixas_user) < len(faixas_disp):
+                            faixas_sel = faixas_user
+
+                    # Tipo de Veículo
+                    if analyzer.veiculos_data is not None and not analyzer.veiculos_data.empty and "tipo_veiculo" in analyzer.veiculos_data.columns:
+                        veic_disp = sorted([str(v) for v in analyzer.veiculos_data["tipo_veiculo"].dropna().unique()])
+                        veic_user = st.multiselect("Tipo de Veículo", veic_disp, default=veic_disp)
+                        if len(veic_user) < len(veic_disp):
+                            tipos_veic_sel = veic_user
+
             # Aplicar filtros
             filters = {
                 "anos": anos_sel,
@@ -257,6 +297,10 @@ def main():
                 "fase_dia": fases_sel,
                 "condicao_meteorologica": cond_sel,
                 "causas_selecionadas": causas_sel,
+                "tipos_envolvido": tipos_env_sel,
+                "sexos": sexos_sel,
+                "faixas_etarias": faixas_sel,
+                "tipos_veiculo": tipos_veic_sel,
             }
             analyzer.filtered_data = analyzer.apply_filters(analyzer.data, filters)
 
