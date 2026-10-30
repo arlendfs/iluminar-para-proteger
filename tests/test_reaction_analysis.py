@@ -49,8 +49,46 @@ def test_analyze_visibility_and_reaction():
     res = analyze_visibility_and_reaction(ocorrencias, causas)
     assert "ranking_causas" in res
     assert "pivot_causas" in res
+    assert "causas_fases_df" in res
     assert not res["ranking_causas"].empty
     assert "evidencias_texto" in res
     assert "hipotese_texto" in res
     assert "limitacoes_texto" in res
+
+
+def test_multiple_causes_overlap_and_distinct_counts():
+    """
+    Verifica que causas múltiplas para o mesmo acidente:
+    1. São contadas como ocorrências distintas por categoria de causa;
+    2. Não duplicam mortos dentro da mesma categoria;
+    3. Permitem sobreposição entre categorias distintas.
+    """
+    # 1 acidente (id=10) com 2 causas e 1 morto
+    ocorrencias = pd.DataFrame({
+        "id": [10],
+        "fase_dia_oficial": ["Plena Noite"],
+        "fase_dia_agrupada": ["Noturno"],
+        "mortos": [1],
+        "total_feridos": [0],
+        "total_vitimas": [1],
+        "acidente_fatal": [1],
+    })
+
+    causas = pd.DataFrame({
+        "id": [10, 10],
+        "causa_acidente": [
+            "Reação tardia ou ineficiente do condutor",
+            "Ausência de reação do condutor",
+        ],
+    })
+
+    res = analyze_visibility_and_reaction(ocorrencias, causas)
+    ranking = res["ranking_causas"]
+    assert len(ranking) == 2
+    # Cada causa lista 1 ocorrência e 1 morto
+    assert ranking[ranking["causa_normalizada"] == "Reação tardia ou ineficiente do condutor"]["total_ocorrencias"].iloc[0] == 1
+    assert ranking[ranking["causa_normalizada"] == "Ausência de reação do condutor"]["total_ocorrencias"].iloc[0] == 1
+    # Óbitos por 100 acidentes nesta causa é 100.0
+    assert ranking[ranking["causa_normalizada"] == "Reação tardia ou ineficiente do condutor"]["obitos_por_100"].iloc[0] == 100.0
+
 

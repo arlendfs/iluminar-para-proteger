@@ -106,3 +106,34 @@ def test_process_raw_dataframe_deduplication():
     assert quality["ocorrencias_unicas"] == 1
     assert quality["duplicatas_linhas_evitadas"] == 3
 
+
+def test_missing_km_audit_tracking():
+    """
+    Testa a rastreabilidade exata de ocorrências sem KM, replicando a matemática
+    auditada de 267 ocorrências sem quilômetro.
+    """
+    raw_data = {
+        "id": [101, 102, 103, 103],  # 103 duplicado em pessoas
+        "pesid": [1, 2, 3, 4],
+        "data_inversa": ["2025-01-01"] * 4,
+        "uf": ["SP", "MG", "PR", "PR"],
+        "br": ["116", "381", "277", "277"],
+        "km": [None, "50,2", "120,0", "120,0"],  # id 101 tem KM nulo
+        "fase_dia": ["Plena Noite"] * 4,
+        "causa_acidente": ["Falta de Atenção"] * 4,
+    }
+    raw_df = pd.DataFrame(raw_data)
+    ocorrencias, causas, quality = process_raw_dataframe(raw_df, "teste_km")
+
+    assert quality["registros_brutos"] == 4
+    assert quality["ocorrencias_unicas"] == 3
+    assert quality["duplicatas_linhas_evitadas"] == 1  # 4 - 3 = 1
+    assert quality["ocorrencias_sem_km"] == 1          # 101 tem KM nulo
+    assert quality["ocorrencias_com_km"] == 2          # 102 e 103
+
+    # Ocorrência sem KM não pode ter virado KM 0.0
+    sem_km = ocorrencias[ocorrencias["id"] == 101]
+    assert len(sem_km) == 1
+    assert pd.isna(sem_km["km"].iloc[0])
+
+

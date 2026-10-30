@@ -508,7 +508,7 @@ class ReportGenerator:
         <b>Dimensionamento Físico:</b> Segmentos de 2,0 km com espaçamento de {espacamento} m entre postes:<br/>
         • Postes por Trecho: `2.000 m / {espacamento} m = {postes_por_trecho} postes` | Total ({n_trechos_analisados} Trechos): <b>{total_postes:,} postes solares</b>.<br/>
         <b>Balanço Energético Auditado para 3 Noites de Autonomia:</b><br/>
-        • <b>Consumo Noturno com Dimerização:</b> Luminária LED 60W com perfil inteligente (4h pico a 100% = 240 Wh; 7h repouso a 20% com radar de micro-ondas = 196 Wh; 1h matutino a 50% = 30 Wh) $\implies$ <b>{ENGENHARIA_SISTEMA_SOLAR['consumo_noturno_ponderado_wh']:.0f} Wh por noite</b>.<br/>
+        • <b>Consumo Noturno com Dimerização:</b> Luminária LED 60W com perfil inteligente (4h pico a 100% = 240 Wh; 7h repouso a 20% com radar de micro-ondas = 196 Wh; 1h matutino a 50% = 30 Wh) &rarr; <b>{ENGENHARIA_SISTEMA_SOLAR['consumo_noturno_ponderado_wh']:.0f} Wh por noite</b>.<br/>
         • <b>Capacidade da Bateria:</b> LiFePO4 de <b>24V / 80Ah ({ENGENHARIA_SISTEMA_SOLAR['energia_nominal_bateria_wh']:.0f} Wh nominais)</b> ou 12V / 160Ah. Com profundidade de descarga de 80% e perdas de cabeamento/MPPT de 10%: `Energia Útil = {ENGENHARIA_SISTEMA_SOLAR['energia_disponivel_consumo_wh']:.1f} Wh`.<br/>
         • <b>Autonomia Efetiva:</b> `{ENGENHARIA_SISTEMA_SOLAR['energia_disponivel_consumo_wh']:.1f} Wh / {ENGENHARIA_SISTEMA_SOLAR['consumo_noturno_ponderado_wh']:.0f} Wh = {ENGENHARIA_SISTEMA_SOLAR['autonomia_sustentada_noites']:.2f} noites` (sustenta tecnicamente as 3 noites sem sol).<br/>
         • <b>Geração Solar:</b> Módulo fotovoltaico de <b>300W</b> gerando `{ENGENHARIA_SISTEMA_SOLAR['geracao_solar_diaria_wh']:.1f} Wh/dia` a 4,5 HSP, repondo o consumo da noite e recarregando a reserva de autonomia.
@@ -570,7 +570,7 @@ class ReportGenerator:
         <b>Memória de Cálculo das 45,8 Vidas Salvas por Ano:</b><br/>
         1. <b>Acúmulo Histórico:</b> Nos 100 trechos prioritários selecionados, foram registrados <b>{mortos_top} óbitos noturnos</b> durante o horizonte de {anos_base:.1f} anos analisados.<br/>
         2. <b>Taxa Anualizada Baseline:</b> `{mortos_top} óbitos / {anos_base:.1f} anos = {mortos_top / anos_base:.1f} óbitos noturnos por ano`.<br/>
-        3. <b>Fator de Redução (FHWA):</b> 35% de redução esperada com iluminação viária $\implies$ `{mortos_top / anos_base:.1f} × 0,35 = {vidas_salvas:.1f} vidas salvas por ano`.<br/>
+        3. <b>Fator de Redução (FHWA):</b> 35% de redução esperada com iluminação viária &rarr; `{mortos_top / anos_base:.1f} × 0,35 = {vidas_salvas:.1f} vidas salvas por ano`.<br/>
         4. <b>Valoração IPEA/PRF:</b> Vidas salvas ({format_pt_br_currency(vidas_salvas * ECONOMIC_VALUES['valor_vida_estatistica'])}) + Graves evitados ({format_pt_br_currency(fin.get('economia_graves', 0.0))}) + Leves evitados ({format_pt_br_currency(fin.get('economia_leves', 0.0))}) = <b>Benefício Social Bruto de {format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
         5. <b>Custos Operacionais (OPEX):</b> Manutenção preventiva (R$ 500/poste/ano) + reserva para reposição de baterias a cada 5 anos (R$ 3.800/un nos anos 5 e 10) = <b>R$ 3,87 milhões/ano</b>.<br/>
         6. <b>Benefício Líquido Anual:</b> `{format_pt_br_currency(beneficio_anual)} - R$ 3,87M = {format_pt_br_currency(beneficio_liq)}`.<br/>

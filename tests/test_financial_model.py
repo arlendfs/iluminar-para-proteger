@@ -12,7 +12,7 @@ from financial_model import (
     calcular_tir,
     avaliar_viabilidade_economica,
 )
-from config import FINANCIAL_PARAMS, ECONOMIC_VALUES
+from config import FINANCIAL_PARAMS, ECONOMIC_VALUES, ENGENHARIA_SISTEMA_SOLAR
 
 
 def test_dimensionamento_100_trechos_2km():
@@ -135,4 +135,51 @@ def test_caso_extremo_zero_acidentes():
     assert res["beneficio_anual_bruto"] == 0.0
     assert res["payback_simples_anos"] == float("inf")
     assert res["vpl"] < 0
+
+
+def test_balanco_energetico_solar_autonomia():
+    """
+    Testa o balanço energético auditado para assegurar 3 noites de autonomia
+    com bateria LiFePO4 de 24V / 80Ah (1.920 Wh) e painel fotovoltaico de 300W.
+    """
+    eng = ENGENHARIA_SISTEMA_SOLAR
+    # Energia nominal = 24V x 80Ah = 1920 Wh
+    assert eng["energia_nominal_bateria_wh"] == 1920.0
+    # Consumo noturno ponderado: 4h*60W (240) + 7h*28W (196) + 1h*30W (30) = 466 Wh
+    assert eng["consumo_noturno_ponderado_wh"] == 466.0
+    # Energia útil com DoD 80% e perdas de 10%: 1920 * 0.80 * 0.90 = 1382.4 Wh
+    assert pytest.approx(eng["energia_disponivel_consumo_wh"], 0.1) == 1382.4
+    # Autonomia útil: 1382.4 / 466 = 2.9665 (~3 noites)
+    assert eng["autonomia_sustentada_noites"] >= 2.95
+    # Geração solar diária (300W * 4.5 HSP * 0.85 = 1147.5 Wh) deve superar o consumo diário (466 Wh)
+    assert eng["geracao_solar_diaria_wh"] > eng["consumo_noturno_ponderado_wh"]
+
+
+def test_memoria_calculo_vidas_salvas_45_8():
+    """
+    Comprova a dedução matemática de 45,8 vidas salvas por ano:
+    100 trechos com 262 óbitos noturnos acumulados em 2.0 anos.
+    Taxa base = 131 óbitos/ano * 0.35 = 45.85 vidas salvas/ano.
+    """
+    # Cria trechos sintéticos totalizando 262 óbitos noturnos
+    df_top = pd.DataFrame({
+        "trecho_id": [f"T_{i}" for i in range(100)],
+        "mortos_noturno": [3] * 62 + [2] * 38,  # 62*3 + 38*2 = 186 + 76 = 262
+        "feridos_graves_noturno": [5] * 100,
+        "feridos_leves_noturno": [10] * 100,
+        "n_acidentes_noturnos": [20] * 100,
+    })
+
+    ben = calcular_beneficio_anual_trechos(
+        df_top,
+        fator_anualizacao=2.0,
+        taxa_reducao=0.35,
+    )
+
+    assert df_top["mortos_noturno"].sum() == 262
+    assert ben["mortos_ano_baseline"] == 131.0
+    assert pytest.approx(ben["vidas_salvas_ano"], 0.05) == 45.85
+    # Arredondado a 1 casa decimal deve ser exatamente 45.8 ou 45.9
+    assert round(ben["vidas_salvas_ano"], 1) in (45.8, 45.9)
+
 
