@@ -3,21 +3,48 @@ Arquivo de configuração para o sistema Iluminar para Proteger.
 Define constantes, parâmetros de cálculo, engenharia e configurações do sistema.
 """
 
+import os
+import time
 from pathlib import Path
+from typing import Optional
 
 # =============================================================================
 # CONFIGURAÇÕES GERAIS E DIRETÓRIOS
 # =============================================================================
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 TEMP_DIR = BASE_DIR / "temp"
 REPORTS_DIR = BASE_DIR / "reports"
 PARQUET_SAMPLES_DIR = BASE_DIR / "parquet_samples"
 
 # Criar diretórios se não existirem
-for directory in [DATA_DIR, TEMP_DIR, REPORTS_DIR]:
+for directory in [DATA_DIR, TEMP_DIR, REPORTS_DIR, PARQUET_SAMPLES_DIR]:
     directory.mkdir(exist_ok=True)
+
+
+def get_current_rss_mb() -> float:
+    """
+    Retorna o consumo de memória RSS atual do processo em megabytes (MB).
+    """
+    try:
+        import psutil
+        return psutil.Process().memory_info().rss / (1024.0 * 1024.0)
+    except Exception:
+        return 0.0
+
+
+def log_memory_checkpoint(stage: str, start_time: Optional[float] = None) -> float:
+    """
+    Registra consumo de memória e tempo de execução sem expor dados pessoais.
+    """
+    rss = get_current_rss_mb()
+    if start_time is not None:
+        elapsed = time.time() - start_time
+        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | Duração: {elapsed:.2f}s | RSS: {rss:.1f} MB")
+    else:
+        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | RSS: {rss:.1f} MB")
+    return rss
 
 APP_CONFIG = {
     "title": "Iluminar para Proteger",

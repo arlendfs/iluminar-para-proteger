@@ -7,6 +7,7 @@ Mantém compatibilidade total com a interface do Streamlit e relatórios.
 import os
 import re
 import gc
+import time
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 import numpy as np
@@ -19,6 +20,8 @@ from config import (
     DEFAULT_SPACING_M,
     DEFAULT_COMPRIMENTO_TRECHO_KM,
     DEFAULT_TRECHOS_TOP_N,
+    log_memory_checkpoint,
+    get_current_rss_mb,
 )
 from data_loader import process_raw_dataframe
 from segmentation import create_road_segments, rank_segments
@@ -30,6 +33,7 @@ class AccidentAnalyzer:
     """
     Classe controladora da análise de acidentes rodoviários da PRF.
     Preserva dados brutos, dados em nível de ocorrência, pessoas, veículos e causas.
+    Implementa processamento incremental para estabilidade de memória no Streamlit Cloud.
     """
 
     def __init__(self):
@@ -46,116 +50,267 @@ class AccidentAnalyzer:
         self.financial_analysis: Optional[Dict[str, Any]] = None
         self.visibility_analysis: Optional[Dict[str, Any]] = None
 
+    def _consolidate_incremental_tables(
+        self,
+        all_oc: List[pd.DataFrame],
+        all_pes: List[pd.DataFrame],
+        all_veic: List[pd.DataFrame],
+        all_caus: List[pd.DataFrame],
+        all_qual: List[Dict[str, Any]],
+        source_name: str,
+    ) -> Optional[pd.DataFrame]:
+        """
+        Consolida tabelas relacionais de múltiplos arquivos mantendo desduplicação global.
+        Libera referências intermediárias e coleta lixo para estabilidade de RAM.
+        """
+        if not all_oc:
+            return None
+
+        t0 = time.time()
+        log_memory_checkpoint("Iniciando consolidação relacional global")
+
+        # 1. Concatenação e desduplicação global de ocorrências por ID
+        ocorrencias = pd.concat(all_oc, ignore_index=True).drop_duplicates(subset=["id"])
+        del all_oc
+        gc.collect()
+
+        # 2. Concatenação e desduplicação global de pessoas por (id, pesid)
+        if all_pes:
+            pessoas = pd.concat(all_pes, ignore_index=True).drop_duplicates(subset=["id", "pesid"])
+            del all_pes
+        else:
+            pessoas = pd.DataFrame()
+        gc.collect()
+
+        # 3. Concatenação e desduplicação global de veículos por (id, id_veiculo)
+        if all_veic:
+            veiculos = pd.concat(all_veic, ignore_index=True).drop_duplicates(subset=["id", "id_veiculo"])
+            del all_veic
+        else:
+            veiculos = pd.DataFrame()
+        gc.collect()
+
+        # 4. Concatenação e desduplicação global de causas
+        if all_caus:
+            causas = pd.concat(all_caus, ignore_index=True).drop_duplicates()
+            del all_caus
+        else:
+            causas = pd.DataFrame()
+        gc.collect()
+
+        # 5. Consolidação estatística do Resumo de Qualidade
+        total_linhas_brutas = sum(q.get("registros_brutos", 0) for q in all_qual)
+        total_ocorrencias = len(ocorrencias)
+        total_pessoas = len(pessoas)
+        total_veiculos = len(veiculos)
+        desdobramentos = total_linhas_brutas - total_ocorrencias
+
+        com_km_count = int(ocorrencias["km_limpo"].notna().sum()) if "km_limpo" in ocorrencias.columns else 0
+        sem_km_count = total_ocorrencias - com_km_count
+        sem_km_df = ocorrencias[ocorrencias["km_limpo"].isna()] if "km_limpo" in ocorrencias.columns else pd.DataFrame()
+        mortos_sem_km = int(sem_km_df["mortos"].sum()) if not sem_km_df.empty and "mortos" in sem_km_df.columns else 0
+        feridos_sem_km = int(sem_km_df["total_feridos"].sum()) if not sem_km_df.empty and "total_feridos" in sem_km_df.columns else 0
+
+        com_geo_count = int((ocorrencias["latitude_limpa"].notna() & ocorrencias["longitude_limpa"].notna()).sum()) if ("latitude_limpa" in ocorrencias.columns and "longitude_limpa" in ocorrencias.columns) else 0
+        sem_geo_count = total_ocorrencias - com_geo_count
+
+        total_mortos = int(ocorrencias["mortos"].sum()) if "mortos" in ocorrencias.columns else 0
+        total_graves = int(ocorrencias["feridos_graves"].sum()) if "feridos_graves" in ocorrencias.columns else 0
+        total_leves = int(ocorrencias["feridos_leves"].sum()) if "feridos_leves" in ocorrencias.columns else 0
+        total_feridos = int(ocorrencias["total_feridos"].sum()) if "total_feridos" in ocorrencias.columns else 0
+        acidentes_fatais = int(ocorrencias["acidente_fatal"].sum()) if "acidente_fatal" in ocorrencias.columns else 0
+
+        # Estatísticas de idade agregadas
+        idades_validas_count = int(pessoas["idade_valida_flag"].sum()) if "idade_valida_flag" in pessoas.columns else 0
+        idades_invalidas_count = total_pessoas - idades_validas_count
+        idades_maior_110 = sum(q.get("idades_superiores_110_anos", 0) for q in all_qual)
+
+        # Mortos por tipo de envolvimento
+        mortos_envolvidos = (
+            pessoas[pessoas["mortos"] > 0]["tipo_envolvido"].value_counts().to_dict()
+            if "tipo_envolvido" in pessoas.columns else {}
+        )
+
+        anos_presentes = sorted([int(a) for a in ocorrencias["ano"].dropna().unique()]) if "ano" in ocorrencias.columns else []
+        anos_incompletos = []
+        if "ano" in ocorrencias.columns and "mes" in ocorrencias.columns:
+            for a in anos_presentes:
+                meses = ocorrencias[ocorrencias["ano"] == a]["mes"].dropna().unique()
+                if len(meses) < 12 and a >= 2024:
+                    anos_incompletos.append((a, sorted(list(meses))))
+
+        # Agregar divergências de classificação auditadas
+        todas_divergencias = []
+        for q in all_qual:
+            todas_divergencias.extend(q.get("divergencias_classificacao", []))
+
+        quality_summary = {
+            "arquivo_origem": source_name,
+            "registros_brutos": total_linhas_brutas,
+            "ocorrencias_unicas": total_ocorrencias,
+            "pessoas_unicas_pesid": total_pessoas,
+            "linhas_sem_pesid": sum(q.get("linhas_sem_pesid", 0) for q in all_qual),
+            "veiculos_unicos": total_veiculos,
+            "desdobramentos_consolidados": desdobramentos,
+            "duplicatas_linhas_evitadas": desdobramentos,
+            "taxa_consolidacao": (total_linhas_brutas / total_ocorrencias) if total_ocorrencias > 0 else 1.0,
+            "ocorrencias_com_km": com_km_count,
+            "ocorrencias_sem_km": sem_km_count,
+            "mortos_sem_km": mortos_sem_km,
+            "feridos_sem_km": feridos_sem_km,
+            "perc_com_km": (com_km_count / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+            "ocorrencias_com_geo": com_geo_count,
+            "ocorrencias_sem_geo": sem_geo_count,
+            "perc_com_geo": (com_geo_count / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+            "total_mortos_real": total_mortos,
+            "total_feridos_graves_real": total_graves,
+            "total_feridos_leves_real": total_leves,
+            "total_feridos_real": total_feridos,
+            "acidentes_fatais_real": acidentes_fatais,
+            "taxa_acidentes_fatais_pct": (acidentes_fatais / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+            "obitos_por_100_acidentes": (total_mortos / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+            "idades_validas": idades_validas_count,
+            "idades_inconsistentes_ou_ausentes": idades_invalidas_count,
+            "idades_superiores_110_anos": idades_maior_110,
+            "divergencias_classificacao": todas_divergencias,
+            "mortos_por_envolvimento": mortos_envolvidos,
+            "anos_presentes": anos_presentes,
+            "anos_incompletos": anos_incompletos,
+            "data_minima": str(ocorrencias["data_inversa"].min()) if "data_inversa" in ocorrencias.columns else "N/A",
+            "data_maxima": str(ocorrencias["data_inversa"].max()) if "data_inversa" in ocorrencias.columns else "N/A",
+        }
+
+        self.data = ocorrencias
+        self.pessoas_data = pessoas
+        self.veiculos_data = veiculos
+        self.causas_data = causas
+        self.quality_summary = quality_summary
+        self.filtered_data = ocorrencias
+        self.filtered_pessoas = pessoas
+        self.filtered_veiculos = veiculos
+        self.filtered_causas = causas
+
+        log_memory_checkpoint("Consolidação concluída", start_time=t0)
+        return self.data
+
     def load_local_files(self, data_dir: str, local_files: List[str]) -> Optional[pd.DataFrame]:
         """
-        Carrega arquivos da pasta local com validação, deduplicação e controle de memória.
+        Carrega arquivos da pasta local de forma estritamente incremental:
+        Lê e extrai tabelas normalizadas arquivo por arquivo, descartando DataFrames
+        brutos imediatamente para respeitar o limite de 1 GB de RAM do Streamlit Cloud.
         """
-        all_raw_dfs = []
-        st.info(f"📁 Carregando {len(local_files)} arquivo(s) da pasta {data_dir}...")
+        if not local_files:
+            return None
+
+        all_oc, all_pes, all_veic, all_caus, all_qual = [], [], [], [], []
+        progress_bar = st.progress(0, text="Processando arquivos...")
+        status_text = st.empty()
 
         for idx, filename in enumerate(local_files, start=1):
             filepath = os.path.join(data_dir, filename)
+            status_text.text(f"Lendo e desduplicando [{idx}/{len(local_files)}]: {filename}...")
+            t_file = time.time()
+            log_memory_checkpoint(f"Início processamento arquivo: {filename}")
+
             try:
                 if filename.lower().endswith(".parquet"):
                     df = pd.read_parquet(filepath)
                     df["source_file"] = filename
-                    all_raw_dfs.append(df)
-                    st.success(f"✅ [{idx}/{len(local_files)}] {filename}: {len(df):,} linhas carregadas (Parquet)")
                 elif filename.lower().endswith(".csv"):
                     try:
                         df = pd.read_csv(filepath, sep=";", encoding="latin1", low_memory=False)
                     except Exception:
                         df = pd.read_csv(filepath, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
                     df["source_file"] = filename
-                    all_raw_dfs.append(df)
-                    st.success(f"✅ [{idx}/{len(local_files)}] {filename}: {len(df):,} linhas carregadas (CSV)")
+                else:
+                    continue
+
+                # Processa o arquivo individualmente gerando tabelas compactadas
+                oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
+                
+                # Descarte imediato do DataFrame bruto da memória
+                del df
+                gc.collect()
+
+                all_oc.append(oc)
+                all_pes.append(pes)
+                all_veic.append(veic)
+                all_caus.append(caus)
+                all_qual.append(qual)
+
+                log_memory_checkpoint(f"Concluído arquivo {filename}", start_time=t_file)
+
             except Exception as e:
-                st.error(f"❌ Erro ao ler {filename}: {str(e)}")
+                st.error(f"❌ Erro ao processar {filename}: {str(e)}")
 
-        if not all_raw_dfs:
-            return None
+            progress_bar.progress(int(idx / len(local_files) * 90))
 
-        combined_raw = pd.concat(all_raw_dfs, ignore_index=True)
-        del all_raw_dfs
-        gc.collect()
+        status_text.text("Consolidando tabelas relacionais globais...")
+        res = self._consolidate_incremental_tables(all_oc, all_pes, all_veic, all_caus, all_qual, ", ".join(local_files))
+        progress_bar.progress(100)
+        status_text.empty()
+        progress_bar.empty()
 
-        # Processamento, limpeza e desduplicação preservando modelo relacional
-        res = process_raw_dataframe(combined_raw, source_name=", ".join(local_files), return_relational=True)
-        ocorrencias, pessoas, veiculos, causas, quality = res
-        del combined_raw
-        gc.collect()
-
-        self.data = ocorrencias
-        self.pessoas_data = pessoas
-        self.veiculos_data = veiculos
-        self.causas_data = causas
-        self.quality_summary = quality
-        self.filtered_data = ocorrencias.copy()
-        self.filtered_pessoas = pessoas.copy() if pessoas is not None else pd.DataFrame()
-        self.filtered_veiculos = veiculos.copy() if veiculos is not None else pd.DataFrame()
-        self.filtered_causas = causas.copy() if causas is not None else pd.DataFrame()
-
-        desdobramentos = quality.get("desdobramentos_consolidados", quality.get("duplicatas_linhas_evitadas", 0))
-        st.success(
-            f"✅ Processamento concluído: {quality['ocorrencias_unicas']:,} ocorrências únicas identificadas "
-            f"a partir de {quality['registros_brutos']:,} registros brutos ({desdobramentos:,} desdobramentos de pessoas/veículos/causas consolidados)."
-        )
-
-        return self.data
+        if res is not None:
+            qual = self.quality_summary
+            st.success(
+                f"✅ Processamento incremental concluído: {qual['ocorrencias_unicas']:,} ocorrências únicas "
+                f"a partir de {qual['registros_brutos']:,} registros brutos ({qual['desdobramentos_consolidados']:,} desdobramentos consolidados)."
+            )
+        return res
 
     def load_data(self, files: List[Any]) -> Optional[pd.DataFrame]:
         """
-        Carrega arquivos enviados pelo usuário (upload Streamlit).
+        Carrega arquivos enviados por upload de forma incremental:
+        processa arquivo a arquivo e libera os brutos imediatamente da RAM.
         """
-        all_raw_dfs = []
-        file_names = []
-
-        with st.expander("📋 Detalhes do carregamento", expanded=False):
-            for idx, file in enumerate(files, start=1):
-                filename = getattr(file, "name", f"arquivo_{idx}")
-                file_names.append(filename)
-                try:
-                    if filename.lower().endswith(".parquet"):
-                        df = pd.read_parquet(file)
-                        df["source_file"] = filename
-                        all_raw_dfs.append(df)
-                        st.write(f"✅ [{idx}/{len(files)}] {filename}: {len(df):,} linhas (Parquet)")
-                    elif filename.lower().endswith(".csv"):
-                        try:
-                            df = pd.read_csv(file, sep=";", encoding="latin1", low_memory=False)
-                        except Exception:
-                            file.seek(0)
-                            df = pd.read_csv(file, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
-                        df["source_file"] = filename
-                        all_raw_dfs.append(df)
-                        st.write(f"✅ [{idx}/{len(files)}] {filename}: {len(df):,} linhas (CSV)")
-                except Exception as e:
-                    st.error(f"❌ Erro ao ler {filename}: {str(e)}")
-
-        if not all_raw_dfs:
-            st.warning("⚠️ Nenhum dado válido foi carregado.")
+        if not files:
             return None
 
-        combined_raw = pd.concat(all_raw_dfs, ignore_index=True)
-        del all_raw_dfs
-        gc.collect()
+        all_oc, all_pes, all_veic, all_caus, all_qual = [], [], [], [], []
+        file_names = []
+        progress_bar = st.progress(0, text="Processando arquivos enviados...")
 
-        res = process_raw_dataframe(combined_raw, source_name=", ".join(file_names), return_relational=True)
-        ocorrencias, pessoas, veiculos, causas, quality = res
-        del combined_raw
-        gc.collect()
+        for idx, file in enumerate(files, start=1):
+            filename = getattr(file, "name", f"upload_{idx}")
+            file_names.append(filename)
+            t_file = time.time()
+            log_memory_checkpoint(f"Início upload: {filename}")
 
-        self.data = ocorrencias
-        self.pessoas_data = pessoas
-        self.veiculos_data = veiculos
-        self.causas_data = causas
-        self.quality_summary = quality
-        self.filtered_data = ocorrencias.copy()
-        self.filtered_pessoas = pessoas.copy() if pessoas is not None else pd.DataFrame()
-        self.filtered_veiculos = veiculos.copy() if veiculos is not None else pd.DataFrame()
-        self.filtered_causas = causas.copy() if causas is not None else pd.DataFrame()
+            try:
+                if filename.lower().endswith(".parquet"):
+                    df = pd.read_parquet(file)
+                    df["source_file"] = filename
+                elif filename.lower().endswith(".csv"):
+                    try:
+                        df = pd.read_csv(file, sep=";", encoding="latin1", low_memory=False)
+                    except Exception:
+                        file.seek(0)
+                        df = pd.read_csv(file, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
+                    df["source_file"] = filename
+                else:
+                    continue
 
-        return self.data
+                oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
+                del df
+                gc.collect()
+
+                all_oc.append(oc)
+                all_pes.append(pes)
+                all_veic.append(veic)
+                all_caus.append(caus)
+                all_qual.append(qual)
+                log_memory_checkpoint(f"Concluído upload {filename}", start_time=t_file)
+
+            except Exception as e:
+                st.error(f"❌ Erro ao ler upload {filename}: {str(e)}")
+
+            progress_bar.progress(int(idx / len(files) * 90))
+
+        res = self._consolidate_incremental_tables(all_oc, all_pes, all_veic, all_caus, all_qual, ", ".join(file_names))
+        progress_bar.progress(100)
+        progress_bar.empty()
+        return res
 
     def apply_filters(self, df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
         """
@@ -208,12 +363,15 @@ class AccidentAnalyzer:
         if filters.get("condicao_meteorologica") and "condicao_metereologica" in df.columns:
             mask &= df["condicao_metereologica"].isin(filters["condicao_meteorologica"])
 
-        filtered_df = df[mask].copy()
+        filtered_df = df if mask.all() else df[mask]
         ids_validos = set(filtered_df["id"]) if "id" in filtered_df.columns else set()
 
         # Filtrar causas pelos IDs válidos
         if self.causas_data is not None and not self.causas_data.empty and ids_validos:
-            self.filtered_causas = self.causas_data[self.causas_data["id"].isin(ids_validos)].copy()
+            if len(filtered_df) == len(df):
+                self.filtered_causas = self.causas_data
+            else:
+                self.filtered_causas = self.causas_data[self.causas_data["id"].isin(ids_validos)]
         else:
             self.filtered_causas = pd.DataFrame()
 
@@ -223,18 +381,24 @@ class AccidentAnalyzer:
             ids_com_causa = set(
                 self.filtered_causas[self.filtered_causas["causa_acidente"].isin(causas_sel)]["id"]
             )
-            filtered_df = filtered_df[filtered_df["id"].isin(ids_com_causa)].copy()
-            self.filtered_causas = self.filtered_causas[self.filtered_causas["id"].isin(ids_com_causa)].copy()
+            filtered_df = filtered_df[filtered_df["id"].isin(ids_com_causa)]
+            self.filtered_causas = self.filtered_causas[self.filtered_causas["id"].isin(ids_com_causa)]
             ids_validos = set(filtered_df["id"])
 
         # Filtrar pessoas e veículos pelos IDs válidos de ocorrência
         if self.pessoas_data is not None and not self.pessoas_data.empty and ids_validos:
-            self.filtered_pessoas = self.pessoas_data[self.pessoas_data["id"].isin(ids_validos)].copy()
+            if len(filtered_df) == len(df):
+                self.filtered_pessoas = self.pessoas_data
+            else:
+                self.filtered_pessoas = self.pessoas_data[self.pessoas_data["id"].isin(ids_validos)]
         else:
             self.filtered_pessoas = pd.DataFrame()
 
         if self.veiculos_data is not None and not self.veiculos_data.empty and ids_validos:
-            self.filtered_veiculos = self.veiculos_data[self.veiculos_data["id"].isin(ids_validos)].copy()
+            if len(filtered_df) == len(df):
+                self.filtered_veiculos = self.veiculos_data
+            else:
+                self.filtered_veiculos = self.veiculos_data[self.veiculos_data["id"].isin(ids_validos)]
         else:
             self.filtered_veiculos = pd.DataFrame()
 

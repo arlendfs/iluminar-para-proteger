@@ -194,7 +194,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 hole=0.4,
             )
             fig_fases.update_traces(textinfo="percent+label", hovertemplate="<b>%{label}</b><br>Acidentes: %{value:,}<br>Part.: %{percent:.1%}")
-            st.plotly_chart(fig_fases, use_container_width=True)
+            st.plotly_chart(fig_fases)
 
     with col_g2:
         if tabela_oficial is not None and not tabela_oficial.empty:
@@ -213,7 +213,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 },
             )
             fig_bar_let.update_traces(hovertemplate="<b>%{x}</b><br>Óbitos/100 Ac.: %{y:.2f}")
-            st.plotly_chart(fig_bar_let, use_container_width=True)
+            st.plotly_chart(fig_bar_let)
 
     # Tabela detalhada de indicadores por período
     if tabela_oficial is not None and not tabela_oficial.empty:
@@ -235,7 +235,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 "vitimas_por_100_acidentes": st.column_config.NumberColumn("Vítimas / 100 Ac.", format="%.2f"),
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
     st.markdown("---")
@@ -279,7 +279,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         xaxis_tickangle=-30,
                         height=420,
                     )
-                    st.plotly_chart(fig_reacao, use_container_width=True)
+                    st.plotly_chart(fig_reacao)
 
         with col_v2:
             st.html(
@@ -314,7 +314,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"]},
                 )
                 fig_meteo.update_layout(xaxis_tickangle=-25)
-                st.plotly_chart(fig_meteo, use_container_width=True)
+                st.plotly_chart(fig_meteo)
 
         with cm2:
             if not pista_strat.empty:
@@ -328,7 +328,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     labels={"tipo_pista": "Tipo de Pista", "n_acidentes": "Acidentes"},
                     color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"]},
                 )
-                st.plotly_chart(fig_pista, use_container_width=True)
+                st.plotly_chart(fig_pista)
 
     st.markdown("---")
 
@@ -358,7 +358,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             labels={"ano_mes": "Mês", "n_acidentes": "Acidentes", "fase_dia_agrupada": "Período"},
             color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"], "Crepúsculo": COLOR_PALETTE["warning"]},
         )
-        st.plotly_chart(fig_temp, use_container_width=True)
+        st.plotly_chart(fig_temp)
 
     elif len(anos_presentes) > 1:
         tab_ano, tab_mes = st.tabs(["📅 Evolução Anual", "📊 Evolução Mensal Detalhada"])
@@ -379,7 +379,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"], "Crepúsculo": COLOR_PALETTE["warning"]},
             )
             fig_ano.update_layout(xaxis_type="category")
-            st.plotly_chart(fig_ano, use_container_width=True)
+            st.plotly_chart(fig_ano)
 
         with tab_mes:
             if tem_multiplos_meses:
@@ -398,7 +398,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     labels={"ano_mes": "Ano-Mês", "n_acidentes": "Acidentes"},
                     color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"], "Crepúsculo": COLOR_PALETTE["warning"]},
                 )
-                st.plotly_chart(fig_mes, use_container_width=True)
+                st.plotly_chart(fig_mes)
 
     st.markdown("---")
 
@@ -446,7 +446,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         },
                         barmode="stack",
                     )
-                    st.plotly_chart(fig_env, use_container_width=True)
+                    st.plotly_chart(fig_env)
 
                 with col_e2:
                     fig_taxa_env = px.bar(
@@ -457,7 +457,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         labels={"taxa_mortalidade_pct": "Mortalidade (%)", "tipo_envolvido": "Envolvimento"},
                         color="tipo_envolvido",
                     )
-                    st.plotly_chart(fig_taxa_env, use_container_width=True)
+                    st.plotly_chart(fig_taxa_env)
 
                 st.dataframe(
                     tbl_env[[
@@ -475,7 +475,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         "prop_total_mortos_pct": st.column_config.NumberColumn("Part. nos Óbitos (%)", format="%.2f%%"),
                     },
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 if not cruz_env.empty and "fase_dia_oficial" in cruz_env.columns:
@@ -495,7 +495,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                             "Anoitecer": COLOR_PALETTE["anoitecer"],
                         },
                     )
-                    st.plotly_chart(fig_cruz_env, use_container_width=True)
+                    st.plotly_chart(fig_cruz_env)
         else:
             st.info("ℹ️ Dados de pessoas não disponíveis para os filtros atuais.")
 
@@ -523,7 +523,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         color="faixa_etaria",
                     )
                     fig_faixa.update_layout(showlegend=False, xaxis_tickangle=-25)
-                    st.plotly_chart(fig_faixa, use_container_width=True)
+                    st.plotly_chart(fig_faixa)
 
                 with col_i2:
                     fig_obitos_faixa = px.bar(
@@ -536,14 +536,14 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         color_continuous_scale="Reds",
                     )
                     fig_obitos_faixa.update_layout(coloraxis_showscale=False, xaxis_tickangle=-25)
-                    st.plotly_chart(fig_obitos_faixa, use_container_width=True)
+                    st.plotly_chart(fig_obitos_faixa)
 
                 st.markdown("##### 📊 Estatísticas Descritivas de Idade por Nível de Severidade")
                 if not tbl_estat.empty:
                     st.dataframe(
                         tbl_estat,
                         hide_index=True,
-                        use_container_width=True,
+                        width="stretch",
                     )
         else:
             st.info("ℹ️ Dados de idade não disponíveis.")
@@ -563,7 +563,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         title="Distribuição de Envolvidos por Sexo",
                         hole=0.4,
                     )
-                    st.plotly_chart(fig_sexo_p, use_container_width=True)
+                    st.plotly_chart(fig_sexo_p)
 
                 with col_s2:
                     fig_sexo_m = px.bar(
@@ -574,7 +574,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         labels={"taxa_mortalidade_pct": "Mortalidade (%)", "sexo": "Sexo"},
                         color="sexo",
                     )
-                    st.plotly_chart(fig_sexo_m, use_container_width=True)
+                    st.plotly_chart(fig_sexo_m)
 
                 st.dataframe(
                     tbl_sexo[[
@@ -592,7 +592,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         "prop_total_mortos_pct": st.column_config.NumberColumn("Part. nos Óbitos (%)", format="%.2f%%"),
                     },
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                 )
         else:
             st.info("ℹ️ Dados de sexo não disponíveis.")
@@ -612,7 +612,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     color_continuous_scale="Blues",
                 )
                 fig_v.update_layout(coloraxis_showscale=False, xaxis_tickangle=-30)
-                st.plotly_chart(fig_v, use_container_width=True)
+                st.plotly_chart(fig_v)
 
                 st.dataframe(
                     tbl_veic,
@@ -626,7 +626,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         "taxa_letalidade_ocupante_pct": st.column_config.NumberColumn("Letalidade Ocupante (%)", format="%.2f%%"),
                     },
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                 )
         else:
             st.info("ℹ️ Dados de frota veicular não disponíveis.")
@@ -650,7 +650,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     color_continuous_scale="Reds",
                 )
                 fig_tipo_acid.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
-                st.plotly_chart(fig_tipo_acid, use_container_width=True)
+                st.plotly_chart(fig_tipo_acid)
 
             with col_t2:
                 fig_tipo_taxa = px.bar(
@@ -663,7 +663,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     color_continuous_scale="Oranges",
                 )
                 fig_tipo_taxa.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
-                st.plotly_chart(fig_tipo_taxa, use_container_width=True)
+                st.plotly_chart(fig_tipo_taxa)
 
             st.dataframe(
                 tbl_tipo[[
@@ -681,7 +681,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     "prop_acidentes_fatais_pct": st.column_config.NumberColumn("% Fatais", format="%.2f%%"),
                 },
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
 
             if not cruz_tipo.empty and "fase_dia_oficial" in cruz_tipo.columns:
@@ -704,7 +704,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     },
                 )
                 fig_cruz_t.update_layout(xaxis_tickangle=-25)
-                st.plotly_chart(fig_cruz_t, use_container_width=True)
+                st.plotly_chart(fig_cruz_t)
 
     st.markdown("---")
 
@@ -795,23 +795,30 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             """
         )
 
-        # Memória de cálculo das 45,8 vidas salvas/ano
-        with st.expander("🧮 Memória de Cálculo Científico: Como as 45,8 vidas salvas/ano foram estimadas", expanded=False):
+        # Memória de cálculo das vidas salvas/ano
+        n_trechos_kpi = len(top_df)
+        capex_total_kpi = agregados.get('capex_total', 0.0)
+        economia_bruta_kpi = agregados.get('economia_anual', 0.0)
+        economia_liq_kpi = agregados.get('economia_liquida_anual', 0.0)
+        payback_kpi = agregados.get('payback_simples_anos', 0.0)
+        anos_list = sorted([int(a) for a in data["ano"].dropna().unique()]) if "ano" in data.columns else []
+        anos_str = f"{len(anos_list)} anos ({', '.join(str(a) for a in anos_list)})" if anos_list else f"{anos_base:.1f} anos"
+
+        with st.expander(f"🧮 Memória de Cálculo Científico: Como as {vidas_salvas:.1f} vidas salvas/ano foram estimadas", expanded=False):
             st.markdown(
                 f"""
                 **Rastreabilidade Estrita aos Dados:**
-                1. **Vítimas Noturnas nos 100 Trechos Prioritários:** Foram registrados **{mortos_acc} óbitos noturnos** nos 100 trechos contemplados durante o período da base ({anos_base:.1f} anos analisados: 2025 integral e 2026 parcial).
+                1. **Vítimas Noturnas nos {n_trechos_kpi} Trechos Prioritários:** Foram registrados **{mortos_acc} óbitos noturnos** nos {n_trechos_kpi} trechos contemplados durante o período da base ({anos_base:.1f} anos analisados: {anos_str}).
                 2. **Taxa Anual Baseline:** `{mortos_acc} óbitos / {anos_base:.1f} anos = {mortos_acc / anos_base:.1f} óbitos noturnos/ano` nos trechos prioritários.
-                3. **Fator de Redução por Iluminação Viária:** Adotou-se **35% de redução esperada** com base no estudo internacional de contramedidas comprovadas da *Federal Highway Administration (FHWA)*.
+                3. **Fator de Redução por Iluminação Viária (Simulação CMF):** Adotou-se **35% de redução esperada** com base no catálogo de contramedidas recomendadas da *Federal Highway Administration (FHWA)*.
                 4. **Cálculo de Vidas Salvas:** `{(mortos_acc / anos_base):.1f} óbitos/ano × 35% = {vidas_salvas:.1f} vidas humanas salvas por ano`.
                 5. **Valoração Socioeconômica (IPEA/PRF):**
                    - Vidas Salvas: `{vidas_salvas:.1f} × R$ 5.787.720,00 = R$ {vidas_salvas * 5787720:,.2f}`
                    - Feridos Graves Evitados: `{graves_evitados:.1f}/ano × R$ 90.000,00 = R$ {graves_evitados * 90000:,.2f}`
                    - Feridos Leves Evitados: `{leves_evitados:.1f}/ano × R$ 25.000,00 = R$ {leves_evitados * 25000:,.2f}`
-                   - **Benefício Social Bruto Anual:** **R$ {agregados['economia_anual']:,.2f}** (R$ 293,96 milhões).
-                   - **OPEX Médio Anual:** Manutenção preventiva (R$ 2,00M) + reserva para substituição de baterias nos anos 5 e 10 (R$ 1,87M) = **R$ 3,87 milhões/ano**.
-                   - **Benefício Líquido Anual:** `R$ 293,96M - R$ 3,87M = R$ {agregados['economia_liquida_anual']:,.2f}` (R$ 290,09 milhões).
-                   - **Payback Simples:** `R$ 60.000.000 / R$ 290.093.545 = {agregados['payback_simples_anos']:.2f} anos` (~2,5 meses).
+                   - **Benefício Social Bruto Anual:** **R$ {economia_bruta_kpi:,.2f}**.
+                   - **Benefício Social Líquido Anual:** **R$ {economia_liq_kpi:,.2f}**.
+                   - **Payback Simples:** `{format_pt_br_currency(capex_total_kpi)} / {format_pt_br_currency(economia_liq_kpi)} = {payback_kpi:.2f} anos`.
                 """
             )
 
@@ -903,7 +910,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     "Payback Descontado (anos)": st.column_config.NumberColumn("Payback Descontado", format="%.2f anos"),
                 },
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
 
             # Gráfico de Barras Comparativo de CAPEX vs VPL
@@ -927,19 +934,20 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 margin=dict(l=20, r=20, t=40, b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             )
-            st.plotly_chart(fig_cen, use_container_width=True)
+            st.plotly_chart(fig_cen)
 
-            # Detalhes das premissas de cada cenário
-            st.markdown(
-                r"""
-                **Detalhamento Técnico dos Cenários:**
-                - **Cenário A — Meta Histórica:** R$ 15.000 fixo por poste | CAPEX R$ 60,00M (Orçamento preliminar anterior sem cotação detalhada).
-                - **Cenário B — Comercial 6m / 40W (NeoSolar ZTL6-40):** Kit R$ 11.599 + Instalação R$ 2.500 + Telemetria R$ 700 + Contingência 15% $\implies$ **R$ 17.018,85/un** | CAPEX **R$ 68,08M** (Não equivalente a poste robusto de 8m).
-                - **Cenário C — Comercial 8m / 80W (NeoSolar ZTL8-80):** Kit R$ 20.699 + Instalação R$ 3.000 + Telemetria R$ 900 + Contingência 15% $\implies$ **R$ 28.288,85/un** | CAPEX **R$ 113,16M**.
-                - **Cenário D — Conceitual Compacto 8m / 40W (Base do Projeto):** Kit preliminar R$ 15.500 (240 Wp, 2.500 Wh) + Instalação R$ 3.000 + Telemetria R$ 900 + Contingência 15% $\implies$ **R$ 22.310,00/un** | CAPEX **R$ 89,24M**.
-                - **Cenário E — 8m / 80W Bateria Reforçada:** Kit R$ 20.699 + Reserva técnica expansão R$ 5.000 + Instalação R$ 3.000 + Telemetria R$ 900 + Contingência 15% $\implies$ **R$ 34.038,85/un** | CAPEX **R$ 136,16M**.
-                """
-            )
+            # Detalhes dinâmicos das premissas de cada cenário baseados no dimensionamento real
+            linhas_cenarios_md = ["**Detalhamento Técnico dos Cenários Orçamentários:**"]
+            for _, r_c in comp_df.iterrows():
+                pb_c = f"{r_c['Payback Simples (anos)']:.2f} anos" if r_c['Payback Simples (anos)'] < 100 else "> 15 anos"
+                linhas_cenarios_md.append(
+                    f"- **{r_c['Cenário']} ({r_c['Tipo']}):** {r_c['Altura']} / {r_c['LED']} | "
+                    f"Custo Unitário: R$ {r_c['Custo Unitário (R$)']:,.2f} | "
+                    f"CAPEX Total: **R$ {r_c['CAPEX Total (R$ M)']:.2f}M** | "
+                    f"VPL Social: **R$ {r_c['VPL 15 Anos (R$ M)']:.2f}M** | "
+                    f"Payback Simples: **{pb_c}**"
+                )
+            st.markdown("\n".join(linhas_cenarios_md))
 
         # Tabela completa de fluxo de caixa anual
         fluxo_df = agregados.get("tabela_fluxo_caixa_df")
@@ -958,7 +966,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                         "saldo_acumulado_descontado": st.column_config.NumberColumn("Saldo Acum. Descontado (R$)", format="R$ %.2f"),
                     },
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                 )
 
         # Tabela dos Top Trechos
@@ -989,7 +997,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 "payback_anos": st.column_config.NumberColumn("Payback (anos)", format="%.2f"),
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=380,
         )
 
@@ -1008,7 +1016,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     "VPL (15 anos, 8%)": f"R$ {c['vpl']:,.2f}",
                     "Payback Simples": pb_str,
                 })
-            st.dataframe(pd.DataFrame(cen_rows), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(cen_rows), hide_index=True, width="stretch")
 
     st.markdown("---")
 
@@ -1108,7 +1116,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             {"Poste ID": "PST-PR-277-085", "Trecho": "BR-277 (PR) KM 310–312", "Tipo de Alerta": "🟠 Falha Carregamento PV", "SOC Bateria": "45%", "LED": "OK", "Status OS": "Em Atendimento", "Abertura": "29/10/2026 18:20"},
         ])
 
-        st.dataframe(incidentes_simulados, hide_index=True, use_container_width=True)
+        st.dataframe(incidentes_simulados, hide_index=True, width="stretch")
 
         col_os_btn, col_os_msg = st.columns([1, 2])
         with col_os_btn:
@@ -1129,7 +1137,8 @@ def create_dashboard(analyzer: AccidentAnalyzer):
 
     with col_3d_1:
         try:
-            with open("solar_post_3d.html", encoding="UTF-8") as f:
+            path_3d = Path(__file__).resolve().parent / "solar_post_3d.html"
+            with open(path_3d, encoding="UTF-8") as f:
                 html_3d = f.read()
             components.html(html_3d, height=640)
         except FileNotFoundError:
@@ -1162,7 +1171,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
     st.subheader("📄 Relatório Técnico e Científico em PDF")
     st.markdown("Gere um relatório acadêmico completo com todas as seções metodológicas, tabelas e gráficos em alta resolução.")
 
-    if st.button("📄 Gerar Relatório Científico Completo (PDF)", use_container_width=True, type="primary"):
+    if st.button("📄 Gerar Relatório Científico Completo (PDF)", width="stretch", type="primary"):
         try:
             with st.spinner("📄 Compilando relatório PDF de acordo com as normas científicas..."):
                 generator = ReportGenerator()
@@ -1189,7 +1198,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     data=report_buffer,
                     file_name=file_name,
                     mime="application/pdf",
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.success(f"✅ Relatório gerado com sucesso e arquivado em '{save_path}'!")
         except Exception as e:

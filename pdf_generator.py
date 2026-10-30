@@ -296,13 +296,18 @@ class ReportGenerator:
         pct_fatais_geral = (acidentes_fatais / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0
         obitos_100_geral = (total_mortos / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0
 
+        fin = financial_summary or {}
+        n_trechos_resumo = len(top_segments) if top_segments is not None else 100
+        vidas_salvas_resumo = fin.get("vidas_salvas_ano", 0.0)
+        graves_evitados_resumo = fin.get("graves_evitados_ano", 0.0)
+
         resumo_p = f"""
         Este relatório técnico consolida a auditoria e análise de <b>{total_ocorrencias:,} ocorrências desduplicadas</b>, 
         resultando em <b>{total_mortos:,} óbitos confirmados</b> e <b>{total_feridos:,} pessoas feridas</b> no conjunto analisado.<br/>
         • <b>Percentual de Acidentes Fatais:</b> <b>{format_pt_br_number(pct_fatais_geral, 1)}%</b> dos sinistros resultaram em pelo menos um óbito ({acidentes_fatais:,} sinistros fatais).<br/>
         • <b>Taxa de Óbitos por 100 Acidentes:</b> O índice geral é de <b>{format_pt_br_number(obitos_100_geral, 2)} óbitos/100 acidentes</b>.<br/>
         • <b>Assimetria Dia vs Noite:</b> Os acidentes noturnos concentram <b>{acidentes_not:,} ocorrências ({format_pt_br_number(perc_not, 1)}%)</b> e <b>{mortos_not:,} mortes</b>, com taxa de <b>{format_pt_br_number(let_not, 2)} óbitos/100 acidentes</b> contra <b>{format_pt_br_number(let_dia, 2)} no diurno</b> (letalidade <b>{format_pt_br_number(fator_let, 2)}x maior</b>).<br/>
-        • <b>Impacto Potencial da Iluminação Solar:</b> Para os 100 trechos críticos priorizados, estima-se que a intervenção com postes solares inteligentes pode preservar <b>45,8 vidas humanas por ano</b> e evitar 173 feridos graves anualmente.
+        • <b>Impacto Potencial da Iluminação Solar (Simulação CMF):</b> Para os {n_trechos_resumo} trechos críticos priorizados, estima-se que a intervenção com postes solares inteligentes pode preservar <b>{format_pt_br_number(vidas_salvas_resumo, 1)} vidas humanas por ano</b> e mitigar cerca de {format_pt_br_number(graves_evitados_resumo, 0)} feridos graves anualmente (fator CMF de 35% de redução noturna da FHWA, pendente de validação de campo).
         """
         story.append(Paragraph(resumo_p, self.custom_styles["body"]))
 
@@ -383,13 +388,29 @@ class ReportGenerator:
         story.append(t_comp)
         story.append(Spacer(1, 4))
 
-        amanhecer_disc = """
-        <b>Discussão Científica — Letalidade Extrema no Amanhecer (13,73 óbitos/100 acidentes):</b><br/>
-        Os microdados revelam que o <b>Amanhecer apresenta a maior taxa de fatalidade entre todas as fases do dia</b> (13,73 óbitos/100 sinistros e 11,12% de acidentes fatais), superando até a Plena Noite (11,69 óbitos/100) e mais que dobrando o Pleno Dia (5,93 óbitos/100). A literatura de segurança viária identifica quatro fatores concorrentes:
-        1. <b>Nadir Circadiano (Fadiga Biológica):</b> Entre 04h e 06h da manhã ocorre o pico fisiológico máximo de sonolência e redução de reflexos do condutor;
+        let_am = 0.0
+        pct_fat_am = 0.0
+        let_pn = 0.0
+        let_pd = 0.0
+        if tabela_oficial is not None and not tabela_oficial.empty and "fase_dia_oficial" in tabela_oficial.columns:
+            m_am = tabela_oficial["fase_dia_oficial"].astype(str).str.lower().str.contains("amanhecer")
+            if m_am.any():
+                let_am = float(tabela_oficial.loc[m_am, "mortos_por_100_acidentes"].iloc[0])
+                pct_fat_am = float(tabela_oficial.loc[m_am, "prop_acidentes_fatais_pct"].iloc[0])
+            m_pn = tabela_oficial["fase_dia_oficial"].astype(str).str.lower().str.contains("noite")
+            if m_pn.any():
+                let_pn = float(tabela_oficial.loc[m_pn, "mortos_por_100_acidentes"].iloc[0])
+            m_pd = tabela_oficial["fase_dia_oficial"].astype(str).str.lower().str.contains("dia")
+            if m_pd.any():
+                let_pd = float(tabela_oficial.loc[m_pd, "mortos_por_100_acidentes"].iloc[0])
+
+        amanhecer_disc = f"""
+        <b>Discussão Científica — Indicadores de Severidade no Amanhecer ({format_pt_br_number(let_am, 2)} óbitos/100 acidentes):</b><br/>
+        Os microdados revelam que o <b>Amanhecer apresenta taxa de {format_pt_br_number(let_am, 2)} óbitos/100 sinistros e {format_pt_br_number(pct_fat_am, 1)}% de acidentes fatais</b>, em comparação a {format_pt_br_number(let_pn, 2)} óbitos/100 na Plena Noite e {format_pt_br_number(let_pd, 2)} no Pleno Dia. A literatura de segurança viária identifica quatro fatores concorrentes:
+        1. <b>Nadir Circadiano (Fadiga Biológica):</b> Entre 04h e 06h da manhã ocorre o pico fisiológico de sonolência e redução de reflexos do condutor;
         2. <b>Ofuscamento Horizontal (Glare Solar):</b> O sol nascente no horizonte incide em ângulo direto nos olhos dos motoristas com orientação leste;
         3. <b>Penumbra Enganosa:</b> Transição de luminosidade que leva motoristas a desligarem faróis antes que haja iluminância natural suficiente para detecção de obstáculos;
-        4. <b>Velocidades Praticadas Mais Altas:</b> O baixo volume de tráfego propicia velocidades de aproximação incompatíveis.
+        4. <b>Velocidades Praticadas Mais Altas:</b> O menor volume de tráfego propicia velocidades de aproximação incompatíveis.
         """
         story.append(Paragraph(amanhecer_disc, self.custom_styles["callout"]))
 
@@ -594,7 +615,12 @@ class ReportGenerator:
                     Paragraph("Benefício/Ano", self.custom_styles["th"]),
                 ]
             ]
+            custo_un_trecho = float(fin.get("custo_unitario_poste", FINANCIAL_PARAMS["custo_poste_solar"]))
+            postes_trecho_calc = int(np.ceil((2.0 * 1000.0) / DEFAULT_SPACING_M))
+            inv_padrao_trecho = postes_trecho_calc * custo_un_trecho
+
             for i, (_, r) in enumerate(top_segments.head(10).iterrows(), start=1):
+                inv_trecho_val = float(r.get("investimento_trecho", inv_padrao_trecho))
                 t_trecho_data.append([
                     Paragraph(str(i), self.custom_styles["td"]),
                     Paragraph(str(r.get("trecho_id", r.get("trecho", "N/A"))), self.custom_styles["td_left"]),
@@ -602,7 +628,7 @@ class ReportGenerator:
                     Paragraph(f"{int(r.get('mortos_noturno', r.get('mortos', 0))):,}", self.custom_styles["td"]),
                     Paragraph(f"{int(r.get('feridos_graves_noturno', 0)):,}", self.custom_styles["td"]),
                     Paragraph(f"{format_pt_br_number(float(r.get('score_iluminacao_solar', r.get('score_prioridade', 0))), 1)}", self.custom_styles["td"]),
-                    Paragraph(format_pt_br_currency(float(r.get("investimento_trecho", 600000.0))), self.custom_styles["td"]),
+                    Paragraph(format_pt_br_currency(inv_trecho_val), self.custom_styles["td"]),
                     Paragraph(format_pt_br_currency(float(r.get("economia_anual_trecho", 0.0))), self.custom_styles["td"]),
                 ])
 
@@ -720,19 +746,33 @@ class ReportGenerator:
         pb_desc_str = f"{format_pt_br_number(payback_desc, 2)} anos" if payback_desc else "> 15 anos"
         tir_str = f"{format_pt_br_number(tir * 100, 2)}% a.a." if tir is not None else "N/A"
 
+        n_trechos_top = len(top_segments) if top_segments is not None else 100
+        anos_denom = anos_base if anos_base > 0 else 1.0
+
+        # Extração dinâmica dos cenários A e D da comp_df
+        row_a = comp_df[comp_df["Cenário"].astype(str).str.contains("Cenário A", na=False)]
+        capex_a_str = f"R$ {row_a['CAPEX Total (R$ M)'].iloc[0]:.2f}M" if not row_a.empty else "N/A"
+        pb_a_str = f"{row_a['Payback Simples (anos)'].iloc[0]:.2f} anos" if not row_a.empty else "N/A"
+
+        row_d = comp_df[comp_df["Cenário"].astype(str).str.contains("Cenário D", na=False)]
+        custo_d_str = format_pt_br_currency(row_d['Custo Unitário (R$)'].iloc[0]) if not row_d.empty else "N/A"
+        capex_d_str = f"R$ {row_d['CAPEX Total (R$ M)'].iloc[0]:.2f}M" if not row_d.empty else "N/A"
+        vpl_d_str = f"R$ {row_d['VPL 15 Anos (R$ M)'].iloc[0]:.2f}M" if not row_d.empty else "N/A"
+        pb_d_str = f"{row_d['Payback Simples (anos)'].iloc[0]:.2f} anos" if not row_d.empty else "N/A"
+
         fin_text = f"""
-        <b>Memória de Cálculo das 45,8 Vidas Salvas por Ano (100 Trechos Críticos):</b><br/>
-        1. <b>Acúmulo Histórico:</b> Nos 100 trechos prioritários, ocorreram <b>{mortos_top} óbitos noturnos</b> no horizonte de {anos_base:.1f} anos analisados.<br/>
-        2. <b>Taxa Baseline Anualizada:</b> `{mortos_top} óbitos / {anos_base:.1f} anos = {mortos_top / anos_base:.1f} óbitos noturnos por ano`.<br/>
-        3. <b>Fator de Redução CMF (FHWA):</b> 35% de redução esperada com iluminação viária &rarr; `{mortos_top / anos_base:.1f} × 0,35 = {vidas_salvas:.1f} vidas salvas por ano`.<br/>
+        <b>Memória de Cálculo de Vidas Potencialmente Salvas ({format_pt_br_number(vidas_salvas, 1)} vidas/ano em {n_trechos_top} Trechos Críticos):</b><br/>
+        1. <b>Acúmulo Histórico:</b> Nos {n_trechos_top} trechos prioritários, ocorreram <b>{mortos_top} óbitos noturnos</b> no horizonte de {anos_base:.1f} anos analisados.<br/>
+        2. <b>Taxa Baseline Anualizada:</b> `{mortos_top} óbitos / {anos_base:.1f} anos = {mortos_top / anos_denom:.1f} óbitos noturnos por ano`.<br/>
+        3. <b>Fator de Redução CMF (FHWA):</b> 35% de redução esperada com iluminação viária &rarr; `{mortos_top / anos_denom:.1f} × 0,35 = {vidas_salvas:.1f} vidas salvas por ano`.<br/>
         4. <b>Valoração IPEA/PRF:</b> Vidas salvas ({format_pt_br_currency(vidas_salvas * ECONOMIC_VALUES['valor_vida_estatistica'])}) + Graves evitados ({format_pt_br_currency(fin.get('economia_graves', 0.0))}) + Leves evitados ({format_pt_br_currency(fin.get('economia_leves', 0.0))}) = <b>Benefício Social Bruto de {format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
-        5. <b>Custos de Implantação e Retorno:</b><br/>
-        • <b>Meta Histórica (Cenário A):</b> CAPEX R$ 60,00M | Payback Simples: 0,21 anos (~2,5 meses).<br/>
-        • <b>Conceitual Compacto 8m/40W (Cenário D - Base):</b> Custo/un R$ 22.310,00 | CAPEX R$ 89,24M | Payback Simples: 0,31 anos (~3,7 meses) | VPL Social 15 anos de R$ 2,35 bilhões.<br/>
+        5. <b>Custos de Implantação e Retorno Socioeconômico Comparado:</b><br/>
+        • <b>Meta Histórica (Cenário A):</b> CAPEX {capex_a_str} | Payback Simples: {pb_a_str}.<br/>
+        • <b>Conceitual Compacto 8m/40W (Cenário D - Base):</b> Custo/un {custo_d_str} | CAPEX {capex_d_str} | Payback Simples: {pb_d_str} | VPL Social 15 anos: {vpl_d_str}.<br/>
         <br/>
         <b>Plano Conceitual de Manutenção e Telemetria:</b><br/>
         Supervisão remota contínua (telemetria LoRaWAN/NB-IoT a 2W) monitorando tensão da bateria, corrente do painel e integridade do LED. Provisão de OPEX com manutenção preventiva (R$ 500/poste/ano) e reserva para troca de baterias a cada 5 anos (R$ 3.800/un).<br/>
-        <i>Aviso: Os dados de supervisão remota e ordens de serviço representam modelagem funcional simulada de software; não existem postes físicos instalados nesta etapa.</i>
+        <i>Aviso Metodológico Obrigatório: Os cálculos representam simulações socioeconômicas conceituais baseadas em parâmetros normativos; a valoração da vida estatística (VSL) é uma métrica de custo-benefício social e não constitui receita financeira. Não existem postes físicos instalados nesta etapa acadêmica do projeto.</i>
         """
         story.append(Paragraph(fin_text, self.custom_styles["body"]))
 

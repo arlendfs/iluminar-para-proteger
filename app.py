@@ -5,12 +5,26 @@ controles de sidebar e delega renderização ao dashboard.
 """
 
 import os
+import re
+import gc
+import time
 import warnings
+from typing import List, Dict, Any, Optional
+from pathlib import Path
 from datetime import datetime
 import streamlit as st
 from analyzer import AccidentAnalyzer
 from dashboard import create_dashboard
-from config import APP_CONFIG, DATA_DIR, REPORTS_DIR, FASES_DIA_OFICIAIS, CAUSAS_VISIBILIDADE_REACAO
+from config import (
+    APP_CONFIG,
+    DATA_DIR,
+    REPORTS_DIR,
+    PARQUET_SAMPLES_DIR,
+    FASES_DIA_OFICIAIS,
+    CAUSAS_VISIBILIDADE_REACAO,
+    get_current_rss_mb,
+    log_memory_checkpoint,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -73,6 +87,39 @@ st.html(
 )
 
 
+def scan_project_folder(folder_name: str) -> List[Dict[str, Any]]:
+    """
+    Lista arquivos CSV e Parquet reais da pasta indicada ('data' ou 'parquet_samples').
+    Garante resolução absoluta via Path(__file__).resolve().parent sem fallback automático.
+    """
+    base_dir = Path(__file__).resolve().parent
+    folder_path = base_dir / folder_name
+    if not folder_path.exists() or not folder_path.is_dir():
+        return []
+
+    files_info = []
+    for p in folder_path.iterdir():
+        if p.is_file() and p.suffix.lower() in [".parquet", ".csv"]:
+            size_bytes = p.stat().st_size
+            mtime = p.stat().st_mtime
+            if size_bytes >= 1024 * 1024:
+                size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+            else:
+                size_str = f"{size_bytes / 1024:.0f} KB"
+            m = re.search(r"(20[0-9]{2})", p.name)
+            year = int(m.group(1)) if m else None
+            files_info.append({
+                "name": p.name,
+                "path": str(p),
+                "extension": p.suffix.lower(),
+                "year": year,
+                "size_bytes": size_bytes,
+                "size_str": size_str,
+                "mtime": mtime,
+            })
+    return sorted(files_info, key=lambda x: (x["year"] or 0, x["name"]))
+
+
 def main():
     st.markdown('<h1 class="main-header">🌟 Iluminar para Proteger</h1>', unsafe_allow_html=True)
     st.markdown(
@@ -94,6 +141,7 @@ def main():
     - CSV (.csv) — Microdados oficiais da PRF
     """)
 
+    # 1. Upload do Computador
     uploaded_files = st.sidebar.file_uploader(
         "Selecione arquivos de acidentes",
         type=["csv", "parquet"],
@@ -101,26 +149,127 @@ def main():
         help="Arquivos CSV ou Parquet da PRF (ex: acidentes_todas_causas_tipos)",
     )
 
-    data_dir = str(DATA_DIR)
-    local_files = []
-    if os.path.exists(data_dir):
-        local_files = [f for f in os.listdir(data_dir) if f.endswith((".csv", ".parquet"))]
+    # 2. Checkbox obrigatório: inicia SEMPRE DESLIGADO (value=False)
+    use_local_folder = st.sidebar.checkbox(
+        "Usar arquivos de uma pasta do projeto",
+        value=False,
+        key="use_local_folder",
+        help="Habilita a seleção direta de pastas locais de microdados do repositório.",
+    )
 
-    # Se a pasta /data estiver vazia (ex: deploy em nuvem no Streamlit Community Cloud),
-    # utiliza automaticamente as bases Parquet de 2025 e 2026 do repositório.
-    if not local_files and os.path.exists("parquet_samples"):
-        data_dir = "parquet_samples"
-        parquets_25_26 = [f for f in os.listdir(data_dir) if ("2025" in f or "2026" in f) and f.endswith(".parquet")]
-        local_files = sorted(parquets_25_26) if parquets_25_26 else sorted([f for f in os.listdir(data_dir) if f.endswith(".parquet")])
+    selected_local_files = []
+    selected_folder = None
+    folder_path_str = None
+    file_map = {}
 
-    use_local_files = False
-    if local_files:
-        st.sidebar.caption(f"📂 {len(local_files)} arquivo(s) disponível(is) na pasta `{data_dir}`")
-        use_local_files = st.sidebar.checkbox(
-            f"Usar dados da pasta /{data_dir}",
-            value=True if not uploaded_files else False,
-            key="use_local_files_checkbox",
+    if use_local_folder:
+        # Seletor com exatamente duas opções independentes
+        selected_folder = st.sidebar.selectbox(
+            "Selecione a pasta do projeto",
+            options=["parquet_samples", "data"],
+            format_func=lambda x: f"/{x}",
+            index=0,
+            key="selected_project_folder",
         )
+        base_dir = Path(__file__).resolve().parent
+        folder_path = base_dir / selected_folder
+        folder_path_str = str(folder_path)
+
+        files_available = scan_project_folder(selected_folder)
+        if not files_available:
+            st.sidebar.warning(f"⚠️ A pasta `/{selected_folder}` está vazia ou não contém arquivos CSV/Parquet válidos.")
+        else:
+            st.sidebar.caption(f"📂 {len(files_available)} arquivo(s) disponível(is) na pasta `/{selected_folder}`:")
+
+            # Mapeamento e identificação de duplicidades por ano
+            years_count = {}
+            for f in files_available:
+                file_map[f["name"]] = f
+                if f["year"]:
+                    years_count.setdefault(f["year"], []).append(f)
+
+            duplicates_info = {yr: flist for yr, flist in years_count.items() if len(flist) > 1}
+            if duplicates_info:
+                st.sidebar.info("ℹ️ Identificados arquivos CSV e Parquet para o mesmo ano. O sistema pré-seleciona Parquet por padrão para máxima performance.")
+
+            # Seleção padrão sugerida: se houver duplicata de ano, prioriza Parquet
+            default_selection = []
+            seen_years = set()
+            sorted_by_pref = sorted(files_available, key=lambda x: (x["year"] or 0, 0 if x["extension"] == ".parquet" else 1))
+            for f in sorted_by_pref:
+                if f["year"] not in seen_years:
+                    default_selection.append(f["name"])
+                    seen_years.add(f["year"])
+                elif f["year"] is None:
+                    default_selection.append(f["name"])
+
+            file_options = [f["name"] for f in files_available]
+            selected_local_files = st.sidebar.multiselect(
+                "Selecione os arquivos para análise",
+                options=file_options,
+                default=default_selection,
+                format_func=lambda name: f"{name} ({file_map[name]['year'] or 'S/A'} - {file_map[name]['size_str']})",
+                help="Selecione um ou mais arquivos. Nenhuma base é processada automaticamente.",
+            )
+
+    # =========================================================================
+    # REGRAS DE ORIGEM MUTUAMENTE EXCLUSIVA
+    # =========================================================================
+    active_source = None
+    if uploaded_files and (use_local_folder and selected_local_files):
+        st.sidebar.warning("⚠️ Detectados upload e pasta local simultaneamente. Escolha qual origem utilizar:")
+        chosen_source = st.sidebar.radio(
+            "Origem ativa:",
+            options=["Upload de Arquivos", f"Pasta /{selected_folder}"],
+            index=0,
+            key="exclusive_source_choice",
+        )
+        if chosen_source == "Upload de Arquivos":
+            active_source = "upload"
+        else:
+            active_source = "local"
+    elif uploaded_files:
+        active_source = "upload"
+    elif use_local_folder and selected_local_files:
+        active_source = "local"
+
+    # =========================================================================
+    # BOTÃO EXPLÍCITO DE PROCESSAMENTO
+    # =========================================================================
+    btn_carregar = False
+    if active_source is not None:
+        btn_carregar = st.sidebar.button(
+            "🚀 Carregar e analisar arquivos selecionados",
+            type="primary",
+            width="stretch",
+            key="btn_carregar_dados",
+        )
+
+    # Assinatura estrita da fonte para controle de cache e invalidação
+    if active_source == "local":
+        file_signature = f"local_{selected_folder}_" + "_".join(
+            sorted([f"{f}_{file_map[f]['size_bytes']}_{file_map[f]['mtime']}" for f in selected_local_files])
+        )
+    elif active_source == "upload":
+        file_signature = "upload_" + "_".join(
+            sorted([f"{f.name}_{getattr(f, 'size', 0)}" for f in uploaded_files])
+        )
+    else:
+        file_signature = None
+
+    # Invalidação de cache caso a fonte ou seleção tenha sido modificada
+    if st.session_state.get("cached_file_signature") != file_signature:
+        st.session_state.pop("cached_analyzer_data", None)
+        st.session_state.pop("cached_analyzer_pessoas", None)
+        st.session_state.pop("cached_analyzer_veiculos", None)
+        st.session_state.pop("cached_analyzer_causas", None)
+        st.session_state.pop("cached_analyzer_quality", None)
+        st.session_state.pop("data_processed_once", None)
+        gc.collect()
+
+    # Diagnóstico de Memória RSS em tempo real no servidor
+    current_rss = get_current_rss_mb()
+    st.sidebar.caption(f"💾 Memória do Servidor (RSS): **{current_rss:.1f} MB**")
 
     # =========================================================================
     # SIDEBAR: RELATÓRIOS SALVOS
@@ -153,6 +302,7 @@ def main():
                         file_name=rep["name"],
                         mime="application/pdf",
                         help=f"{rep['name']} — Gerado em: {rep['date'].strftime('%d/%m/%Y %H:%M')}",
+                        width="stretch",
                     )
                 with col_del:
                     if st.button("🗑️", key=f"del_{rep['name']}", help="Excluir relatório"):
@@ -164,17 +314,22 @@ def main():
     # =========================================================================
     # CARREGAMENTO COM GESTÃO DE CACHE EM MEMÓRIA
     # =========================================================================
-    has_data_source = uploaded_files or (use_local_files and local_files)
+    has_data_source = active_source is not None and (
+        (active_source == "upload" and uploaded_files)
+        or (active_source == "local" and selected_local_files)
+    )
 
-    if has_data_source:
-        # Assinatura dos arquivos para detecção de mudança
-        file_signature = (
-            "local_" + "_".join(sorted(local_files))
-            if (use_local_files and local_files)
-            else "upload_" + "_".join(sorted([f.name for f in uploaded_files]))
+    # Processamento somente mediante ação explícita (clique no botão ou reuso de cache consistente)
+    should_process = has_data_source and (
+        btn_carregar
+        or (
+            "cached_analyzer_data" in st.session_state
+            and st.session_state.get("cached_file_signature") == file_signature
+            and st.session_state.get("data_processed_once", False)
         )
+    )
 
-        # Se já estiver carregado no session_state para esta mesma assinatura, reusa
+    if should_process:
         if (
             "cached_analyzer_data" in st.session_state
             and st.session_state.get("cached_file_signature") == file_signature
@@ -182,22 +337,25 @@ def main():
             analyzer.data = st.session_state["cached_analyzer_data"]
             analyzer.pessoas_data = st.session_state.get("cached_analyzer_pessoas")
             analyzer.veiculos_data = st.session_state.get("cached_analyzer_veiculos")
-            analyzer.causas_data = st.session_state["cached_analyzer_causas"]
-            analyzer.quality_summary = st.session_state["cached_analyzer_quality"]
+            analyzer.causas_data = st.session_state.get("cached_analyzer_causas")
+            analyzer.quality_summary = st.session_state.get("cached_analyzer_quality", {})
         else:
-            with st.spinner("🔄 Carregando e auditando dados com desduplicação..."):
-                if use_local_files and local_files:
-                    analyzer.data = analyzer.load_local_files(data_dir, local_files)
+            with st.spinner("🔄 Processando arquivos incrementalmente e auditando dados com desduplicação..."):
+                t_load_start = time.time()
+                if active_source == "local":
+                    analyzer.data = analyzer.load_local_files(folder_path_str, selected_local_files)
                 else:
                     analyzer.data = analyzer.load_data(uploaded_files)
+                log_memory_checkpoint("Carga incremental e auditoria concluída", start_time=t_load_start)
 
-            if analyzer.data is not None:
+            if analyzer.data is not None and not analyzer.data.empty:
                 st.session_state["cached_analyzer_data"] = analyzer.data
                 st.session_state["cached_analyzer_pessoas"] = analyzer.pessoas_data
                 st.session_state["cached_analyzer_veiculos"] = analyzer.veiculos_data
                 st.session_state["cached_analyzer_causas"] = analyzer.causas_data
                 st.session_state["cached_analyzer_quality"] = analyzer.quality_summary
                 st.session_state["cached_file_signature"] = file_signature
+                st.session_state["data_processed_once"] = True
 
         if analyzer.data is not None and not analyzer.data.empty:
             # =================================================================
@@ -317,15 +475,15 @@ def main():
                 st.warning("⚠️ Nenhum registro encontrado com a combinação atual de filtros.")
 
     else:
-        # Mensagem inicial quando não há arquivos selecionados
-        st.info("📤 Faça upload dos arquivos CSV/Parquet ou ative a opção de arquivos locais na barra lateral para iniciar a análise.")
+        # Apresentação inicial quando nenhuma fonte foi processada
+        st.info("📤 Para iniciar, selecione os arquivos desejados na barra lateral (via upload do computador ou ativando 'Usar arquivos de uma pasta do projeto') e clique no botão **Carregar e analisar arquivos selecionados**.")
         st.html(
             """
             <div class="highlight-box">
                 <h3>🎯 Sobre o Projeto Iluminar para Proteger</h3>
                 <p>Este sistema realiza a auditoria e análise científica dos acidentes registrados pela Polícia Rodoviária Federal (PRF), 
-                investigando a severidade das ocorrências noturnas e modelando a viabilidade de postes solares inteligentes autônomos 
-                como contramedida comprovada de segurança viária.</p>
+                investigando a severidade das ocorrências noturnas e modelando a viabilidade técnica e socioeconômica de postes solares inteligentes autônomos 
+                como proposta de intervenção de segurança viária (baseada em contramedidas recomendadas pela FHWA, sujeita a validação de campo).</p>
                 <h4>📋 Módulos Principais do Sistema:</h4>
                 <ul>
                     <li>🛡️ <strong>Auditoria de Dados:</strong> Desduplicação estrita de pessoas e causas e eliminação do erro de KM 0,0</li>

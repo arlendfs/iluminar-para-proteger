@@ -46,12 +46,16 @@ def clean_km_series(series: pd.Series) -> pd.Series:
     """
     Limpa uma série de KM preservando valores nulos como NaN.
     Valida limites razoáveis de rodovia federal (0 a 1500 km).
+    Vetorizado para altíssima performance e baixo consumo de memória.
     """
-    cleaned = series.apply(clean_brazilian_float)
+    if series.dtype == "object":
+        s = series.astype(str).str.strip().str.replace(",", ".", regex=False)
+        cleaned = pd.to_numeric(s, errors="coerce")
+    else:
+        cleaned = pd.to_numeric(series, errors="coerce")
     min_km = VALIDATION_RULES["km"]["min"]
     max_km = VALIDATION_RULES["km"]["max"]
-    # Marcar fora do intervalo como NaN (inválidos)
-    cleaned = cleaned.apply(lambda x: x if (x is not None and min_km <= x <= max_km) else np.nan)
+    cleaned = cleaned.where((cleaned >= min_km) & (cleaned <= max_km), np.nan)
     return cleaned.astype("float32")
 
 
@@ -60,11 +64,16 @@ def clean_coordinate_series(series: pd.Series, coord_type: str) -> pd.Series:
     Limpa latitudes ou longitudes tratando vírgulas decimais
     e validando os limites geográficos do Brasil.
     Não converte nulos para (0, 0).
+    Vetorizado para altíssima performance e baixo consumo de memória.
     """
-    cleaned = series.apply(clean_brazilian_float)
+    if series.dtype == "object":
+        s = series.astype(str).str.strip().str.replace(",", ".", regex=False)
+        cleaned = pd.to_numeric(s, errors="coerce")
+    else:
+        cleaned = pd.to_numeric(series, errors="coerce")
     min_val = VALIDATION_RULES[coord_type]["min"]
     max_val = VALIDATION_RULES[coord_type]["max"]
-    cleaned = cleaned.apply(lambda x: x if (x is not None and min_val <= x <= max_val) else np.nan)
+    cleaned = cleaned.where((cleaned >= min_val) & (cleaned <= max_val), np.nan)
     return cleaned.astype("float32")
 
 
@@ -412,7 +421,7 @@ def process_raw_dataframe(
         "tipo_acidente", "classificacao_acidente", "municipio"
     ]
     cols_existentes_o = [c for c in cols_ocorrencia if c in df.columns]
-    ocorrencias = df.groupby("id", as_index=False)[cols_existentes_o].first()
+    ocorrencias = df.drop_duplicates(subset=["id"], keep="first")[cols_existentes_o].copy()
 
     # Agregar vítimas das pessoas únicas por ocorrência (id)
     vitimas_por_id = (
@@ -438,7 +447,7 @@ def process_raw_dataframe(
     ocorrencias["km"] = ocorrencias["km_limpo"]
     ocorrencias["latitude"] = ocorrencias["latitude_limpa"]
     ocorrencias["longitude"] = ocorrencias["longitude_limpa"]
-    ocorrencias["fase_dia"] = ocorrencias["fase_dia_agrupada"].str.lower()
+    ocorrencias["fase_dia"] = ocorrencias["fase_dia_agrupada"].astype(str).str.lower()
 
     # Validação da classificação de acidente e identificação de divergências
     if "classificacao_acidente" in ocorrencias.columns:
@@ -448,20 +457,23 @@ def process_raw_dataframe(
         ocorrencias["classificacao_acidente"] = np.nan
 
     ocorrencias["classificacao_acidente"] = ocorrencias["classificacao_acidente"].astype(object)
-    divergencias_classificacao = []
-    # Ocorrências com mortos > 0 onde a classificação original era ausente ou não-fatal
+    
+    # Vetorização da auditoria de classificação de acidentes fatais
     fatais_mask = ocorrencias["acidente_fatal"] == 1
-    for idx_row, row_oc in ocorrencias[fatais_mask].iterrows():
-        orig_class = str(row_oc["classificacao_acidente_original"])
-        if "fatal" not in orig_class.lower():
+    orig_str = ocorrencias["classificacao_acidente_original"].astype(str).str.lower()
+    div_mask = fatais_mask & (~orig_str.str.contains("fatal", na=False))
+    
+    divergencias_classificacao = []
+    if div_mask.any():
+        for _, row_div in ocorrencias[div_mask].iterrows():
+            orig_val = str(row_div["classificacao_acidente_original"])
             divergencias_classificacao.append({
-                "id": row_oc["id"],
-                "mortos": int(row_oc["mortos"]),
-                "classificacao_original": orig_class if orig_class not in ["nan", "None", ""] else "Ausente",
+                "id": row_div["id"],
+                "mortos": int(row_div["mortos"]),
+                "classificacao_original": orig_val if orig_val not in ["nan", "None", ""] else "Ausente",
                 "motivo": "Morte confirmada nos registros de pessoas, porém classificação de acidente ausente ou não-fatal no boletim original"
             })
-            # Atualiza classificação consolidada para 'Com Vítimas Fatais (Auditada)'
-            ocorrencias.at[idx_row, "classificacao_acidente"] = "Com Vítimas Fatais (Auditada)"
+        ocorrencias.loc[div_mask, "classificacao_acidente"] = "Com Vítimas Fatais (Auditada)"
 
     # =========================================================================
     # RELATÓRIO DE AUDITORIA E QUALIDADE DOS DADOS (quality_summary)
@@ -538,6 +550,28 @@ def process_raw_dataframe(
         "data_minima": str(ocorrencias["data_inversa"].min()) if "data_inversa" in ocorrencias.columns else "N/A",
         "data_maxima": str(ocorrencias["data_inversa"].max()) if "data_inversa" in ocorrencias.columns else "N/A",
     }
+
+    # Compactação de tipos categóricos para redução drástica de consumo de memória
+    for c in ["uf", "br", "fase_dia_oficial", "fase_dia_agrupada", "fase_dia", "condicao_metereologica", "tipo_pista", "tracado_via", "uso_solo", "sentido_via", "tipo_acidente"]:
+        if c in ocorrencias.columns:
+            ocorrencias[c] = ocorrencias[c].astype("category")
+
+    if pessoas_df is not None and not pessoas_df.empty:
+        for c in ["tipo_envolvido", "estado_fisico", "sexo", "faixa_etaria", "uf", "br", "fase_dia_oficial", "fase_dia_agrupada", "condicao_metereologica", "tipo_acidente"]:
+            if c in pessoas_df.columns:
+                pessoas_df[c] = pessoas_df[c].astype("category")
+
+    if veiculos_df is not None and not veiculos_df.empty:
+        for c in ["tipo_veiculo", "uf", "br", "fase_dia_oficial", "fase_dia_agrupada"]:
+            if c in veiculos_df.columns:
+                veiculos_df[c] = veiculos_df[c].astype("category")
+
+    if causas_df is not None and not causas_df.empty:
+        for c in ["causa_principal"]:
+            if c in causas_df.columns:
+                causas_df[c] = causas_df[c].astype("category")
+
+    gc.collect()
 
     if return_relational:
         return ocorrencias, pessoas_df, veiculos_df, causas_df, quality_summary

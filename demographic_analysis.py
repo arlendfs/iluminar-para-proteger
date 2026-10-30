@@ -190,7 +190,7 @@ def compute_faixa_etaria_analysis(
 
     # Ordenar pelas categorias padronizadas
     ordem_map = {f: i for i, f in enumerate(FAIXAS_ETARIAS_ORDEM)}
-    resumo["ordem"] = resumo["faixa_etaria"].map(ordem_map).fillna(99)
+    resumo["ordem"] = pd.to_numeric(resumo["faixa_etaria"].astype(str).map(ordem_map), errors="coerce").fillna(99)
     resumo = resumo.sort_values("ordem").drop(columns=["ordem"])
 
     # 2. Estatísticas de idade por gravidade (apenas idades válidas de 0 a 110 anos)
