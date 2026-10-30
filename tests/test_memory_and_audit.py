@@ -138,3 +138,4 @@ def test_pdf_report_no_hardcoded_numbers_and_dynamic_consistency():
     pdf_bytes = pdf_buffer.getvalue()
     assert len(pdf_bytes) > 2000
     assert pdf_bytes.startswith(b"%PDF")
+

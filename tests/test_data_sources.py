@@ -85,3 +85,4 @@ def test_cache_signature_invalidation():
 
     assert sig_a != sig_b
     assert sig_a != sig_c
+

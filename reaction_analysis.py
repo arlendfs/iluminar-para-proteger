@@ -80,6 +80,9 @@ def analyze_visibility_and_reaction(
         )
         .reset_index()
     )
+    ranking_causas["total_ocorrencias"] = pd.to_numeric(ranking_causas["total_ocorrencias"], errors="coerce").fillna(0)
+    ranking_causas["acidentes_fatais"] = pd.to_numeric(ranking_causas["acidentes_fatais"], errors="coerce").fillna(0)
+    ranking_causas["total_mortos"] = pd.to_numeric(ranking_causas["total_mortos"], errors="coerce").fillna(0)
     ranking_causas["letalidade_pct"] = (
         ranking_causas["acidentes_fatais"] / ranking_causas["total_ocorrencias"].replace(0, np.nan) * 100
     ).fillna(0)
@@ -101,7 +104,11 @@ def analyze_visibility_and_reaction(
 
     # Calcular participação percentual de cada causa dentro do período respectivo
     totais_por_periodo = merged.groupby(col_periodo, observed=True)["id"].nunique()
-    causas_periodo["total_periodo"] = causas_periodo[col_periodo].map(totais_por_periodo)
+    map_totais = {str(k): float(v) for k, v in totais_por_periodo.to_dict().items()}
+    causas_periodo["total_periodo"] = pd.to_numeric(
+        causas_periodo[col_periodo].astype(str).map(map_totais), errors="coerce"
+    ).fillna(0)
+    causas_periodo["n_acidentes"] = pd.to_numeric(causas_periodo["n_acidentes"], errors="coerce").fillna(0)
     causas_periodo["participacao_no_periodo_pct"] = (
         causas_periodo["n_acidentes"] / causas_periodo["total_periodo"].replace(0, np.nan) * 100
     ).fillna(0)
@@ -112,6 +119,7 @@ def analyze_visibility_and_reaction(
         columns=col_periodo,
         values=["n_acidentes", "participacao_no_periodo_pct", "mortos"],
         fill_value=0,
+        observed=True,
     )
     # Aplanar colunas multiindex
     pivot_causas.columns = [f"{col}_{val}".lower() for col, val in pivot_causas.columns]
@@ -153,6 +161,9 @@ def analyze_visibility_and_reaction(
         )
         .reset_index()
     )
+    causas_fases_df["total_mortos"] = pd.to_numeric(causas_fases_df["total_mortos"], errors="coerce").fillna(0)
+    causas_fases_df["acidentes_fatais"] = pd.to_numeric(causas_fases_df["acidentes_fatais"], errors="coerce").fillna(0)
+    causas_fases_df["n_acidentes"] = pd.to_numeric(causas_fases_df["n_acidentes"], errors="coerce").fillna(0)
     causas_fases_df["mortos_por_100"] = (
         causas_fases_df["total_mortos"] / causas_fases_df["n_acidentes"].replace(0, np.nan) * 100
     ).fillna(0).round(2)
