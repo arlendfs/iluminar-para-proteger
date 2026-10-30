@@ -11,8 +11,16 @@ from financial_model import (
     calcular_beneficio_anual_trechos,
     calcular_tir,
     avaliar_viabilidade_economica,
+    calcular_balanco_energetico_detalhado,
+    calcular_orcamento_cenarios,
 )
-from config import FINANCIAL_PARAMS, ECONOMIC_VALUES, ENGENHARIA_SISTEMA_SOLAR
+from config import (
+    FINANCIAL_PARAMS,
+    ECONOMIC_VALUES,
+    ENGENHARIA_SISTEMA_SOLAR,
+    ENGENHARIA_SISTEMA_SOLAR_COMPACTO,
+    CENARIOS_ORCAMENTO,
+)
 
 
 def test_dimensionamento_100_trechos_2km():
@@ -181,5 +189,107 @@ def test_memoria_calculo_vidas_salvas_45_8():
     assert pytest.approx(ben["vidas_salvas_ano"], 0.05) == 45.85
     # Arredondado a 1 casa decimal deve ser exatamente 45.8 ou 45.9
     assert round(ben["vidas_salvas_ano"], 1) in (45.8, 45.9)
+
+
+def test_balanco_energetico_detalhado_compacto():
+    """
+    Testa o dimensionamento do cenário compacto 8m / 40W / 240Wp / 2.500Wh:
+    - Consumo noturno: 4h*40W (160) + 4h*32W (128) + 4h*24W (96) = 384 Wh
+    - Telemetria: 2W * 24h = 48 Wh -> Consumo total = 432 Wh/dia
+    - Bateria 2.500 Wh nominais: 1.800 Wh úteis BOL e 1.440 Wh úteis EOL
+    - Autonomia com ZERO sol: BOL = 4,17 noites; EOL = 3,33 noites (sustenta 3 noites)
+    - Geração solar a pleno sol: 240Wp * 4.5h * 0.8 = 864 Wh/dia (excedente 432 Wh)
+    - Recuperação da carga total: 1.296 Wh / 432 Wh = 3,0 dias
+    """
+    b = calcular_balanco_energetico_detalhado()
+    assert b["consumo_led_wh"] == 384.0
+    assert b["consumo_telemetria_wh"] == 48.0
+    assert b["consumo_total_diario_wh"] == 432.0
+    assert b["consumo_3_noites_wh"] == 1296.0
+
+    assert pytest.approx(b["capacidade_util_bol_wh"], 0.1) == 1800.0
+    assert pytest.approx(b["capacidade_util_eol_wh"], 0.1) == 1440.0
+
+    assert b["autonomia_zero_sol_bol_noites"] > 4.15
+    assert b["autonomia_zero_sol_eol_noites"] > 3.30
+    assert b["atende_requisito_3_noites_bol"] is True
+    assert b["atende_requisito_3_noites_eol"] is True
+
+    assert pytest.approx(b["geracao_solar_sol_pleno_wh"], 0.1) == 864.0
+    assert pytest.approx(b["excedente_diario_sol_wh"], 0.1) == 432.0
+    assert pytest.approx(b["dias_recarga_apos_3_noites"], 0.1) == 3.0
+
+
+def test_aviso_autonomia_insuficiente():
+    """
+    Verifica se a função emite aviso quando a bateria não suporta a autonomia desejada.
+    """
+    # Bateria insuficiente de apenas 800 Wh para 40W
+    b_insuficiente = calcular_balanco_energetico_detalhado(
+        potencia_led_w=40.0,
+        capacidade_bateria_wh=800.0,
+        autonomia_desejada_noites=3.0,
+    )
+    assert b_insuficiente["atende_requisito_3_noites_bol"] is False
+    assert "AVISO TÉCNICO" in b_insuficiente["status_aviso"]
+
+
+def test_orcamento_cenarios_a_e():
+    """
+    Valida os 5 cenários orçamentários comparáveis (Cenários A a E):
+    - Cenário A: R$ 15.000 / CAPEX R$ 60M
+    - Cenário B: R$ 17.018,85 / CAPEX R$ 68,08M
+    - Cenário C: R$ 28.288,85 / CAPEX R$ 113,16M
+    - Cenário D: R$ 22.310,00 / CAPEX R$ 89,24M
+    - Cenário E: R$ 34.038,85 / CAPEX R$ 136,16M
+    """
+    df_top = pd.DataFrame({
+        "trecho_id": [f"T_{i}" for i in range(100)],
+        "mortos_noturno": [3] * 62 + [2] * 38,
+        "feridos_graves_noturno": [5] * 100,
+        "feridos_leves_noturno": [10] * 100,
+        "n_acidentes_noturnos": [20] * 100,
+    })
+
+    orc = calcular_orcamento_cenarios(
+        top_segments_df=df_top,
+        n_trechos=100,
+        comprimento_km=2.0,
+        espacamento_m=50,
+        anos_base_dados=2.0,
+    )
+
+    resumos = orc["resumos_cenarios"]
+    assert "cenario_a" in resumos
+    assert "cenario_b" in resumos
+    assert "cenario_c" in resumos
+    assert "cenario_d" in resumos
+    assert "cenario_e" in resumos
+
+    # Cenário A
+    assert resumos["cenario_a"]["custo_unitario"] == 15000.00
+    assert resumos["cenario_a"]["capex_total"] == 60_000_000.00
+
+    # Cenário B
+    assert pytest.approx(resumos["cenario_b"]["custo_unitario"], 0.01) == 17018.85
+    assert pytest.approx(resumos["cenario_b"]["capex_total"], 1.0) == 68_075_400.00
+
+    # Cenário C
+    assert pytest.approx(resumos["cenario_c"]["custo_unitario"], 0.01) == 28288.85
+    assert pytest.approx(resumos["cenario_c"]["capex_total"], 1.0) == 113_155_400.00
+
+    # Cenário D (Base compacta)
+    assert pytest.approx(resumos["cenario_d"]["custo_unitario"], 0.01) == 22310.00
+    assert pytest.approx(resumos["cenario_d"]["capex_total"], 1.0) == 89_240_000.00
+
+    # Cenário E
+    assert pytest.approx(resumos["cenario_e"]["custo_unitario"], 0.01) == 34038.85
+    assert pytest.approx(resumos["cenario_e"]["capex_total"], 1.0) == 136_155_400.00
+
+    # VPL de todos os cenários com 100 trechos críticos deve ser positivo e superior a R$ 2 bilhões
+    for c_id in ["cenario_a", "cenario_b", "cenario_c", "cenario_d", "cenario_e"]:
+        assert resumos[c_id]["vpl"] > 2_000_000_000.0
+        assert resumos[c_id]["payback_simples_anos"] < 1.0
+
 
 

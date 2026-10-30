@@ -212,7 +212,12 @@ def main():
             # 3. Filtro de Rodovias (BR)
             if "br" in analyzer.data.columns:
                 brs_disp = sorted([str(b) for b in analyzer.data["br"].dropna().unique() if str(b) != "N/A"])
-                brs_sel = st.sidebar.multiselect("🛣️ Rodovias Federais (BR)", brs_disp, default=brs_disp)
+                brs_sel = st.sidebar.multiselect(
+                    "🛣️ Rodovias Federais (BR)",
+                    brs_disp,
+                    default=brs_disp,
+                    help="Por padrão, inclui todas as rodovias nominais e ocorrências elegíveis para análise nacional (121.241 registros).",
+                )
             else:
                 brs_sel = []
 

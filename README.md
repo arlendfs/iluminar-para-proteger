@@ -191,7 +191,7 @@ condutor (_Mecanismo PIEV — Percepção, Identificação, Emoção e Volição
 
 ---
 
-## 💰 9. Modelo Econômico-Financeiro e Dimensionamento
+## 💰 9. Modelo Econômico-Financeiro, Cenários Orçamentários e Balanço Energético
 
 ### 9.1 Dimensionamento de Postes
 
@@ -200,84 +200,112 @@ $$\text{Postes por Trecho} = \left\lceil \frac{L \times 1.000}{\text{Espaçament
 Para 100 trechos de $2{,}0\text{ km}$ e espaçamento de $50\text{ m}$:
 $$100 \times \left(\frac{2.000}{50}\right) = 4.000 \text{ postes solares}$$
 
-### 9.2 CAPEX e OPEX
+### 9.2 Novo Conceito Físico e Energético Compacto (8m / 40W / 240Wp / 2.500Wh LiFePO4)
 
-- **CAPEX Unitário (R$ 15.000,00):** Poste galvanizado (R\$ 3.500), Módulo solar
-  (R\$ 1.200), Bateria LiFePO4 (R\$ 3.500), Luminária LED (R\$ 1.800),
-  Controlador MPPT/sensores (R\$ 1.000), Fundação/ancoragem (R\$ 1.500),
-  Instalação (R\$ 1.500), Logística/projetos (R\$ 1.000).
-- **OPEX Anual:** R\$ 500,00 por poste/ano + R\$ 3.500,00 de substituição de
-  bateria a cada 5 anos (anos 5 e 10).
+Substituição da configuração genérica anterior por um sistema viário compacto e integrado:
+- **Poste Metálico Cônico:** Altura de 8,0 metros em aço galvanizado a fogo com base flangeada e chumbadores;
+- **Braço Viário Projetado:** Avanço de 1,5m sobre o bordo da pista de rolamento;
+- **Luminária LED Viária:** 40 W de alta eficiência com curva fotométrica IESNA Tipo II;
+- **Painel Fotovoltaico Integrado:** 240 Wp compacto com inclinação ótima de 22° no topo do poste;
+- **Bateria LiFePO4 Integrada:** 2.500 Wh nominais com BMS e controlador MPPT alojados em gabinete protegido na base;
+- **Supervisão e Telemetria Remota:** 2 W contínuos durante 24h (48 Wh/dia).
 
-### 9.3 Benefício Social Anual (Valoração IPEA)
+#### Balanço Energético Auditado (Autonomia com ZERO Geração Solar):
+- **Consumo Noturno Dimerizado (12h):** 4h a 100% (160 Wh) + 4h a 80% (128 Wh) + 4h a 60% (96 Wh) = **384 Wh/noite**;
+- **Consumo Total Diário:** 384 Wh (LED) + 48 Wh (telemetria) = **432 Wh por dia/noite**;
+- **Capacidade Útil da Bateria (DoD 80%, Eficiência 90%):**
+  - **Início de Vida (BOL):** $2.500 \times 0{,}80 \times 0{,}90 = \mathbf{1.800\text{ Wh úteis}}$;
+  - **Fim de Vida (EOL 80%):** $1.800 \times 0{,}80 = \mathbf{1.440\text{ Wh úteis}}$;
+- **Autonomia Sustentada (Zero Sol):**
+  - BOL: $\frac{1.800}{432} = \mathbf{4{,}17\text{ noites}}$;
+  - EOL: $\frac{1.440}{432} = \mathbf{3{,}33\text{ noites}}$ (atende plenamente o requisito mandatário de 3 noites sem sol);
+- **Geração Solar (4,5 HSP, PR 80%):** $240 \times 4{,}5 \times 0{,}80 = \mathbf{864\text{ Wh/dia}}$ (excedente de 432 Wh/dia, permitindo recarga completa em **3,0 dias de sol pleno** após descarga profunda).
+- **Operação em Dias Nublados:** Gera 216 Wh/dia (suporta até 8 dias nublados consecutivos).
 
-Calculado exclusivamente sobre os acidentes noturnos elegíveis dos trechos
-contemplados:
+### 9.3 Segurança Luminotécnica e Validação Pendente (ABNT NBR 5101:2024)
+
+> ⚠️ **Aviso de Conformidade:** A potência preliminar de 40W é uma **hipótese técnica preliminar**, sujeita a cálculo fotométrico formal (DIALux EVO / Relux). A conformidade normativa com a **ABNT NBR 5101:2024** para classes V1 a V5 exige verificação de luminância média ($L_m \ge 1{,}0\text{ cd/m}^2$), uniformidade ($U_0 \ge 0{,}35$) e controle de ofuscamento ($TI \le 10\%$) em função da largura da pista e geometria viária.
+
+### 9.4 Comparativo dos 5 Cenários Orçamentários (A a E)
+
+| Cenário | Descrição / Modelo | Custo/Poste (R$) | CAPEX Total (4.000 un) | VPL Social (15 anos) | TIR Social | Payback Simples |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **A — Meta Histórica** | Orçamento preliminar anterior sem cotação | R$ 15.000,00 | R$ 60,00 M | R$ 2,38 bilhões | 480% a.a. | 0,21 anos |
+| **B — Comercial 6m/40W** | NeoSolar ZTL6-40 (não equiv. a 8m viário) | R$ 17.018,85 | R$ 68,08 M | R$ 2,37 bilhões | 423% a.a. | 0,23 anos |
+| **C — Comercial 8m/80W** | NeoSolar ZTL8-80 para vias arteriais | R$ 28.288,85 | R$ 113,16 M | R$ 2,33 bilhões | 254% a.a. | 0,39 anos |
+| **D — Conceitual 8m/40W** | **Base Compacta do Projeto (240Wp/2.500Wh)** | **R$ 22.310,00** | **R$ 89,24 M** | **R$ 2,35 bilhões** | **323% a.a.** | **0,31 anos** |
+| **E — 8m/80W Bat. Reforçada** | ZTL8-80 + reserva técnica expansão R$ 5.000 | R$ 34.038,85 | R$ 136,16 M | R$ 2,30 bilhões | 211% a.a. | 0,47 anos |
+
+### 9.5 Benefício Social Anual (Valoração IPEA/PRF)
+
+Calculado exclusivamente sobre os acidentes noturnos elegíveis dos 100 trechos contemplados:
 $$\text{Benefício Anual} = \Delta_{\text{cenário}} \times \left( \frac{\text{Mortos}}{\text{Anos}} \times \text{VSL} + \frac{\text{Graves}}{\text{Anos}} \times C_{\text{grave}} + \frac{\text{Leves}}{\text{Anos}} \times C_{\text{leve}} \right)$$
 
 Onde $\text{VSL} = \text{R\$} 5.787.720,00$,
 $C_{\text{grave}} = \text{R\$} 90.000,00$,
 $C_{\text{leve}} = \text{R\$} 25.000,00$.
-
-### 9.4 Indicadores Financeiros
-
-- **VPL (Valor Presente Líquido a 8% a.a., 15 anos):**
-  $$\text{VPL} = -\text{CAPEX} + \sum_{t=1}^{15} \frac{\text{Benefício Líquido}_t}{(1 + r)^t}$$
-- **TIR:** Taxa onde $\text{VPL} = 0$, calculada por convergência numérica de
-  Newton-Raphson.
-- **Payback Simples e Descontado:** Ano exato de recuperação do investimento.
-- **Cenários de Sensibilidade:** Conservador (20%), Intermediário/Base (35%),
-  Otimista (50%).
+- **Vidas Humanas Salvas:** $131{,}0\text{ mortes/ano baseline} \times 0{,}35 = \mathbf{45{,}8\text{ vidas salvas por ano}}$.
+- **Benefício Bruto Anual:** **R$ 293,96 milhões/ano**.
+- **Benefício Líquido Anual:** **R$ 290,09 milhões/ano** (descontado OPEX de R$ 3,87M/ano).
 
 ---
 
-## 🌟 10. Protótipo 3D Interativo
+## 📡 10. Supervisão Remota e Telemetria de Infraestrutura (Conceitual)
 
-O protótipo 3D funcional (`solar_post_3d.html`), construído em Three.js, simula:
-
-- Ciclos de iluminação Dia / Noite;
-- Acionamento inteligente de luminária LED viária;
-- Sensor de presença por micro-ondas/radar com dimerização automática;
-- Navegação de câmera orbital em 360 graus.
+Módulo conceitual simulado de monitoramento e gestão de ativos:
+- **Estados Simulados:** Operação Normal, Bateria Baixa (< 20% SOC), Falha na Luminária LED, Falha de Carga Solar, Violação de Gabinete / Alarme de Furto e Perda de Sinal;
+- **Gestão de Incidentes:** Demonstração do ciclo de vida de Ordem de Serviço (OS): `Aberta ➔ Em Análise ➔ Equipe Despachada ➔ Concluída`;
+- **Aviso Obrigatório:** Todos os dados de telemetria são 100% simulados para modelagem funcional de software; não há postes físicos instalados.
 
 ---
 
-## 📄 11. Relatório Técnico-Científico em PDF
+## 🌟 11. Protótipo 3D Interativo
 
-O gerador `ReportGenerator` produz relatórios formatados em padrão A4, contendo
-**15 seções científicas completas**:
+O protótipo 3D funcional (`solar_post_3d.html`), construído em Three.js com WebGL e sombreamento suave, apresenta:
+
+- **Geometria Industrial Viária:** Poste cônico de 8 metros com chapa de base e parafusos de ancoragem;
+- **Braço Curvo Viário e Luminária LED:** Modelo viário aerodinâmico com avanço sobre a pista e ótica Tipo II;
+- **Conjunto Solar Compacto:** Módulo de 240 Wp proporcional no topo com inclinação de 22°;
+- **Modo Raio-X:** Visualização dos componentes internos (Bateria LiFePO4 de 2.500 Wh, BMS e controlador MPPT);
+- **Simulação de Veículos:** Ativação dinâmica do radar de micro-ondas com passagem de veículos a 60 km/h;
+- **Simulação Interativa de Falhas:** Sliders de potência LED, capacidade de bateria, painel solar, dias sem sol e botões para queima de LED, falha de painel, alarme de intrusão e perda de telemetria;
+- **HUD Integrado:** Cálculo em tempo real espelhando o motor Python com consumo diário, geração, autonomia em noites e SOC (%).
+
+---
+
+## 📄 12. Relatório Técnico-Científico em PDF
+
+O gerador `ReportGenerator` produz relatórios formatados em padrão A4, contendo **seções científicas completas**:
 
 1. Identificação Institucional e Metadados
 2. Resumo Executivo dos Indicadores Auditados
-3. Metodologia e Confiabilidade dos Dados
+3. Metodologia, Elegibilidade de Dados e Conciliação dos 267 Registros
 4. Evolução Temporal dos Acidentes (Gráfico em Alta Resolução)
-5. Comparação Dia vs Noite com Fases Oficiais PRF
-6. Ranking Geral de Causas de Acidentes
-7. Visibilidade Noturna, Tempo de Reação e Referência FHWA
+5. Comparação Dia vs Noite com Fases Oficiais PRF e Pico no Amanhecer
+6. Ranking Geral de Causas de Acidentes e Sobrecarga por Reação Tardia
+7. Visibilidade Noturna, Tempo de Reação e Mecanismo Ótico Viário
 8. Distribuição Regional (Top Estados e Rodovias)
-9. Ranking de Trechos Prioritários para Iluminação
-10. Engenharia e Dimensionamento do Poste Solar
-11. Viabilidade Econômica (CAPEX, OPEX, VPL, TIR, Payback e Cenários)
-12. Discussão Científica e Mecanismos Óticos Viários
-13. Limitações Metodológicas
+9. Ranking de Trechos Prioritários para Iluminação (Segmentos de 2 km)
+10. Engenharia, Conceito Compacto (8m/40W) e Balanço Energético Auditado
+11. Modelagem Econômica e Tabela Comparativa de Cenários Orçamentários (A a E)
+12. Supervisão Remota e Telemetria Conceitual
+13. Limitações Metodológicas e Científicas
 14. Conclusões e Recomendações
-15. Referências Oficiais (PRF, IPEA, FHWA, DNIT) com links de acesso
+15. Referências Oficiais e Normativas (PRF, IPEA, FHWA, ABNT NBR 5101, NeoSolar, EcoSoli, Módulo Energia)
 
 ---
 
-## 🧪 12. Testes Automatizados (QA)
+## 🧪 13. Testes Automatizados (QA)
 
-A suíte de testes cobre todas as camadas do sistema com **21 testes
-automatizados** via Pytest:
+A suíte de testes cobre todas as camadas do sistema com **29 testes automatizados** via Pytest:
 
-- **Dados:** Limpeza de decimais com vírgula, preservação de nulos em KM e
-  coordenadas, desduplicação por `id` e `pesid`.
-- **Estatísticas:** Taxas por 100 acidentes, proporções de fatais e razões
-  comparativas.
-- **Causas:** Filtragem de termos de visibilidade, tabelas pivô e
-  estratificações.
-- **Segmentação:** Intervalos regulares de 2 km, isolamento de KMs nulos e
-  ranqueamento.
+- **Dados:** Limpeza de decimais com vírgula, preservação de nulos em KM e coordenadas, desduplicação por `id` e `pesid`, auditoria das 267 ocorrências sem KM.
+- **Elegibilidade:** Inclusão de sinistros sem KM nas estatísticas nacionais e isolamento apenas na segmentação viária por KM.
+- **Estatísticas:** Taxas por 100 acidentes, proporções de fatais e razões comparativas dia vs noite.
+- **Balanço Energético:** Autonomia com 0 geração solar (BOL >= 4,15 noites, EOL >= 3,30 noites), consumo por dimerização (432 Wh/dia), dias nublados, tempo de recarga (3,0 dias) e aviso de bateria insuficiente.
+- **Cenários Orçamentários:** Validação exata dos Cenários A, B, C, D e E com CAPEX, OPEX, VPL, TIR e Payback.
+- **Segmentação e Causas:** Segmentos regulares de 2 km, eliminação de KM 0,0 artificial, e causas sobrepostas sem dupla contagem de vítimas.
+- **PDF:** Compilação completa do relatório técnico sem falhas de sintaxe ou layout.
 - **Finanças:** Dimensionamento (100 trechos × 2 km com espaçamento de 50m =
   4.000 postes e R$ 60M CAPEX), benefício restrito aos trechos, fator de
   anualização, VPL, TIR e casos extremos de zero acidentes.

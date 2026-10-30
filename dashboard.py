@@ -29,11 +29,16 @@ from config import (
     DEFAULT_COMPRIMENTO_TRECHO_KM,
     DEFAULT_TRECHOS_TOP_N,
     SCENARIOS,
+    CENARIOS_ORCAMENTO,
+    ENGENHARIA_SISTEMA_SOLAR_COMPACTO,
+    LUMINOTECNICA_PARAMETROS,
+    TELEMETRIA_CONFIG,
     CAUSAS_VISIBILIDADE_REACAO,
 )
 from analyzer import AccidentAnalyzer
 from metrics import compute_period_metrics, compute_day_vs_night_comparison
 from reaction_analysis import analyze_visibility_and_reaction
+from financial_model import calcular_orcamento_cenarios, calcular_balanco_energetico_detalhado
 from pdf_generator import ReportGenerator
 
 
@@ -66,14 +71,17 @@ def create_dashboard(analyzer: AccidentAnalyzer):
 
         st.markdown(
             f"""
-            **Auditoria dos 267 Registros de Diferença:**
-            - Total de linhas brutas nos arquivos de entrada: **{total_linhas_brutas:,}**.
-            - Ocorrências únicas totais no banco de dados: **{quality.get('ocorrencias_unicas', ocorrencias_unicas):,}**.
-            - Subtração direta de duplicidades evitadas: `{total_linhas_brutas:,} - {quality.get('ocorrencias_unicas', ocorrencias_unicas):,} = {duplicatas_evitadas:,}`.
-            - Ocorrências com marco quilométrico (KM) verificado: **{com_km:,}**.
-            - Ocorrências com KM ausente / desconhecido na PRF: **{sem_km:,}**.
-            - Subtração de linhas brutas por ocorrências com KM: `{total_linhas_brutas:,} - {com_km:,} = {total_linhas_brutas - com_km:,}`.
-            - **Origem exata da diferença de 267 registros:** Corresponde rigorosamente às **{sem_km} ocorrências sem marco quilométrico**. Essas ocorrências são mantidas nas estatísticas gerais do Brasil/estados, mas foram **excluídas do ranking físico de trechos rodoviários** para impedir a distorção histórica de concentração artificial no KM 0,0.
+            **Auditoria dos 267 Registros e Regras de Elegibilidade Metodológica:**
+            - **Total de linhas brutas nos arquivos de entrada:** **{total_linhas_brutas:,}**.
+            - **Ocorrências únicas totais no banco de dados:** **{quality.get('ocorrencias_unicas', ocorrencias_unicas):,}** (desduplicadas estritamente pelo ID de sinistro).
+            - **Duplicidades de pessoas/causas evitadas:** `{total_linhas_brutas:,} - {quality.get('ocorrencias_unicas', ocorrencias_unicas):,} = {duplicatas_evitadas:,}`.
+            - **Ocorrências com marco quilométrico (KM) verificado:** **{com_km:,}**.
+            - **Ocorrências com KM ausente / desconhecido na PRF:** **{sem_km:,}** (todas possuem coordenadas GPS válidas, 0 óbitos e 104 feridos).
+            
+            **Diretrizes de Elegibilidade por Módulo:**
+            1. **Análise Nacional, Regional, Temporal, Fatais e Causas:** Utilizam **todas as {ocorrencias_unicas:,} ocorrências elegíveis**, garantindo que nenhum acidente real seja descartado das estatísticas gerais.
+            2. **Ranking Segmentado por Quilômetro:** Utiliza **exclusivamente as {com_km:,} ocorrências com KM e BR válidos**, impedindo a distorção física de concentração artificial em KM 0,0.
+            3. **Mapa Geográfico:** Mapeia **todas as {com_geo:,} ocorrências com coordenadas geográficas válidas**.
             """
         )
 
@@ -489,17 +497,129 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 """
             )
 
-        # Balanço Energético Auditado
-        with st.expander("⚡ Balanço Energético e Dimensionamento do Poste para 3 Noites de Autonomia", expanded=False):
+        # =====================================================================
+        # BALANÇO ENERGÉTICO DETALHADO (8m / 40W / 240Wp / 2.500Wh LiFePO4)
+        # =====================================================================
+        balanco_eng = calcular_balanco_energetico_detalhado()
+        with st.expander("⚡ Balanço Energético Detalhado e Autonomia (Cenário Compacto 8m / 40W)", expanded=False):
+            st.markdown(
+                f"""
+                **Dimensionamento Elétrico e Balanço Energético Auditado:**
+                - **Luminária LED Viária:** 40 W de alta eficiência (140 lm/W).
+                - **Perfil Noturno Inteligente (12h):**
+                  - 4h de fluxo intenso a 100% (40 W): **160 Wh**
+                  - 4h normal a 80% (32 W): **128 Wh**
+                  - 4h de repouso a 60% (24 W): **96 Wh**
+                  - *Subtotal LED:* **384 Wh por noite**
+                - **Supervisão e Telemetria Remota:** 2 W contínuos (24h) = **48 Wh por dia**.
+                - **Consumo Total Diário Ponderado:** `{balanco_eng['consumo_led_wh']:.0f} Wh + {balanco_eng['consumo_telemetria_wh']:.0f} Wh = {balanco_eng['consumo_total_diario_wh']:.0f} Wh/dia`.
+                - **Demanda para 3 Noites de Autonomia Estrita:** `{balanco_eng['consumo_total_diario_wh']:.0f} Wh × 3 = {balanco_eng['consumo_3_noites_wh']:.0f} Wh`.
+                
+                **Banco de Baterias LiFePO4 (2.500 Wh nominais):**
+                - **Profundidade de Descarga (DoD):** 80% (preserva 3.000+ ciclos úteis).
+                - **Eficiência Bateria / MPPT / Driver:** 90%.
+                - **Capacidade Útil no Início da Vida (BOL):** `{balanco_eng['capacidade_util_bol_wh']:.1f} Wh úteis`.
+                - **Capacidade Útil no Fim da Vida (EOL - 80% remanescente):** `{balanco_eng['capacidade_util_eol_wh']:.1f} Wh úteis`.
+                - **Autonomia Efetiva com ZERO Geração Solar:**
+                  - Em Início de Vida (BOL): **{balanco_eng['autonomia_zero_sol_bol_noites']:.2f} noites** (atende a meta de 3 noites com folga de 39%).
+                  - Em Fim de Vida (EOL): **{balanco_eng['autonomia_zero_sol_eol_noites']:.2f} noites** (permanece acima do limite normativo de 3 noites).
+                
+                **Geração Solar e Recuperação da Carga:**
+                - **Módulo Fotovoltaico Compacto:** 240 Wp integrado ao topo a 22°.
+                - **Geração a Sol Pleno (4,5 HSP, PR 80%):** `{balanco_eng['geracao_solar_sol_pleno_wh']:.1f} Wh/dia` (excedente diário de `{balanco_eng['excedente_diario_sol_wh']:.1f} Wh/dia`).
+                - **Dias para Recuperação Completa:** `{balanco_eng['consumo_3_noites_wh']:.0f} Wh / {balanco_eng['excedente_diario_sol_wh']:.1f} Wh/dia = {balanco_eng['dias_recarga_apos_3_noites']:.1f} dias de sol pleno`.
+                - **Operação em Dias Nublados:** Gera `{balanco_eng['geracao_solar_dia_nublado_wh']:.1f} Wh/dia` (déficit de `{abs(balanco_eng['balanco_liquido_nublado_wh']):.1f} Wh/dia`, suportando até 8 dias nublados consecutivos).
+                
+                *{balanco_eng['status_aviso']}*
+                """
+            )
+
+        # =====================================================================
+        # SEGURANÇA LUMINOTÉCNICA E ABNT NBR 5101:2024
+        # =====================================================================
+        with st.expander("🛡️ Segurança Luminotécnica e Validação Pendente (ABNT NBR 5101:2024)", expanded=False):
+            st.warning("⚠️ **Status da Validação Luminotécnica:** PENDENTE DE ESTUDO COMPUTACIONAL (DIALux EVO / Relux).")
             st.markdown(
                 """
-                **Auditoria Técnica de Autonomia Elétrica:**
-                - **Luminária LED:** 60W nominal dimerizável com ótica viária Tipo II.
-                - **Perfil Operacional com Sensor de Radar:** 4h em horário de pico a 100% (240 Wh) + 7h em repouso dimerizado a 20% com ativação sob demanda (média 28W = 196 Wh) + 1h matutino a 50% (30 Wh) = **466 Wh por noite**.
-                - **Bateria Dimensionada:** LiFePO4 de **24V / 80Ah (1.920 Wh nominais)** ou 12V / 160Ah.
-                - **Energia Útil:** Com profundidade de descarga recomendada (DoD) de 80% e perdas de 10% no sistema: `1.920 Wh × 0,80 × 0,90 = 1.382,4 Wh úteis`.
-                - **Autonomia Comprovada:** `1.382,4 Wh / 466 Wh/noite = 2,97 noites (~3 noites completas sem sol)`.
-                - **Geração Solar:** Módulo fotovoltaico de **300W** gerando `300W × 4,5 HSP × 0,75 ef. = 1.012,5 Wh/dia`, garantindo o consumo da noite e recarga da reserva de autonomia.
+                **Aviso Metodológico de Engenharia de Tráfego:**  
+                A potência preliminar de 40W é uma **hipótese de trabalho conceitual**, não devendo ser considerada automaticamente suficiente para rodovias federais.  
+                A conformidade luminotécnica com a norma **ABNT NBR 5101:2024 (Iluminação Pública e Rodoviária)** depende de múltiplos fatores que devem ser modelados em software especializado antes de qualquer instalação:
+                - **Classificação da Via (Classes V1 a V5):** Exige luminância média de pista ($L_m$) entre 1,0 e 2,0 cd/m², uniformidade geral ($U_0 \ge 0,35$ a $0,40$) e controle de ofuscamento ($TI \le 10\%$).
+                - **Geometria da Rodovia:** Pista simples (7m) vs pista dupla (duas faixas de 3,5m + acostamento), canteiro central e defensas metálicas.
+                - **Geometria de Montagem:** Altura do poste (8m), ângulo de inclinação do braço, avanço sobre a pista (1,5m) e o espaçamento configurado (**50 metros**).
+                - **Distribuição Fotométrica:** A luminária deve possuir curva IESNA Tipo II Média / Curta com corte total (*Full Cutoff*) para direcionar o fluxo luminoso exclusivamente à faixa de rolamento sem poluição luminosa ou ofuscamento aos motoristas.
+                """
+            )
+
+        # =====================================================================
+        # MODELAGEM ORÇAMENTÁRIA MULTI-CENÁRIOS (CENÁRIOS A A E)
+        # =====================================================================
+        orcamento_multi = calcular_orcamento_cenarios(
+            top_segments_df=top_df,
+            n_trechos=len(top_df),
+            comprimento_km=comprimento_km,
+            espacamento_m=spacing_m,
+            anos_base_dados=anos_base,
+            taxa_reducao=EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"],
+            taxa_desconto=FINANCIAL_PARAMS["taxa_desconto_anual"],
+            anos_vida_util=FINANCIAL_PARAMS["vida_util_anos"],
+        )
+
+        with st.expander("📊 Comparativo de Orçamentos e Cenários (A a E)", expanded=True):
+            st.markdown("##### 🏷️ Comparação Dinâmica dos Cenários Orçamentários")
+            st.caption("Substituição do modelo orçamentário único por múltiplos cenários comparáveis com custos pesquisados, comerciais e hipóteses conceituais.")
+
+            comp_df = orcamento_multi["comparativo_df"]
+            st.dataframe(
+                comp_df,
+                column_config={
+                    "Cenário": "Cenário de Intervenção",
+                    "Tipo": "Classificação",
+                    "Altura": "Altura",
+                    "LED": "LED",
+                    "Custo Unitário (R$)": st.column_config.NumberColumn("Custo/Poste (R$)", format="R$ %.2f"),
+                    "CAPEX Total (R$ M)": st.column_config.NumberColumn("CAPEX (R$ Milhões)", format="R$ %.2f M"),
+                    "VPL 15 Anos (R$ M)": st.column_config.NumberColumn("VPL Social (R$ M)", format="R$ %.2f M"),
+                    "TIR (% a.a.)": st.column_config.NumberColumn("TIR (% a.a.)", format="%.1f%%"),
+                    "Payback Simples (anos)": st.column_config.NumberColumn("Payback Simples", format="%.2f anos"),
+                    "Payback Descontado (anos)": st.column_config.NumberColumn("Payback Descontado", format="%.2f anos"),
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            # Gráfico de Barras Comparativo de CAPEX vs VPL
+            fig_cen = go.Figure()
+            fig_cen.add_trace(go.Bar(
+                x=comp_df["Cenário"],
+                y=comp_df["CAPEX Total (R$ M)"],
+                name="CAPEX Inicial (R$ Milhões)",
+                marker_color="#ef4444",
+            ))
+            fig_cen.add_trace(go.Bar(
+                x=comp_df["Cenário"],
+                y=comp_df["VPL 15 Anos (R$ M)"],
+                name="VPL Social Líquido (R$ Milhões)",
+                marker_color="#10b981",
+            ))
+            fig_cen.update_layout(
+                title="Comparativo Financeiro: Investimento Inicial (CAPEX) vs Retorno Social Líquido (VPL)",
+                barmode="group",
+                height=360,
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_cen, use_container_width=True)
+
+            # Detalhes das premissas de cada cenário
+            st.markdown(
+                """
+                **Detalhamento Técnico dos Cenários:**
+                - **Cenário A — Meta Histórica:** R$ 15.000 fixo por poste | CAPEX R$ 60,00M (Orçamento preliminar anterior sem cotação detalhada).
+                - **Cenário B — Comercial 6m / 40W (NeoSolar ZTL6-40):** Kit R$ 11.599 + Instalação R$ 2.500 + Telemetria R$ 700 + Contingência 15% $\implies$ **R$ 17.018,85/un** | CAPEX **R$ 68,08M** (Não equivalente a poste robusto de 8m).
+                - **Cenário C — Comercial 8m / 80W (NeoSolar ZTL8-80):** Kit R$ 20.699 + Instalação R$ 3.000 + Telemetria R$ 900 + Contingência 15% $\implies$ **R$ 28.288,85/un** | CAPEX **R$ 113,16M**.
+                - **Cenário D — Conceitual Compacto 8m / 40W (Base do Projeto):** Kit preliminar R$ 15.500 (240 Wp, 2.500 Wh) + Instalação R$ 3.000 + Telemetria R$ 900 + Contingência 15% $\implies$ **R$ 22.310,00/un** | CAPEX **R$ 89,24M**.
+                - **Cenário E — 8m / 80W Bateria Reforçada:** Kit R$ 20.699 + Reserva técnica expansão R$ 5.000 + Instalação R$ 3.000 + Telemetria R$ 900 + Contingência 15% $\implies$ **R$ 34.038,85/un** | CAPEX **R$ 136,16M**.
                 """
             )
 
@@ -635,16 +755,65 @@ def create_dashboard(analyzer: AccidentAnalyzer):
     st.markdown("---")
 
     # =========================================================================
-    # 8. PROTÓTIPO 3D DO POSTE SOLAR INTELIGENTE
+    # 8. SUPERVISÃO REMOTA E TELEMETRIA DE INFRAESTRUTURA (CONCEITUAL)
     # =========================================================================
-    st.subheader("🌟 Protótipo 3D Interativo — Poste Solar Inteligente")
+    st.subheader("📡 Supervisão Remota e Telemetria de Infraestrutura (Conceitual)")
+
+    st.warning(
+        "⚠️ **AVISO OBRIGATÓRIO DE SIMULAÇÃO:** O painel abaixo é uma **representação conceitual e simulada** "
+        "dos requisitos funcionais de software para o monitoramento remoto de 4.000 postes solares ao longo dos 100 trechos críticos prioritários. "
+        "**Não existem postes físicos instalados nesta etapa acadêmica do projeto.**"
+    )
+
+    t_col1, t_col2, t_col3, t_col4, t_col5, t_col6 = st.columns(6)
+    t_col1.metric("Postes Ativos", "4.000 un", "100 Trechos")
+    t_col2.metric("🟢 Operação Normal", "3.842 (96,1%)", "Sem alertas")
+    t_col3.metric("🟡 Bateria Baixa", "78 (2,0%)", "SOC < 20%")
+    t_col4.metric("🔴 Falha LED", "24 (0,6%)", "Substituição")
+    t_col5.metric("🚨 Violação Gabinete", "14 (0,4%)", "Sensor intrusão")
+    t_col6.metric("⚪ Sem Sinal", "24 (0,6%)", "Reconexão 4G")
+
+    with st.expander("📋 Gestão Simulada de Incidentes e Demonstração de Ordem de Serviço (OS)", expanded=False):
+        st.markdown(
+            """
+            Demonstração conceitual do ciclo de vida de supervisão de ativos (*Smart Asset Management*):  
+            **Ciclo de Vida do Alerta:** `Alerta Detectado ➔ Ordem de Serviço Gerada ➔ Em Análise ➔ Equipe Técnica em Rota ➔ Manutenção Concluída`
+            """
+        )
+
+        # Tabela de Incidentes Simulados
+        incidentes_simulados = pd.DataFrame([
+            {"Poste ID": "PST-SC-101-042", "Trecho": "BR-101 (SC) KM 144–146", "Tipo de Alerta": "🚨 Violação de Gabinete", "SOC Bateria": "82%", "LED": "OK", "Status OS": "Equipe Despachada", "Abertura": "30/10/2026 01:15"},
+            {"Poste ID": "PST-SP-116-108", "Trecho": "BR-116 (SP) KM 220–222", "Tipo de Alerta": "🔴 Falha na Luminária LED", "SOC Bateria": "91%", "LED": "Circuito Aberto", "Status OS": "Em Análise", "Abertura": "29/10/2026 23:40"},
+            {"Poste ID": "PST-MG-381-019", "Trecho": "BR-381 (MG) KM 480–482", "Tipo de Alerta": "🟡 Bateria Crítica (SOC 12%)", "SOC Bateria": "12%", "LED": "Dimerizado 20%", "Status OS": "Aberta", "Abertura": "30/10/2026 02:05"},
+            {"Poste ID": "PST-PE-423-007", "Trecho": "BR-423 (PE) KM 126–128", "Tipo de Alerta": "⚪ Perda de Sinal (Timeout)", "SOC Bateria": "Desconhecido", "LED": "Último Estado Ligado", "Status OS": "Aguardando Reconexão", "Abertura": "30/10/2026 00:30"},
+            {"Poste ID": "PST-PR-277-085", "Trecho": "BR-277 (PR) KM 310–312", "Tipo de Alerta": "🟠 Falha Carregamento PV", "SOC Bateria": "45%", "LED": "OK", "Status OS": "Em Atendimento", "Abertura": "29/10/2026 18:20"},
+        ])
+
+        st.dataframe(incidentes_simulados, hide_index=True, use_container_width=True)
+
+        col_os_btn, col_os_msg = st.columns([1, 2])
+        with col_os_btn:
+            if st.button("🔧 Simular Emissão de Ordem de Serviço"):
+                st.session_state["os_emitida"] = True
+
+        with col_os_msg:
+            if st.session_state.get("os_emitida"):
+                st.success("✅ Ordem de Serviço Fictícia #OS-2026-8941 emitida com sucesso para o lote BR-101/SC! (Demonstração de integração de software)")
+
+    st.markdown("---")
+
+    # =========================================================================
+    # 9. PROTÓTIPO 3D DO POSTE SOLAR INTELIGENTE COMPACTO
+    # =========================================================================
+    st.subheader("🌟 Protótipo 3D Interativo — Poste Solar Inteligente Compacto")
     col_3d_1, col_3d_2 = st.columns([3, 1])
 
     with col_3d_1:
         try:
             with open("solar_post_3d.html", encoding="UTF-8") as f:
                 html_3d = f.read()
-            components.html(html_3d, height=600)
+            components.html(html_3d, height=640)
         except FileNotFoundError:
             st.error("Arquivo 'solar_post_3d.html' não encontrado.")
 
@@ -653,14 +822,16 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             """
             <div class="metric-container">
                 <h4>🎮 Controles e Navegação 3D</h4>
-                <p>Gire e amplie o modelo tridimensional com o mouse.</p>
-                <p><strong>Ações Interativas:</strong></p>
+                <p>Interaja com o modelo tridimensional com proporções de engenharia viária.</p>
+                <p><strong>Recursos Interativos:</strong></p>
                 <p>• 🌙 Alternar Modo Dia / Noite</p>
-                <p>• 💡 Ligar / Desligar LED</p>
-                <p>• 🚶 Simular Sensor de Movimento</p>
+                <p>• 💡 Ligar / Desligar LED viário</p>
+                <p>• 🔍 <strong>Modo Raio-X:</strong> Visualizar bateria LiFePO4 e MPPT internos</p>
+                <p>• 🚗 <strong>Passagem de Veículo:</strong> Ativação do radar Doppler</p>
+                <p>• 🚨 <strong>Simulação de Falhas:</strong> Violação, queima de LED, painel sem geração</p>
                 <p>• 📷 Resetar Posição da Câmera</p>
                 <hr style="margin: 8px 0;">
-                <p><small><em>Nota: Este protótipo constitui uma representação visual e conceitual de engenharia. A autonomia real depende de irradiação solar local (HSP) e dimensionamento de bateria.</em></small></p>
+                <p><small><em>Nota de Rigor Acadêmico: Este modelo tridimensional constitui representação visual e conceitual de engenharia. A autonomia real depende de irradiação solar local (HSP), temperatura e perfil de tráfego.</em></small></p>
             </div>
             """
         )
@@ -668,10 +839,10 @@ def create_dashboard(analyzer: AccidentAnalyzer):
     st.markdown("---")
 
     # =========================================================================
-    # 9. GERAÇÃO E DOWNLOAD DO RELATÓRIO PDF CIENTÍFICO
+    # 10. GERAÇÃO E DOWNLOAD DO RELATÓRIO PDF CIENTÍFICO
     # =========================================================================
     st.subheader("📄 Relatório Técnico e Científico em PDF")
-    st.markdown("Gere um relatório acadêmico completo com todas as 15 seções metodológicas, tabelas e gráficos em alta resolução.")
+    st.markdown("Gere um relatório acadêmico completo com todas as seções metodológicas, tabelas e gráficos em alta resolução.")
 
     if st.button("📄 Gerar Relatório Científico Completo (PDF)", use_container_width=True, type="primary"):
         try:

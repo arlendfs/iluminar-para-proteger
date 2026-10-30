@@ -1,130 +1,207 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protótipo 3D — Poste Solar Inteligente Compacto (Iluminar para Proteger)</title>
     <style>
+        * { box-sizing: border-box; }
         body { 
             margin: 0; 
-            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #0b0f19 0%, #111827 50%, #1f2937 100%);
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; 
             overflow: hidden;
+            color: #f3f4f6;
         }
         
-        #info { 
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+        canvas:active { cursor: grabbing; }
+
+        /* HUD Principal Superior Esquerdo */
+        #hud-info { 
             position: absolute; 
             top: 15px; 
             left: 15px; 
-            background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(240,248,255,0.9) 100%);
-            padding: 20px; 
-            border-radius: 15px; 
-            font-size: 13px; 
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.3);
-            min-width: 280px;
+            background: rgba(17, 24, 39, 0.88);
+            backdrop-filter: blur(12px);
+            padding: 16px 20px; 
+            border-radius: 12px; 
+            font-size: 12.5px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.12);
+            max-width: 320px;
+            z-index: 10;
         }
         
-        #info h3 { 
-            margin: 0 0 10px 0; 
-            color: #1e3c72; 
-            font-size: 16px;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        #hud-info h3 { 
+            margin: 0 0 8px 0; 
+            color: #38bdf8; 
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         
-        #info p { 
-            margin: 5px 0; 
-            color: #2c3e50; 
-            line-height: 1.4;
+        .hud-line {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+            color: #d1d5db;
         }
-        
-        #status { 
-            background: linear-gradient(90deg, #4CAF50, #45a049); 
+        .hud-line strong { color: #f9fafb; }
+        .hud-highlight { color: #38bdf8; font-weight: bold; }
+
+        #status-pill { 
+            background: #10b981; 
             color: white; 
-            padding: 8px 12px; 
+            padding: 6px 12px; 
             border-radius: 20px; 
             margin-top: 10px;
             text-align: center;
-            font-weight: bold;
-            box-shadow: 0 2px 10px rgba(76, 175, 80, 0.3);
-        }
-
-        #controls { 
-            position: absolute; 
-            bottom: 20px; 
-            right: 20px; 
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            min-width: 200px;
-        }
-        
-        .btn { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white; 
-            border: none; 
-            padding: 12px 16px; 
-            border-radius: 12px; 
-            cursor: pointer; 
+            font-weight: 700;
             font-size: 12px;
-            font-weight: 600;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.2);
-        }
-        
-        .btn:hover { 
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
-        }
-        
-        .btn:active {
-            transform: translateY(0);
+            box-shadow: 0 2px 10px rgba(16, 185, 129, 0.35);
+            transition: all 0.3s ease;
         }
 
-        .btn.danger {
-            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
-            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        /* Barra de SOC */
+        .soc-container {
+            margin-top: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 6px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .soc-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #10b981, #38bdf8);
+            transition: width 0.4s ease, background 0.4s ease;
         }
 
-        .btn.danger:hover {
-            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
-        }
-
-        .btn.success {
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
-        }
-
-        .btn.success:hover {
-            box-shadow: 0 8px 25px rgba(76, 175, 80, 0.6);
-        }
-
-        #help {
+        /* Painel Lateral Direito de Simulação e Controles */
+        #sim-panel {
             position: absolute;
             top: 15px;
             right: 15px;
-            background: linear-gradient(135deg, rgba(0,0,0,0.8) 0%, rgba(20,20,20,0.9) 100%);
-            color: white;
-            padding: 15px;
+            background: rgba(17, 24, 39, 0.88);
+            backdrop-filter: blur(12px);
+            padding: 16px;
             border-radius: 12px;
-            font-size: 11px;
-            max-width: 250px;
-            display: none;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.1);
+            font-size: 12px;
+            max-width: 310px;
+            max-height: calc(100vh - 30px);
+            overflow-y: auto;
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 10;
         }
 
-        #fps {
+        #sim-panel h4 {
+            margin: 0 0 10px 0;
+            color: #fbbf24;
+            font-size: 13.5px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 6px;
+        }
+
+        .control-group {
+            margin-bottom: 10px;
+        }
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            color: #9ca3af;
+            font-size: 11px;
+            margin-bottom: 3px;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: #38bdf8;
+            cursor: pointer;
+        }
+        .control-group select {
+            width: 100%;
+            background: #1f2937;
+            color: #f3f4f6;
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 5px 8px;
+            border-radius: 6px;
+            font-size: 11.5px;
+        }
+
+        /* Botões */
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+            margin-top: 10px;
+        }
+        
+        .btn { 
+            background: #1e293b;
+            color: #f8fafc; 
+            border: 1px solid rgba(255,255,255,0.15); 
+            padding: 7px 10px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            text-align: center;
+        }
+        .btn:hover { 
+            background: #334155;
+            border-color: #38bdf8;
+        }
+        .btn.active {
+            background: #0284c7;
+            border-color: #38bdf8;
+            color: white;
+        }
+        .btn.danger {
+            background: rgba(220, 38, 38, 0.25);
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
+        .btn.danger:hover { background: #dc2626; color: white; }
+        .btn.warning {
+            background: rgba(217, 119, 6, 0.25);
+            border-color: #f59e0b;
+            color: #fde68a;
+        }
+        .btn.warning:hover { background: #d97706; color: white; }
+
+        /* Rodapé de Aviso Metodológico */
+        #disclaimer {
             position: absolute;
-            bottom: 15px;
-            left: 15px;
-            background: rgba(0,0,0,0.7);
-            color: #00ff00;
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-family: monospace;
-            font-size: 12px;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #9ca3af;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 11px;
+            letter-spacing: 0.3px;
+            border: 1px solid rgba(255,255,255,0.08);
+            pointer-events: none;
+            z-index: 10;
+            text-align: center;
+            white-space: nowrap;
         }
 
         .loading {
@@ -133,733 +210,727 @@
             left: 50%;
             transform: translate(-50%, -50%);
             color: white;
-            font-size: 18px;
+            font-size: 16px;
             text-align: center;
             z-index: 1000;
         }
-
         .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255,255,255,0.3);
-            border-top: 4px solid #fff;
+            width: 36px;
+            height: 36px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top: 3px solid #38bdf8;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
         }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        canvas {
-            display: block;
-            cursor: grab;
-        }
-
-        canvas:active {
-            cursor: grabbing;
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
     <div class="loading" id="loading">
         <div class="spinner"></div>
-        <div>Carregando Protótipo 3D...</div>
+        <div>Carregando Protótipo 3D Compacto...</div>
     </div>
 
-    <div id="info">
-        <h3>🌟 Poste Solar Inteligente Pro</h3>
-        <p><strong>Altura:</strong> 12m | <strong>LED:</strong> 150W</p>
-        <p><strong>Painel:</strong> 200Wp | <strong>Bateria:</strong> LiFePO4</p>
-        <p><strong>Sensores:</strong> PIR + Fotocélula + Radar</p>
-        <p><strong>Conectividade:</strong> 4G/5G + LoRaWAN</p>
-        <p><strong>Vida Útil:</strong> 15 anos | <strong>IP:</strong> 65</p>
-        <div id="status">Modo: Dia ☀️ | LED: Desligado | FPS: 60</div>
-    </div>
-
-    <div id="controls">
-        <button class="btn" id="dayNightBtn">🌙 Dia/Noite</button>
-        <button class="btn success" id="lightBtn">💡 LED</button>
-        <button class="btn" id="simulateBtn">🚶 Simular</button>
-        <button class="btn danger" id="resetBtn">📷 Reset</button>
-        <button class="btn" id="helpBtn">❓ Ajuda</button>
-        <button class="btn" id="pauseBtn">⏯️ Pause</button>
-    </div>
-
-    <div id="help">
-        <h4>🎮 Controles Avançados</h4>
-        <p><strong>Mouse:</strong></p>
-        <p>• Arrastar: Rotacionar câmera</p>
-        <p>• Scroll: Zoom in/out</p>
-        <p>• Duplo clique: Fullscreen</p>
+    <!-- HUD Informativo -->
+    <div id="hud-info">
+        <h3>🌟 Poste Solar 8m / 40W Compacto</h3>
+        <div class="hud-line"><span>Poste Cônico:</span> <strong>8,0 m (Aço Galvanizado)</strong></div>
+        <div class="hud-line"><span>Luminária LED:</span> <strong id="hud-led-pot">40 W (Viária Tipo II)</strong></div>
+        <div class="hud-line"><span>Módulo Solar:</span> <strong id="hud-pv-pot">240 Wp Compacto (22°)</strong></div>
+        <div class="hud-line"><span>Bateria LiFePO4:</span> <strong id="hud-bat-cap">2.500 Wh / BMS Integr.</strong></div>
+        <div class="hud-line"><span>Telemetria 24h:</span> <strong>2 W contínuos (48 Wh/d)</strong></div>
+        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 6px 0;">
+        <div class="hud-line"><span>Consumo Total:</span> <span class="hud-highlight" id="hud-consumo">432 Wh / noite</span></div>
+        <div class="hud-line"><span>Geração Solar:</span> <span class="hud-highlight" id="hud-geracao">864 Wh / dia</span></div>
+        <div class="hud-line"><span>Autonomia (Zero Sol):</span> <span class="hud-highlight" id="hud-autonomia">4,17 noites</span></div>
         
-        <p><strong>Teclado:</strong></p>
-        <p>• N: Alternar dia/noite</p>
-        <p>• L: Ligar/desligar LED</p>
-        <p>• M: Simular movimento</p>
-        <p>• R: Reset câmera</p>
-        <p>• H: Esta ajuda</p>
-        <p>• ESPAÇO: Pausar animação</p>
-        
-        <p><strong>Recursos:</strong></p>
-        <p>• Física realista</p>
-        <p>• Iluminação dinâmica</p>
-        <p>• Sombras em tempo real</p>
-        <p>• Partículas atmosféricas</p>
+        <div class="soc-container">
+            <div class="soc-bar" id="soc-bar-fill"></div>
+        </div>
+        <div class="hud-line" style="margin-top: 3px; font-size: 11px;">
+            <span>Estado de Carga (SOC):</span>
+            <strong id="soc-pct">100%</strong>
+        </div>
+
+        <div id="status-pill">🟢 Operação Normal | Dia ☀️</div>
     </div>
 
-    <div id="fps">FPS: 0</div>
-    
-    <canvas id="canvas"></canvas>
-    
+    <!-- Painel de Simulação Interativa -->
+    <div id="sim-panel">
+        <h4>⚙️ Simulação Interativa</h4>
+
+        <div class="control-group">
+            <label><span>Potência LED (W):</span> <strong id="val-led">40W</strong></label>
+            <input type="range" id="slider-led" min="20" max="80" step="5" value="40">
+        </div>
+
+        <div class="control-group">
+            <label><span>Bateria LiFePO4 (Wh):</span> <strong id="val-bat">2500Wh</strong></label>
+            <input type="range" id="slider-bat" min="1000" max="4000" step="100" value="2500">
+        </div>
+
+        <div class="control-group">
+            <label><span>Painel Solar (Wp):</span> <strong id="val-pv">240Wp</strong></label>
+            <input type="range" id="slider-pv" min="150" max="350" step="10" value="240">
+        </div>
+
+        <div class="control-group">
+            <label><span>Condição Solar:</span></label>
+            <select id="select-sol">
+                <option value="sol_pleno">☀️ Sol Pleno (4,5 HSP — 100%)</option>
+                <option value="parcial_nublado">⛅ Parcialmente Nublado (50%)</option>
+                <option value="tempestade">🌧️ Nublado Severo (25%)</option>
+                <option value="zero_sol">🌑 Zero Geração Solar (0%)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label><span>Dias Consecutivos sem Sol:</span> <strong id="val-dias">0 noites</strong></label>
+            <input type="range" id="slider-dias" min="0" max="4" step="1" value="0">
+        </div>
+
+        <h4 style="margin-top: 12px;">🚨 Simulação de Falhas e Alertas</h4>
+        <div class="btn-grid">
+            <button class="btn" id="btn-daynight">🌙 Alternar Noite</button>
+            <button class="btn" id="btn-led-toggle">💡 LED Forçado</button>
+            <button class="btn" id="btn-xray">🔍 Modo Raio-X</button>
+            <button class="btn" id="btn-veiculo">🚗 Passagem Veículo</button>
+            <button class="btn danger" id="btn-falha-led">⚡ Falha LED</button>
+            <button class="btn danger" id="btn-falha-pv">❌ Falha Painel</button>
+            <button class="btn warning" id="btn-violacao">🚨 Alerta Violação</button>
+            <button class="btn warning" id="btn-comms">📡 Perda Comms</button>
+        </div>
+
+        <div style="margin-top: 10px; display: flex; gap: 6px;">
+            <button class="btn" id="btn-reset-cam" style="flex: 1;">📷 Reset Câmera</button>
+            <button class="btn" id="btn-reset-sim" style="flex: 1;">🔄 Reset Simulação</button>
+        </div>
+    </div>
+
+    <!-- Aviso conceitual -->
+    <div id="disclaimer">
+        ⚠️ MODELO CONCEITUAL 3D — Simulação acadêmica de engenharia fotovoltaica e supervisão remota. Sem postes físicos instalados.
+    </div>
+
+    <div id="canvas-container"></div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        // Variáveis globais
-        let scene, camera, renderer, post, light, lightBeam;
-        let isDayTime = true, isLightOn = false, isAnimating = true;
-        let cameraAngle = 0, cameraHeight = 3, cameraDistance = 8;
-        let frameCount = 0, lastTime = Date.now();
-        let particles = [];
-        
-        // Controles de mouse
+        // =====================================================================
+        // PARÂMETROS E ESTADO DA SIMULAÇÃO
+        // =====================================================================
+        const state = {
+            isDay: true,
+            isLightOn: false,
+            isXRay: false,
+            ledPotencia: 40,
+            bateriaCapacidade: 2500,
+            painelPotencia: 240,
+            solCondicao: "sol_pleno",
+            diasSemSol: 0,
+            falhaLed: false,
+            falhaPainel: false,
+            alertaViolacao: false,
+            perdaComms: false,
+            soc: 100.0,
+            radarAtivado: false,
+            rotacaoAtiva: true
+        };
+
+        let scene, camera, renderer, postGroup, lampLight, lightBeam, ground, sunLight, ambientLight;
+        let internalBatteryMesh, internalMpptMesh, postShaftMesh, cabinetDoorMesh, commsAntennaMesh;
         let isMouseDown = false, mouseLastX = 0, mouseLastY = 0;
+        let camTheta = 0.6, camPhi = 0.35, camRadius = 14;
 
-        // Função principal de inicialização
-        function init() {
-            console.log("Inicializando protótipo 3D...");
-            
-            try {
-                // Configurar cena
-                scene = new THREE.Scene();
-                scene.fog = new THREE.Fog(0x1a1a2e, 10, 50);
-                
-                // Configurar câmera
-                camera = new THREE.PerspectiveCamera(75, 800/500, 0.1, 1000);
-                
-                // Configurar renderer
-                renderer = new THREE.WebGLRenderer({
-                    canvas: document.getElementById('canvas'), 
-                    antialias: true,
-                    alpha: true
-                });
-                renderer.setSize(800, 500);
-                renderer.shadowMap.enabled = true;
-                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-                renderer.toneMapping = THREE.ACESFilmicToneMapping;
-                renderer.toneMappingExposure = 1.2;
-                
-                // Configurar cor de fundo inicial
-                updateSkyColor();
+        // =====================================================================
+        // MOTOR DE CÁLCULO ENERGÉTICO (ESPELHO DA LÓGICA PYTHON)
+        // =====================================================================
+        function calcularEnergia() {
+            // Perfil noturno: 4h a 100%, 4h a 80%, 4h a 60%
+            const pot = state.ledPotencia;
+            const consumoLedWh = (4.0 * pot * 1.0) + (4.0 * pot * 0.8) + (4.0 * pot * 0.6);
+            const consumoTelemetriaWh = 2.0 * 24.0; // 48 Wh
+            const consumoTotalDiarioWh = consumoLedWh + consumoTelemetriaWh;
 
-                // Criar iluminação
-                setupLighting();
-                
-                // Criar chão
-                createGround();
+            // Capacidade útil (80% DoD, 90% eficiência global)
+            const capUtilBolWh = state.bateriaCapacidade * 0.80 * 0.90;
+            const capUtilEolWh = capUtilBolWh * 0.80;
 
-                // Criar o poste
-                createPost();
-                
-                // Criar partículas
-                createParticles();
+            // Autonomia com zero sol
+            const autonomiaNoitesBol = capUtilBolWh / consumoTotalDiarioWh;
 
-                // Posição inicial da câmera
-                resetCamera();
+            // Geração solar diária
+            let fatorSol = 1.0;
+            if (state.solCondicao === "parcial_nublado") fatorSol = 0.50;
+            else if (state.solCondicao === "tempestade") fatorSol = 0.25;
+            else if (state.solCondicao === "zero_sol") fatorSol = 0.0;
+            if (state.falhaPainel) fatorSol = 0.0;
 
-                // Configurar event listeners
-                setupEventListeners();
-                
-                // Esconder loading
-                setTimeout(() => {
-                    document.getElementById('loading').style.display = 'none';
-                }, 1000);
-                
-                console.log("Protótipo 3D inicializado com sucesso!");
-                
-            } catch (error) {
-                console.error("Erro ao inicializar:", error);
+            const geracaoSolarWh = state.painelPotencia * 4.5 * 0.80 * fatorSol;
+
+            // Atualizar SOC baseado em dias sem sol
+            let socEfetivo = 100.0 - (state.diasSemSol * (consumoTotalDiarioWh / capUtilBolWh * 100.0));
+            if (socEfetivo < 5.0) socEfetivo = 5.0;
+            state.soc = socEfetivo;
+
+            // Atualizar HUD
+            document.getElementById('hud-led-pot').innerText = `${state.ledPotencia} W (Viária Tipo II)`;
+            document.getElementById('hud-pv-pot').innerText = `${state.painelPotencia} Wp Compacto (22°)`;
+            document.getElementById('hud-bat-cap').innerText = `${state.bateriaCapacidade} Wh / BMS Integr.`;
+            document.getElementById('hud-consumo').innerText = `${consumoTotalDiarioWh.toFixed(0)} Wh / noite`;
+            document.getElementById('hud-geracao').innerText = `${geracaoSolarWh.toFixed(0)} Wh / dia`;
+            document.getElementById('hud-autonomia').innerText = `${autonomiaNoitesBol.toFixed(2)} noites`;
+
+            const socBar = document.getElementById('soc-bar-fill');
+            const socText = document.getElementById('soc-pct');
+            socBar.style.width = `${state.soc.toFixed(0)}%`;
+            socText.innerText = `${state.soc.toFixed(0)}%`;
+
+            if (state.soc < 20) {
+                socBar.style.background = '#ef4444';
+            } else if (state.soc < 50) {
+                socBar.style.background = '#f59e0b';
+            } else {
+                socBar.style.background = 'linear-gradient(90deg, #10b981, #38bdf8)';
+            }
+
+            atualizarStatusPill();
+        }
+
+        function atualizarStatusPill() {
+            const pill = document.getElementById('status-pill');
+            if (state.alertaViolacao) {
+                pill.style.background = '#dc2626';
+                pill.innerText = '🚨 ALERTA: Violação de Gabinete!';
+            } else if (state.falhaLed) {
+                pill.style.background = '#ef4444';
+                pill.innerText = '🔴 FALHA: Luminária LED Desconectada';
+            } else if (state.falhaPainel) {
+                pill.style.background = '#d97706';
+                pill.innerText = '🟠 FALHA: Painel PV Sem Geração';
+            } else if (state.perdaComms) {
+                pill.style.background = '#64748b';
+                pill.innerText = '⚪ ALERTA: Perda de Sinal Telemetria';
+            } else if (state.soc < 20) {
+                pill.style.background = '#f59e0b';
+                pill.innerText = '🟡 Bateria Baixa (< 20% SOC)';
+            } else if (!state.isDay) {
+                pill.style.background = '#0284c7';
+                pill.innerText = state.radarAtivado ? '🚗 Noturno: Fluxo Detectado (100%)' : '🌙 Noturno: Dimerizado (60-80%)';
+            } else {
+                pill.style.background = '#10b981';
+                pill.innerText = '🟢 Operação Normal | Dia ☀️';
             }
         }
 
-        function setupLighting() {
-            // Luz ambiente
-            const ambientLight = new THREE.AmbientLight(0x404040, 0.4); // Aumentado para melhor visibilidade
+        // =====================================================================
+        // CONSTRUÇÃO DA CENA 3D (THREE.JS)
+        // =====================================================================
+        function initScene() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.025);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            updateCameraPosition();
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
+            container.appendChild(renderer.domElement);
+
+            // Iluminação
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
             scene.add(ambientLight);
 
-            // Luz direcional (Sol) - otimizada
-            const sunLight = new THREE.DirectionalLight(0xfff8dc, 0.8);
-            sunLight.position.set(15, 20, 10);
+            sunLight = new THREE.DirectionalLight(0xfffaed, 1.2);
+            sunLight.position.set(10, 20, 10);
             sunLight.castShadow = true;
-            sunLight.shadow.mapSize.width = 512; // Reduzido para performance
-            sunLight.shadow.mapSize.height = 512;
+            sunLight.shadow.mapSize.width = 1024;
+            sunLight.shadow.mapSize.height = 1024;
             sunLight.shadow.camera.near = 0.5;
-            sunLight.shadow.camera.far = 30; // Reduzido
-            sunLight.shadow.camera.left = -15; // Área menor
-            sunLight.shadow.camera.right = 15;
-            sunLight.shadow.camera.top = 15;
-            sunLight.shadow.camera.bottom = -15;
+            sunLight.shadow.camera.far = 40;
+            sunLight.shadow.camera.left = -10;
+            sunLight.shadow.camera.right = 10;
+            sunLight.shadow.camera.top = 10;
+            sunLight.shadow.camera.bottom = -10;
             scene.add(sunLight);
+
+            // Chão e Pista de Rodovia
+            createRoadEnvironment();
+
+            // Poste Solar Compacto 8m
+            createCompactSolarPole();
+
+            // Event Listeners
+            setupInteractions();
+
+            // Ocultar Loading
+            setTimeout(() => {
+                const loader = document.getElementById('loading');
+                if (loader) loader.style.display = 'none';
+            }, 600);
+
+            calcularEnergia();
+            animate();
         }
 
-        function createGround() {
-            const groundGeometry = new THREE.PlaneGeometry(50, 50);
-            const groundMaterial = new THREE.MeshLambertMaterial({ 
-                color: isDayTime ? 0x4a4a4a : 0x2a2a2a,
-                transparent: true,
-                opacity: 0.8
-            });
-            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        function createRoadEnvironment() {
+            // Pavimento asfáltico (rodovia)
+            const roadGeo = new THREE.PlaneGeometry(30, 14);
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
+            const road = new THREE.Mesh(roadGeo, roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.position.set(0, 0, 4);
+            road.receiveShadow = true;
+            scene.add(road);
+
+            // Faixas da pista (linha tracejada amarela / branca)
+            const stripeGeo = new THREE.PlaneGeometry(2, 0.15);
+            const stripeMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+            for (let x = -12; x <= 12; x += 4) {
+                const stripe = new THREE.Mesh(stripeGeo, stripeMat);
+                stripe.rotation.x = -Math.PI / 2;
+                stripe.position.set(x, 0.01, 4);
+                scene.add(stripe);
+            }
+
+            // Acostamento / Gramado
+            const grassGeo = new THREE.PlaneGeometry(30, 16);
+            const grassMat = new THREE.MeshStandardMaterial({ color: 0x1e3a1e, roughness: 0.95 });
+            ground = new THREE.Mesh(grassGeo, grassMat);
             ground.rotation.x = -Math.PI / 2;
+            ground.position.set(0, -0.01, -4);
             ground.receiveShadow = true;
             scene.add(ground);
         }
 
-        function createPost() {
-            const postGroup = new THREE.Group();
+        function createCompactSolarPole() {
+            postGroup = new THREE.Group();
 
-            // Base - geometria simplificada
-            const baseGeometry = new THREE.CylinderGeometry(1, 1.2, 0.6, 8); // Menos segmentos
-            const baseMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0x555555,
-                shininess: 30
+            // 1. Fundação de Concreto e Placa de Ancoragem (Flange)
+            const fundGeo = new THREE.BoxGeometry(1.0, 0.3, 1.0);
+            const fundMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.9 });
+            const fund = new THREE.Mesh(fundGeo, fundMat);
+            fund.position.y = 0.15;
+            fund.receiveShadow = true;
+            fund.castShadow = true;
+            postGroup.add(fund);
+
+            const flangeGeo = new THREE.CylinderGeometry(0.38, 0.42, 0.06, 8);
+            const steelMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.35 });
+            const flange = new THREE.Mesh(flangeGeo, steelMat);
+            flange.position.y = 0.33;
+            postGroup.add(flange);
+
+            // Chumbadores (4 parafusos de fixação)
+            const boltGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.08, 6);
+            const boltMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8 });
+            [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]].forEach(([bx, bz]) => {
+                const bolt = new THREE.Mesh(boltGeo, boltMat);
+                bolt.position.set(bx, 0.38, bz);
+                postGroup.add(bolt);
             });
-            const base = new THREE.Mesh(baseGeometry, baseMaterial);
-            base.position.y = 0.3;
-            base.castShadow = true;
-            postGroup.add(base);
 
-            // Haste principal - otimizada
-            const postGeometry = new THREE.CylinderGeometry(0.15, 0.25, 7, 8); // Menos segmentos
-            const postMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0x888888,
-                shininess: 50
-            });
-            post = new THREE.Mesh(postGeometry, postMaterial);
-            post.position.y = 4;
-            post.castShadow = true;
-            postGroup.add(post);
+            // 2. Fuste Cônico Metálico Galvanizado (8m de altura)
+            // Raio base = 0.18, raio topo = 0.09, altura = 7.6m
+            const shaftGeo = new THREE.CylinderGeometry(0.09, 0.20, 7.6, 16);
+            postShaftMesh = new THREE.Mesh(shaftGeo, steelMat);
+            postShaftMesh.position.y = 0.35 + 3.8;
+            postShaftMesh.castShadow = true;
+            postShaftMesh.receiveShadow = true;
+            postGroup.add(postShaftMesh);
 
-            // Painel solar
-            const panelGeometry = new THREE.BoxGeometry(2, 0.08, 2.5);
-            const panelMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0x0a0a2e,
-                shininess: 80
-            });
-            const panel = new THREE.Mesh(panelGeometry, panelMaterial);
-            panel.position.y = 7.5;
-            panel.rotation.x = -0.3;
-            panel.castShadow = true;
-            postGroup.add(panel);
+            // 3. Compartimento de Bateria LiFePO4 e MPPT (Gabinete Integrado ao Terço Inferior)
+            const cabGeo = new THREE.CylinderGeometry(0.24, 0.26, 1.4, 12);
+            const cabMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.6, roughness: 0.4 });
+            const cabinet = new THREE.Mesh(cabGeo, cabMat);
+            cabinet.position.y = 1.35;
+            cabinet.castShadow = true;
+            postGroup.add(cabinet);
 
-            // Luminária LED - geometria otimizada
-            const ledHousingGeometry = new THREE.CylinderGeometry(0.4, 0.5, 0.3, 8); // Menos segmentos
-            const ledHousingMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
-            const ledHousing = new THREE.Mesh(ledHousingGeometry, ledHousingMaterial);
-            ledHousing.position.y = 6.7;
+            // Portinhola de inspeção com fechadura
+            const doorGeo = new THREE.BoxGeometry(0.22, 0.8, 0.04);
+            const doorMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.5 });
+            cabinetDoorMesh = new THREE.Mesh(doorGeo, doorMat);
+            cabinetDoorMesh.position.set(0, 1.35, 0.24);
+            postGroup.add(cabinetDoorMesh);
+
+            // Componentes Internos (Raio-X): Bateria LiFePO4 azul e MPPT verde
+            const batGeo = new THREE.BoxGeometry(0.18, 0.65, 0.18);
+            const batMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.5, roughness: 0.3, transparent: true, opacity: 0.15 });
+            internalBatteryMesh = new THREE.Mesh(batGeo, batMat);
+            internalBatteryMesh.position.set(0, 1.3, 0);
+            postGroup.add(internalBatteryMesh);
+
+            const mpptGeo = new THREE.BoxGeometry(0.14, 0.25, 0.08);
+            const mpptMat = new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.5, roughness: 0.3, transparent: true, opacity: 0.15 });
+            internalMpptMesh = new THREE.Mesh(mpptGeo, mpptMat);
+            internalMpptMesh.position.set(0, 1.85, 0.05);
+            postGroup.add(internalMpptMesh);
+
+            // 4. Braço Superior Curvo Viário com Avanço sobre a Pista
+            const armCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0, 7.8, 0),
+                new THREE.Vector3(0.3, 8.0, 0.6),
+                new THREE.Vector3(0.5, 8.05, 1.4),
+                new THREE.Vector3(0.5, 7.9, 2.0)
+            ]);
+            const armGeo = new THREE.TubeGeometry(armCurve, 16, 0.055, 8, false);
+            const armMesh = new THREE.Mesh(armGeo, steelMat);
+            armMesh.castShadow = true;
+            postGroup.add(armMesh);
+
+            // 5. Luminária LED Viária Compacta (Ótica Tipo II)
+            const ledHousingGeo = new THREE.BoxGeometry(0.28, 0.10, 0.65);
+            const ledHousingMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.7, roughness: 0.3 });
+            const ledHousing = new THREE.Mesh(ledHousingGeo, ledHousingMat);
+            ledHousing.position.set(0.5, 7.9, 2.15);
+            ledHousing.rotation.x = -0.08; // leve inclinação para a rodovia
+            ledHousing.castShadow = true;
             postGroup.add(ledHousing);
 
-            const ledGeometry = new THREE.SphereGeometry(0.25, 8, 8); // Menos segmentos
-            const ledMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0x444444,
-                transparent: true,
-                opacity: 0.9
-            });
-            light = new THREE.Mesh(ledGeometry, ledMaterial);
-            light.position.y = 6.8;
-            postGroup.add(light);
+            // Lente LED emissora
+            const lensGeo = new THREE.PlaneGeometry(0.22, 0.50);
+            const lensMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x000000, roughness: 0.1 });
+            const ledLens = new THREE.Mesh(lensGeo, lensMat);
+            ledLens.rotation.x = Math.PI / 2;
+            ledLens.position.set(0.5, 7.84, 2.15);
+            postGroup.add(ledLens);
+            postGroup.userData.ledLens = ledLens;
 
-            // Sensor - simplificado
-            const sensorGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const sensorMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
-            const sensor = new THREE.Mesh(sensorGeometry, sensorMaterial);
-            sensor.position.set(0.3, 6.5, 0);
-            postGroup.add(sensor);
+            // Sensor Radar de Micro-ondas embaixo da luminária
+            const radarGeo = new THREE.SphereGeometry(0.04, 8, 8);
+            const radarMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8 });
+            const radarMesh = new THREE.Mesh(radarGeo, radarMat);
+            radarMesh.position.set(0.5, 7.82, 1.85);
+            postGroup.add(radarMesh);
+
+            // Fonte de Luz Pontual (LED Spot)
+            lampLight = new THREE.SpotLight(0xfff5ea, 0.0, 25, Math.PI / 3.5, 0.5, 1.2);
+            lampLight.position.set(0.5, 7.8, 2.15);
+            lampLight.target.position.set(0.5, 0, 4.0); // foca no leito da rodovia
+            lampLight.castShadow = true;
+            lampLight.shadow.mapSize.width = 1024;
+            lampLight.shadow.mapSize.height = 1024;
+            scene.add(lampLight);
+            scene.add(lampLight.target);
+
+            // Cone Volumétrico de Iluminação Viária
+            const beamGeo = new THREE.ConeGeometry(4.2, 7.8, 16, 1, true);
+            const beamMat = new THREE.MeshBasicMaterial({
+                color: 0xfffae0,
+                transparent: true,
+                opacity: 0.0,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+            lightBeam = new THREE.Mesh(beamGeo, beamMat);
+            lightBeam.position.set(0.5, 3.9, 2.6);
+            scene.add(lightBeam);
+
+            // 6. Conjunto Solar Compacto no Topo do Poste (240 Wp integrado)
+            const pvStandGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.45, 8);
+            const pvStand = new THREE.Mesh(pvStandGeo, steelMat);
+            pvStand.position.set(0, 8.0, 0);
+            postGroup.add(pvStand);
+
+            // Painel fotovoltaico compacto (1.4m x 0.9m) inclinado a 22°
+            const pvFrameGeo = new THREE.BoxGeometry(1.35, 0.04, 0.95);
+            const pvFrameMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8 });
+            const pvFrame = new THREE.Mesh(pvFrameGeo, pvFrameMat);
+            pvFrame.position.set(0, 8.28, 0.05);
+            pvFrame.rotation.x = -0.38; // ~22 graus de inclinação ótima para o Brasil
+            pvFrame.castShadow = true;
+            postGroup.add(pvFrame);
+
+            // Células de Silício Monocristalino Azul Escuro
+            const cellGeo = new THREE.PlaneGeometry(1.28, 0.88);
+            const cellMat = new THREE.MeshStandardMaterial({ color: 0x0c1e3d, metalness: 0.85, roughness: 0.15 });
+            const pvCells = new THREE.Mesh(cellGeo, cellMat);
+            pvCells.rotation.x = -Math.PI / 2;
+            pvCells.position.y = 0.022;
+            pvFrame.add(pvCells);
+
+            // 7. Antena de Telemetria e Fotocélula no topo
+            const antGeo = new THREE.CylinderGeometry(0.012, 0.015, 0.35, 8);
+            const antMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.5 });
+            commsAntennaMesh = new THREE.Mesh(antGeo, antMat);
+            commsAntennaMesh.position.set(0, 8.5, 0);
+            postGroup.add(commsAntennaMesh);
 
             scene.add(postGroup);
         }
 
-        function createParticles() {
-            const particleCount = 25; // Reduzido para melhor performance
-            const particleGeometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(particleCount * 3);
-
-            for(let i = 0; i < particleCount; i++) {
-                positions[i * 3] = (Math.random() - 0.5) * 30; // Área menor
-                positions[i * 3 + 1] = Math.random() * 15;
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 30;
-            }
-
-            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            const particleMaterial = new THREE.PointsMaterial({
-                color: 0xffffff,
-                size: 0.05, // Menor para performance
-                transparent: true,
-                opacity: 0.4 // Reduzido
-            });
-
-            particles = new THREE.Points(particleGeometry, particleMaterial);
-            scene.add(particles);
+        // =====================================================================
+        // CONTROLES DE CÂMERA E MOUSE
+        // =====================================================================
+        function updateCameraPosition() {
+            camera.position.x = camRadius * Math.sin(camTheta) * Math.cos(camPhi);
+            camera.position.y = camRadius * Math.sin(camPhi) + 3.5;
+            camera.position.z = camRadius * Math.cos(camTheta) * Math.cos(camPhi);
+            camera.lookAt(0, 4.0, 0.8);
         }
 
-        function setupEventListeners() {
-            // Botões
-            document.getElementById('dayNightBtn').addEventListener('click', toggleDayNight);
-            document.getElementById('lightBtn').addEventListener('click', toggleLight);
-            document.getElementById('simulateBtn').addEventListener('click', simulate);
-            document.getElementById('resetBtn').addEventListener('click', resetCamera);
-            document.getElementById('helpBtn').addEventListener('click', toggleHelp);
-            document.getElementById('pauseBtn').addEventListener('click', toggleAnimation);
+        function setupInteractions() {
+            const canvas = renderer.domElement;
 
-            // Mouse
-            const canvas = document.getElementById('canvas');
-            canvas.addEventListener('mousedown', onMouseDown);
-            canvas.addEventListener('mousemove', onMouseMove);
-            canvas.addEventListener('mouseup', onMouseUp);
-            canvas.addEventListener('wheel', onMouseWheel);
-            canvas.addEventListener('dblclick', toggleFullscreen);
+            canvas.addEventListener('mousedown', (e) => {
+                isMouseDown = true;
+                mouseLastX = e.clientX;
+                mouseLastY = e.clientY;
+            });
+            window.addEventListener('mouseup', () => { isMouseDown = false; });
+            canvas.addEventListener('mousemove', (e) => {
+                if (!isMouseDown) return;
+                const dx = e.clientX - mouseLastX;
+                const dy = e.clientY - mouseLastY;
+                mouseLastX = e.clientX;
+                mouseLastY = e.clientY;
 
-            // Teclado
-            document.addEventListener('keydown', onKeyDown);
+                camTheta -= dx * 0.007;
+                camPhi = Math.max(0.05, Math.min(1.3, camPhi + dy * 0.007));
+                updateCameraPosition();
+            });
 
-            // Redimensionamento
+            canvas.addEventListener('wheel', (e) => {
+                camRadius = Math.max(5, Math.min(25, camRadius + e.deltaY * 0.015));
+                updateCameraPosition();
+            });
+
+            // Sliders
+            document.getElementById('slider-led').addEventListener('input', (e) => {
+                state.ledPotencia = parseFloat(e.target.value);
+                document.getElementById('val-led').innerText = `${state.ledPotencia}W`;
+                calcularEnergia();
+                if (state.isLightOn) updateLightingState();
+            });
+
+            document.getElementById('slider-bat').addEventListener('input', (e) => {
+                state.bateriaCapacidade = parseFloat(e.target.value);
+                document.getElementById('val-bat').innerText = `${state.bateriaCapacidade}Wh`;
+                calcularEnergia();
+            });
+
+            document.getElementById('slider-pv').addEventListener('input', (e) => {
+                state.painelPotencia = parseFloat(e.target.value);
+                document.getElementById('val-pv').innerText = `${state.painelPotencia}Wp`;
+                calcularEnergia();
+            });
+
+            document.getElementById('select-sol').addEventListener('change', (e) => {
+                state.solCondicao = e.target.value;
+                calcularEnergia();
+                updateSkyColors();
+            });
+
+            document.getElementById('slider-dias').addEventListener('input', (e) => {
+                state.diasSemSol = parseInt(e.target.value);
+                document.getElementById('val-dias').innerText = `${state.diasSemSol} noites`;
+                calcularEnergia();
+            });
+
+            // Botões de Ação
+            document.getElementById('btn-daynight').addEventListener('click', toggleDayNight);
+            document.getElementById('btn-led-toggle').addEventListener('click', toggleLedManually);
+            document.getElementById('btn-xray').addEventListener('click', toggleXRay);
+            document.getElementById('btn-veiculo').addEventListener('click', simularPassagemVeiculo);
+
+            // Botões de Falhas
+            document.getElementById('btn-falha-led').addEventListener('click', () => {
+                state.falhaLed = !state.falhaLed;
+                document.getElementById('btn-falha-led').classList.toggle('active', state.falhaLed);
+                updateLightingState();
+                calcularEnergia();
+            });
+
+            document.getElementById('btn-falha-pv').addEventListener('click', () => {
+                state.falhaPainel = !state.falhaPainel;
+                document.getElementById('btn-falha-pv').classList.toggle('active', state.falhaPainel);
+                calcularEnergia();
+            });
+
+            document.getElementById('btn-violacao').addEventListener('click', () => {
+                state.alertaViolacao = !state.alertaViolacao;
+                document.getElementById('btn-violacao').classList.toggle('active', state.alertaViolacao);
+                if (cabinetDoorMesh) {
+                    cabinetDoorMesh.rotation.y = state.alertaViolacao ? 1.2 : 0.0;
+                }
+                calcularEnergia();
+            });
+
+            document.getElementById('btn-comms').addEventListener('click', () => {
+                state.perdaComms = !state.perdaComms;
+                document.getElementById('btn-comms').classList.toggle('active', state.perdaComms);
+                calcularEnergia();
+            });
+
+            document.getElementById('btn-reset-cam').addEventListener('click', () => {
+                camTheta = 0.6; camPhi = 0.35; camRadius = 14;
+                updateCameraPosition();
+            });
+
+            document.getElementById('btn-reset-sim').addEventListener('click', () => {
+                state.falhaLed = false;
+                state.falhaPainel = false;
+                state.alertaViolacao = false;
+                state.perdaComms = false;
+                state.diasSemSol = 0;
+                state.solCondicao = "sol_pleno";
+                document.getElementById('slider-dias').value = 0;
+                document.getElementById('val-dias').innerText = "0 noites";
+                document.getElementById('select-sol').value = "sol_pleno";
+                ['btn-falha-led', 'btn-falha-pv', 'btn-violacao', 'btn-comms'].forEach(id => {
+                    document.getElementById(id).classList.remove('active');
+                });
+                if (cabinetDoorMesh) cabinetDoorMesh.rotation.y = 0.0;
+                calcularEnergia();
+            });
+
             window.addEventListener('resize', onWindowResize);
         }
 
-        // Funções de controle
         function toggleDayNight() {
-            isDayTime = !isDayTime;
-            updateSkyColor();
-            updateStatus();
-
-            if (!isDayTime && !isLightOn) {
-                setTimeout(toggleLight, 500);
-            } else if (isDayTime && isLightOn) {
-                setTimeout(toggleLight, 500);
-            }
+            state.isDay = !state.isDay;
+            const btn = document.getElementById('btn-daynight');
+            btn.innerText = state.isDay ? '🌙 Alternar Noite' : '☀️ Alternar Dia';
+            btn.classList.toggle('active', !state.isDay);
+            
+            state.isLightOn = !state.isDay;
+            updateSkyColors();
+            updateLightingState();
+            calcularEnergia();
         }
 
-        function toggleLight() {
-            isLightOn = !isLightOn;
-            
-            if (isLightOn) {
-                light.material.color.setHex(0xffff88);
-                light.material.emissive.setHex(0x444400);
-                
-                const pointLight = new THREE.PointLight(0xffff88, 1.5, 15, 1.5);
-                pointLight.position.set(0, 6.8, 0); // Posição correta do LED
-                pointLight.castShadow = true;
-                pointLight.shadow.mapSize.width = 512; // Reduzido para performance
-                pointLight.shadow.mapSize.height = 512;
-                scene.add(pointLight);
-                light.userData.pointLight = pointLight;
-                
-                // Cone de luz direcionado para baixo
-                const coneGeometry = new THREE.ConeGeometry(4, 7, 12, 1, true); // Menos segmentos
-                const coneMaterial = new THREE.MeshBasicMaterial({
-                    color: 0xffff88,
-                    transparent: true,
-                    opacity: 0.08,
-                    side: THREE.DoubleSide,
-                    blending: THREE.AdditiveBlending
-                });
-                lightBeam = new THREE.Mesh(coneGeometry, coneMaterial);
-                lightBeam.position.set(0, 3.3, 0); // Posicionado corretamente
-                lightBeam.rotation.x = 0; // Sem rotação - cone já aponta para baixo
-                scene.add(lightBeam);
-                
+        function toggleLedManually() {
+            state.isLightOn = !state.isLightOn;
+            document.getElementById('btn-led-toggle').classList.toggle('active', state.isLightOn);
+            updateLightingState();
+        }
+
+        function updateLightingState() {
+            const ligar = state.isLightOn && !state.falhaLed && state.soc > 5;
+            const lens = postGroup ? postGroup.userData.ledLens : null;
+
+            if (ligar) {
+                const intens = (state.ledPotencia / 40.0) * (state.radarAtivado ? 2.5 : 1.6);
+                lampLight.intensity = intens;
+                lightBeam.material.opacity = state.radarAtivado ? 0.16 : 0.09;
+                if (lens) lens.material.emissive.setHex(0xfff0c4);
             } else {
-                light.material.color.setHex(0x444444);
-                light.material.emissive.setHex(0x000000);
-                
-                if (light.userData.pointLight) {
-                    scene.remove(light.userData.pointLight);
-                    delete light.userData.pointLight;
-                }
-                
-                if (lightBeam) {
-                    scene.remove(lightBeam);
-                    lightBeam = null;
-                }
+                lampLight.intensity = 0.0;
+                lightBeam.material.opacity = 0.0;
+                if (lens) lens.material.emissive.setHex(0x000000);
             }
-            updateStatus();
         }
 
-        function simulate() {
-            const vehicleGroup = new THREE.Group();
-            
-            // Corpo principal do carro - mais detalhado
-            const bodyGeometry = new THREE.BoxGeometry(2.2, 0.8, 4.5);
-            const bodyMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0xff3333,
-                shininess: 100,
-                reflectivity: 0.3
-            });
-            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-            body.position.y = 0.8;
-            body.castShadow = true;
-            vehicleGroup.add(body);
-            
-            // Capô/frente do carro
-            const hoodGeometry = new THREE.BoxGeometry(2.0, 0.3, 1.5);
-            const hoodMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0xff4444,
-                shininess: 120
-            });
-            const hood = new THREE.Mesh(hoodGeometry, hoodMaterial);
-            hood.position.set(0, 1.05, 2.25); // Ajustado para frente
-            hood.castShadow = true;
-            vehicleGroup.add(hood);
-            
-            // Teto
-            const roofGeometry = new THREE.BoxGeometry(1.8, 0.6, 2);
-            const roofMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0xff2222,
-                shininess: 80
-            });
-            const roof = new THREE.Mesh(roofGeometry, roofMaterial);
-            roof.position.set(0, 1.4, 0);
-            roof.castShadow = true;
-            vehicleGroup.add(roof);
-            
-            // Para-brisa dianteiro
-            const windshieldGeometry = new THREE.PlaneGeometry(1.6, 0.8);
-            const windshieldMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0x4444ff,
-                transparent: true,
-                opacity: 0.6,
-                shininess: 200
-            });
-            const windshield = new THREE.Mesh(windshieldGeometry, windshieldMaterial);
-            windshield.position.set(0, 1.2, 1.2);
-            windshield.rotation.x = -0.3;
-            vehicleGroup.add(windshield);
-            
-            // Para-brisa traseiro
-            const rearWindow = windshield.clone();
-            rearWindow.position.set(0, 1.2, -1.2);
-            rearWindow.rotation.x = 0.3;
-            vehicleGroup.add(rearWindow);
-            
-            // Rodas mais realistas - ajustadas para orientação frontal
-            const wheelGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 12);
-            const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x111111 });
-            
-            // Aros das rodas
-            const rimGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.26, 8);
-            const rimMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0x888888,
-                shininess: 150
-            });
-            
-            const wheelPositions = [
-                [-0.9, 0.35, -1.8], // Traseira esquerda
-                [0.9, 0.35, -1.8],  // Traseira direita
-                [-0.9, 0.35, 1.8],  // Dianteira esquerda
-                [0.9, 0.35, 1.8]    // Dianteira direita
-            ];
-            
-            wheelPositions.forEach((pos, index) => {
-                // Pneu
-                const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
-                wheel.position.set(pos[0], pos[1], pos[2]);
-                wheel.rotation.x = Math.PI / 2; // Rotação correta para movimento frontal
-                wheel.castShadow = true;
-                wheel.userData.isWheel = true;
-                wheel.userData.wheelIndex = index;
-                vehicleGroup.add(wheel);
-                
-                // Aro
-                const rim = new THREE.Mesh(rimGeometry, rimMaterial);
-                rim.position.set(pos[0], pos[1], pos[2]);
-                rim.rotation.x = Math.PI / 2; // Rotação correta para movimento frontal
-                vehicleGroup.add(rim);
-            });
-            
-            // Faróis dianteiros - ajustados para frente
-            const headlightGeometry = new THREE.SphereGeometry(0.15, 8, 8);
-            const headlightMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0xffffaa,
-                emissive: 0x444400,
-                transparent: true,
-                opacity: 0.8
-            });
-            
-            const leftHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
-            leftHeadlight.position.set(-0.7, 0.7, 2.8); // Frente do carro
-            vehicleGroup.add(leftHeadlight);
-            
-            const rightHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
-            rightHeadlight.position.set(0.7, 0.7, 2.8); // Frente do carro
-            vehicleGroup.add(rightHeadlight);
-            
-            // Lanternas traseiras - ajustadas para trás
-            const taillightGeometry = new THREE.SphereGeometry(0.12, 8, 8);
-            const taillightMaterial = new THREE.MeshPhongMaterial({ 
-                color: 0xff3333,
-                emissive: 0x330000
-            });
-            
-            const leftTaillight = new THREE.Mesh(taillightGeometry, taillightMaterial);
-            leftTaillight.position.set(-0.7, 0.7, -2.8); // Traseira do carro
-            vehicleGroup.add(leftTaillight);
-            
-            const rightTaillight = new THREE.Mesh(taillightGeometry, taillightMaterial);
-            rightTaillight.position.set(0.7, 0.7, -2.8); // Traseira do carro
-            vehicleGroup.add(rightTaillight);
-            
-            // Espelhos retrovisores
-            const mirrorGeometry = new THREE.BoxGeometry(0.1, 0.08, 0.15);
-            const mirrorMaterial = new THREE.MeshPhongMaterial({ color: 0x444444 });
-            
-            const leftMirror = new THREE.Mesh(mirrorGeometry, mirrorMaterial);
-            leftMirror.position.set(-1.0, 1.3, 0.5);
-            vehicleGroup.add(leftMirror);
-            
-            const rightMirror = new THREE.Mesh(mirrorGeometry, mirrorMaterial);
-            rightMirror.position.set(1.0, 1.3, 0.5);
-            vehicleGroup.add(rightMirror);
-            
-            // Posicionar o veículo ao lado e longe do poste (movimento frontal)
-            vehicleGroup.position.set(3, 0, -20); // Ao lado (X=3) e vindo de longe (Z=-20)
-            vehicleGroup.rotation.y = 0; // Sem rotação, vai direto para frente
-            scene.add(vehicleGroup);
-            
-            // Criar luz dos faróis se for noite
-            let headlightLeft, headlightRight;
-            if (!isDayTime) {
-                headlightLeft = new THREE.SpotLight(0xffffaa, 1, 25, Math.PI / 8, 0.3);
-                headlightLeft.position.set(-0.7, 0.7, 2.8);
-                headlightLeft.target.position.set(-0.7, 0, 10); // Luz para frente
-                headlightLeft.castShadow = true;
-                vehicleGroup.add(headlightLeft);
-                vehicleGroup.add(headlightLeft.target);
-                
-                headlightRight = new THREE.SpotLight(0xffffaa, 1, 25, Math.PI / 8, 0.3);
-                headlightRight.position.set(0.7, 0.7, 2.8);
-                headlightRight.target.position.set(0.7, 0, 10); // Luz para frente
-                headlightRight.castShadow = true;
-                vehicleGroup.add(headlightRight);
-                vehicleGroup.add(headlightRight.target);
-            }
-            
-            // Animação de movimento frontal melhorada
-            let posZ = -20;
-            const speed = 0.3;
-            let wheelRotation = 0;
-            
-            function moveVehicle() {
-                posZ += speed;
-                vehicleGroup.position.z = posZ;
-                
-                // Rotacionar todas as rodas de forma realista (eixo Z para movimento frontal)
-                wheelRotation += speed * 0.1;
-                vehicleGroup.children.forEach(child => {
-                    if (child.userData.isWheel) {
-                        child.rotation.z = wheelRotation;
-                    }
-                });
-                
-                // Atualizar posição dos faróis se existirem
-                if (headlightLeft && headlightRight) {
-                    headlightLeft.target.position.z = posZ + 10;
-                    headlightRight.target.position.z = posZ + 10;
-                }
-                
-                // Detectar proximidade do sensor PIR (quando carro está próximo ao poste no eixo Z)
-                const distanceToPost = Math.abs(posZ); // Distância até o poste (Z=0)
-                if (distanceToPost < 6 && !isDayTime && !isLightOn) {
-                    toggleLight();
-                    
-                    // Feedback visual - piscar sensor
-                    const postGroup = scene.children.find(child => child.type === 'Group' && child.children.length > 5);
-                    if (postGroup) {
-                        const sensor = postGroup.children.find(child => child.material && child.material.color.r > 0.5);
-                        if (sensor) {
-                            sensor.material.emissive.setHex(0x330000);
-                            setTimeout(() => {
-                                sensor.material.emissive.setHex(0x000000);
-                            }, 200);
-                        }
-                    }
-                }
-                
-                // Som de motor simulado (vibração visual)
-                if (Math.random() > 0.95) {
-                    vehicleGroup.position.y += (Math.random() - 0.5) * 0.02;
-                }
-                
-                if (posZ < 20) {
-                    requestAnimationFrame(moveVehicle);
+        function updateSkyColors() {
+            if (state.isDay) {
+                if (state.solCondicao === "tempestade") {
+                    scene.background = new THREE.Color(0x334155);
+                    scene.fog.color = new THREE.Color(0x334155);
+                    sunLight.intensity = 0.3;
+                    ambientLight.intensity = 0.4;
+                } else if (state.solCondicao === "parcial_nublado") {
+                    scene.background = new THREE.Color(0x64748b);
+                    scene.fog.color = new THREE.Color(0x64748b);
+                    sunLight.intensity = 0.7;
+                    ambientLight.intensity = 0.5;
                 } else {
-                    scene.remove(vehicleGroup);
-                    // Desligar LED após alguns segundos
-                    if (isLightOn && !isDayTime) {
-                        setTimeout(toggleLight, 3000);
-                    }
+                    scene.background = new THREE.Color(0x38bdf8);
+                    scene.fog.color = new THREE.Color(0x38bdf8);
+                    sunLight.intensity = 1.3;
+                    ambientLight.intensity = 0.6;
                 }
-            }
-            
-            // Iniciar animação
-            moveVehicle();
-        }
-
-        function resetCamera() {
-            cameraAngle = 0;
-            cameraHeight = 3;
-            cameraDistance = 8;
-            updateStatus();
-        }
-
-        function toggleAnimation() {
-            isAnimating = !isAnimating;
-            if (isAnimating) animate();
-            updateStatus();
-        }
-
-        function toggleHelp() {
-            const help = document.getElementById('help');
-            help.style.display = help.style.display === 'none' ? 'block' : 'none';
-        }
-
-        function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
             } else {
-                document.exitFullscreen();
+                scene.background = new THREE.Color(0x090d16);
+                scene.fog.color = new THREE.Color(0x090d16);
+                sunLight.intensity = 0.05;
+                ambientLight.intensity = 0.15;
             }
         }
 
-        // Event handlers
-        function onMouseDown(event) {
-            isMouseDown = true;
-            mouseLastX = event.clientX;
-            mouseLastY = event.clientY;
-        }
-
-        function onMouseMove(event) {
-            if (isMouseDown) {
-                const deltaX = event.clientX - mouseLastX;
-                const deltaY = event.clientY - mouseLastY;
-                
-                cameraAngle += deltaX * 0.01;
-                cameraHeight = Math.max(1, Math.min(10, cameraHeight - deltaY * 0.05));
-                
-                mouseLastX = event.clientX;
-                mouseLastY = event.clientY;
+        function toggleXRay() {
+            state.isXRay = !state.isXRay;
+            document.getElementById('btn-xray').classList.toggle('active', state.isXRay);
+            
+            if (postShaftMesh) {
+                postShaftMesh.material.transparent = state.isXRay;
+                postShaftMesh.material.opacity = state.isXRay ? 0.35 : 1.0;
+            }
+            if (internalBatteryMesh) {
+                internalBatteryMesh.material.opacity = state.isXRay ? 0.95 : 0.15;
+            }
+            if (internalMpptMesh) {
+                internalMpptMesh.material.opacity = state.isXRay ? 0.95 : 0.15;
             }
         }
 
-        function onMouseUp() {
-            isMouseDown = false;
-        }
+        function simularPassagemVeiculo() {
+            state.radarAtivado = true;
+            updateLightingState();
+            calcularEnergia();
 
-        function onMouseWheel(event) {
-            cameraDistance = Math.max(3, Math.min(15, cameraDistance + event.deltaY * 0.01));
-        }
+            // Simula passagem de carro rápido
+            const carGroup = new THREE.Group();
+            const carBodyGeo = new THREE.BoxGeometry(1.6, 0.7, 3.2);
+            const carBodyMat = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.6 });
+            const carBody = new THREE.Mesh(carBodyGeo, carBodyMat);
+            carBody.position.set(0.5, 0.45, 4.0);
+            carGroup.add(carBody);
 
-        function onKeyDown(event) {
-            switch(event.code) {
-                case 'KeyN': toggleDayNight(); break;
-                case 'KeyL': toggleLight(); break;
-                case 'KeyM': simulate(); break;
-                case 'KeyR': resetCamera(); break;
-                case 'KeyH': toggleHelp(); break;
-                case 'Space': 
-                    event.preventDefault();
-                    toggleAnimation(); 
-                    break;
-            }
+            // Faróis
+            const headlightGeo = new THREE.SphereGeometry(0.08, 6, 6);
+            const headlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const hl1 = new THREE.Mesh(headlightGeo, headlightMat);
+            hl1.position.set(0.0, 0.4, 5.6);
+            const hl2 = new THREE.Mesh(headlightGeo, headlightMat);
+            hl2.position.set(1.0, 0.4, 5.6);
+            carGroup.add(hl1);
+            carGroup.add(hl2);
+
+            scene.add(carGroup);
+            carGroup.position.x = -15;
+
+            const startTime = Date.now();
+            const animInterval = setInterval(() => {
+                const elapsed = (Date.now() - startTime) / 1000;
+                carGroup.position.x = -15 + elapsed * 18; // 60 km/h aprox.
+                if (carGroup.position.x > 18) {
+                    clearInterval(animInterval);
+                    scene.remove(carGroup);
+                    setTimeout(() => {
+                        state.radarAtivado = false;
+                        updateLightingState();
+                        calcularEnergia();
+                    }, 1200);
+                }
+            }, 16);
         }
 
         function onWindowResize() {
-            camera.aspect = 800 / 500;
+            camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
-            renderer.setSize(800, 500);
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // Funções auxiliares
-        function updateCamera() {
-            camera.position.x = Math.cos(cameraAngle) * cameraDistance;
-            camera.position.y = cameraHeight;
-            camera.position.z = Math.sin(cameraAngle) * cameraDistance;
-            camera.lookAt(0, 4, 0);
-        }
-
-        function updateSkyColor() {
-            const skyColor = isDayTime ? 0x87CEEB : 0x0a0a1a;
-            renderer.setClearColor(skyColor);
-            if (scene.fog) scene.fog.color.setHex(skyColor);
-        }
-
-        function updateStatus() {
-            const status = document.getElementById('status');
-            const modeText = isDayTime ? 'Dia ☀️' : 'Noite 🌙';
-            const ledText = isLightOn ? 'Ligado 💡' : 'Desligado';
-            const animText = isAnimating ? 'Ativo' : 'Pausado';
-            status.innerHTML = `${modeText} | LED: ${ledText} | Anim: ${animText}`;
-        }
-
-        // Loop de animação otimizado
         function animate() {
-            if (isAnimating) {
-                requestAnimationFrame(animate);
-                
-                // FPS Counter - atualiza menos frequentemente
-                frameCount++;
-                const currentTime = Date.now();
-                if (currentTime - lastTime >= 2000) { // A cada 2 segundos
-                    const fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
-                    document.getElementById('fps').textContent = `FPS: ${fps}`;
-                    frameCount = 0;
-                    lastTime = currentTime;
-                }
+            requestAnimationFrame(animate);
 
-                // Atualizar câmera
-                updateCamera();
-                
-                // Animações sutis menos frequentes
-                if (frameCount % 3 === 0) { // A cada 3 frames
-                    // Movimento muito sutil das partículas
-                    if (particles) {
-                        const positions = particles.geometry.attributes.position.array;
-                        for(let i = 0; i < positions.length; i += 9) { // Atualiza menos partículas
-                            positions[i] += (Math.random() - 0.5) * 0.01;
-                            positions[i + 1] += (Math.random() - 0.5) * 0.005;
-                            positions[i + 2] += (Math.random() - 0.5) * 0.01;
-                        }
-                        particles.geometry.attributes.position.needsUpdate = true;
-                    }
-                }
-                
-                // Renderizar
-                renderer.render(scene, camera);
-            } else {
-                requestAnimationFrame(animate);
+            // Leve rotação de exposição se o usuário não estiver interagindo
+            if (!isMouseDown) {
+                camTheta += 0.0012;
+                updateCameraPosition();
             }
+
+            renderer.render(scene, camera);
         }
 
-        // Inicialização quando DOM estiver pronto
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log("DOM carregado, iniciando em 500ms...");
-            setTimeout(() => {
-                init();
-                animate();
-            }, 500);
-        });
-
-        // Fallback se DOMContentLoaded não disparar
-        window.addEventListener('load', function() {
-            console.log("Window carregada");
-            if (!scene) {
-                setTimeout(() => {
-                    init();
-                    animate();
-                }, 100);
-            }
-        });
+        window.onload = initScene;
     </script>
 </body>
 </html>

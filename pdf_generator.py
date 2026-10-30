@@ -37,12 +37,17 @@ from config import (
     EFFECTIVENESS_PARAMS,
     ECONOMIC_VALUES,
     SCENARIOS,
+    CENARIOS_ORCAMENTO,
+    ENGENHARIA_SISTEMA_SOLAR,
+    ENGENHARIA_SISTEMA_SOLAR_COMPACTO,
+    LUMINOTECNICA_PARAMETROS,
+    TELEMETRIA_CONFIG,
+    POSTE_CUSTO_DETALHADO,
     REFERENCES,
     PDF_CONFIG,
     DEFAULT_SPACING_M,
-    ENGENHARIA_SISTEMA_SOLAR,
-    POSTE_CUSTO_DETALHADO,
 )
+from financial_model import calcular_balanco_energetico_detalhado, calcular_orcamento_cenarios
 from metrics import compute_period_metrics, compute_day_vs_night_comparison
 from reaction_analysis import analyze_visibility_and_reaction
 
@@ -497,60 +502,91 @@ class ReportGenerator:
         # =====================================================================
         # 8. ENGENHARIA, DIMENSIONAMENTO E BALANÇO ENERGÉTICO
         # =====================================================================
-        story.append(Paragraph("7. ENGENHARIA E BALANÇO ENERGÉTICO DO POSTE SOLAR", self.custom_styles["h1"]))
+        story.append(Paragraph("7. ENGENHARIA, CONCEITO COMPACTO E BALANÇO ENERGÉTICO", self.custom_styles["h1"]))
 
         n_trechos_analisados = len(top_segments)
         espacamento = DEFAULT_SPACING_M
         postes_por_trecho = int(np.ceil((2.0 * 1000.0) / espacamento))
         total_postes = n_trechos_analisados * postes_por_trecho
 
+        # Cálculo do Balanço Energético Detalhado
+        b_eng = calcular_balanco_energetico_detalhado()
+
         eng_p = f"""
-        <b>Dimensionamento Físico:</b> Segmentos de 2,0 km com espaçamento de {espacamento} m entre postes:<br/>
-        • Postes por Trecho: `2.000 m / {espacamento} m = {postes_por_trecho} postes` | Total ({n_trechos_analisados} Trechos): <b>{total_postes:,} postes solares</b>.<br/>
-        <b>Balanço Energético Auditado para 3 Noites de Autonomia:</b><br/>
-        • <b>Consumo Noturno com Dimerização:</b> Luminária LED 60W com perfil inteligente (4h pico a 100% = 240 Wh; 7h repouso a 20% com radar de micro-ondas = 196 Wh; 1h matutino a 50% = 30 Wh) &rarr; <b>{ENGENHARIA_SISTEMA_SOLAR['consumo_noturno_ponderado_wh']:.0f} Wh por noite</b>.<br/>
-        • <b>Capacidade da Bateria:</b> LiFePO4 de <b>24V / 80Ah ({ENGENHARIA_SISTEMA_SOLAR['energia_nominal_bateria_wh']:.0f} Wh nominais)</b> ou 12V / 160Ah. Com profundidade de descarga de 80% e perdas de cabeamento/MPPT de 10%: `Energia Útil = {ENGENHARIA_SISTEMA_SOLAR['energia_disponivel_consumo_wh']:.1f} Wh`.<br/>
-        • <b>Autonomia Efetiva:</b> `{ENGENHARIA_SISTEMA_SOLAR['energia_disponivel_consumo_wh']:.1f} Wh / {ENGENHARIA_SISTEMA_SOLAR['consumo_noturno_ponderado_wh']:.0f} Wh = {ENGENHARIA_SISTEMA_SOLAR['autonomia_sustentada_noites']:.2f} noites` (sustenta tecnicamente as 3 noites sem sol).<br/>
-        • <b>Geração Solar:</b> Módulo fotovoltaico de <b>300W</b> gerando `{ENGENHARIA_SISTEMA_SOLAR['geracao_solar_diaria_wh']:.1f} Wh/dia` a 4,5 HSP, repondo o consumo da noite e recarregando a reserva de autonomia.
+        <b>Conceito Físico do Poste Solar Compacto (8m / 40W / 240Wp / 2.500Wh LiFePO4):</b><br/>
+        • <b>Estrutura Mecânica:</b> Poste cônico contínuo de 8 metros em aço galvanizado a fogo com base flangeada e chumbadores de ancoragem. Braço curvo viário com avanço de 1,5m sobre o leito da rodovia.<br/>
+        • <b>Compartimento de Baterias e Eletrônica:</b> Gabinete integrado ao corpo inferior do poste com vedação estanque IP66 e portinhola de manutenção autorizada.<br/>
+        • <b>Conjunto Solar Compacto Integrado:</b> Módulo fotovoltaico monocristalino de <b>240 Wp</b> fixado no topo com inclinação ótima de 22° para a latitude média brasileira, sem módulos residenciais gigantes desproporcionais.<br/>
+        • <b>Luminária Viária LED:</b> Potência de <b>40 W</b> com ótica viária Tipo II (corte total anti-ofuscamento), sensor Doppler por radar de micro-ondas e antena de telemetria.<br/>
+        <br/>
+        <b>Balanço Energético Auditado e Autonomia com ZERO Geração Solar:</b><br/>
+        • <b>Consumo Noturno Dimerizado (12h):</b> 4h pico a 100% (160 Wh) + 4h normal a 80% (128 Wh) + 4h repouso a 60% (96 Wh) = <b>384 Wh/noite</b>.<br/>
+        • <b>Telemetria e Supervisão 24h:</b> 2 W contínuos &rarr; <b>48 Wh/dia</b>. Consumo Total: <b>{b_eng['consumo_total_diario_wh']:.0f} Wh por dia/noite</b>.<br/>
+        • <b>Banco de Baterias LiFePO4 (2.500 Wh nominais):</b> Com 80% DoD e 90% de rendimento MPPT/driver: <b>Capacidade Útil BOL = {b_eng['capacidade_util_bol_wh']:.1f} Wh</b> e <b>Capacidade Útil EOL (80% vida) = {b_eng['capacidade_util_eol_wh']:.1f} Wh</b>.<br/>
+        • <b>Autonomia Efetiva com ZERO Sol:</b> <b>{b_eng['autonomia_zero_sol_bol_noites']:.2f} noites (BOL)</b> e <b>{b_eng['autonomia_zero_sol_eol_noites']:.2f} noites (EOL)</b>. Sustenta rigorosamente a meta mandatária de 3 noites consecutivas sem incidência solar.<br/>
+        • <b>Geração Solar Diária (4,5 HSP, PR 80%):</b> <b>{b_eng['geracao_solar_sol_pleno_wh']:.1f} Wh/dia</b> (excedente de {b_eng['excedente_diario_sol_wh']:.1f} Wh/dia para recarga completa em {b_eng['dias_recarga_apos_3_noites']:.1f} dias de sol pleno).<br/>
+        • <b>Dias Nublados vs Zero Sol:</b> Em dias nublados (25% de irradiação), gera {b_eng['geracao_solar_dia_nublado_wh']:.1f} Wh/dia (déficit de {abs(b_eng['balanco_liquido_nublado_wh']):.1f} Wh/dia, suportando até 8 dias nublados consecutivos com bateria plena).<br/>
+        <br/>
+        <b>Segurança Luminotécnica e Validação Pendente (ABNT NBR 5101:2024):</b><br/>
+        A potência de 40W é uma <b>hipótese preliminar de engenharia</b>. A conformidade com as classes viárias V1 a V5 da ABNT NBR 5101:2024 (luminância de pista <i>L<sub>m</sub></i> &ge; 1,0 cd/m², uniformidade <i>U<sub>0</sub></i> &ge; 0,35 e ofuscamento <i>TI</i> &le; 10%) requer validação computacional em software de simulação luminotécnica (DIALux EVO) considerando a largura da via e o espaçamento de {espacamento} m.
         """
         story.append(Paragraph(eng_p, self.custom_styles["body"]))
 
-        # Tabela de Composição de Custos Unitários
-        t_custo_data = [
+        # =====================================================================
+        # 9. MODELAGEM ORÇAMENTÁRIA MULTI-CENÁRIOS E RETORNO FINANCEIRO
+        # =====================================================================
+        story.append(Paragraph("8. MODELAGEM ECONÔMICA E CENÁRIOS COMPARÁVEIS (A A E)", self.custom_styles["h1"]))
+
+        # Executa comparação dos 5 cenários
+        orc_cen = calcular_orcamento_cenarios(
+            top_segments_df=top_segments,
+            n_trechos=n_trechos_analisados,
+            comprimento_km=2.0,
+            espacamento_m=espacamento,
+            anos_base_dados=financial_summary.get("anos_base", 2.0) if financial_summary else 2.0,
+        )
+        comp_df = orc_cen["comparativo_df"]
+
+        # Tabela Comparativa dos Cenários A a E
+        t_cen_multi_data = [
             [
-                Paragraph("Componente do Poste Solar Autônomo", self.custom_styles["th"]),
-                Paragraph("Especificação Técnica Auditada", self.custom_styles["th"]),
-                Paragraph("Custo Unitário (R$)", self.custom_styles["th"]),
-            ],
-            [Paragraph("Estrutura e Poste", self.custom_styles["td_left"]), Paragraph("Poste tubular cônico 8m galvanizado a fogo", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["estrutura_poste_galvanizado"]), self.custom_styles["td"])],
-            [Paragraph("Módulo Fotovoltaico", self.custom_styles["td_left"]), Paragraph("Painel solar monocristalino 300W (ou 2x150W)", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["modulo_fotovoltaico_300w"]), self.custom_styles["td"])],
-            [Paragraph("Bateria LiFePO4", self.custom_styles["td_left"]), Paragraph("LiFePO4 24V 80Ah (1.920 Wh) com BMS integrado", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["bateria_lifepo4_1920wh"]), self.custom_styles["td"])],
-            [Paragraph("Luminária LED Viária", self.custom_styles["td_left"]), Paragraph("LED 60W dimerizável, 8.000 lm, 4000K, IP66", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["luminaria_led_dimerizavel"]), self.custom_styles["td"])],
-            [Paragraph("Controlador e Sensores", self.custom_styles["td_left"]), Paragraph("MPPT 20A com sensor de presença por radar", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["controlador_mppt_sensores_radar"]), self.custom_styles["td"])],
-            [Paragraph("Fundação e Fixação", self.custom_styles["td_left"]), Paragraph("Bloco de concreto armado e chumbadores J", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["fundacao_civil_ancoragem"]), self.custom_styles["td"])],
-            [Paragraph("Mão de Obra e Instalação", self.custom_styles["td_left"]), Paragraph("Montagem em campo, fiação e comissionamento", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["mao_de_obra_instalacao"]), self.custom_styles["td"])],
-            [Paragraph("Logística e Projetos", self.custom_styles["td_left"]), Paragraph("Frete rodoviário, projetos executivos e ART", self.custom_styles["td_left"]), Paragraph(format_pt_br_currency(POSTE_CUSTO_DETALHADO["logistica_projetos_engenharia"]), self.custom_styles["td"])],
-            [Paragraph("<b>TOTAL UNITÁRIO POR POSTE</b>", self.custom_styles["td_left"]), Paragraph("<b>Conjunto solar completo instalado</b>", self.custom_styles["td_left"]), Paragraph(f"<b>{format_pt_br_currency(FINANCIAL_PARAMS['custo_poste_solar'])}</b>", self.custom_styles["td"])],
+                Paragraph("Cenário Orçamentário", self.custom_styles["th"]),
+                Paragraph("Classificação", self.custom_styles["th"]),
+                Paragraph("Poste / LED", self.custom_styles["th"]),
+                Paragraph("Custo/Poste", self.custom_styles["th"]),
+                Paragraph("CAPEX (R$ M)", self.custom_styles["th"]),
+                Paragraph("VPL 15a (R$ M)", self.custom_styles["th"]),
+                Paragraph("TIR (% a.a.)", self.custom_styles["th"]),
+                Paragraph("Payback", self.custom_styles["th"]),
+            ]
         ]
-        t_custo = Table(t_custo_data, colWidths=[4.5*cm, 7.5*cm, 3.0*cm])
-        t_custo.setStyle(TableStyle([
+        for _, row_c in comp_df.iterrows():
+            tir_c_str = f"{row_c['TIR (% a.a.)']:.1f}%" if pd.notna(row_c['TIR (% a.a.)']) else "N/A"
+            pb_c_str = f"{row_c['Payback Simples (anos)']:.2f} a" if row_c['Payback Simples (anos)'] < 100 else "> 15 a"
+            t_cen_multi_data.append([
+                Paragraph(str(row_c["Cenário"]), self.custom_styles["td_left"]),
+                Paragraph(str(row_c["Tipo"]), self.custom_styles["td"]),
+                Paragraph(f"{row_c['Altura']} / {row_c['LED']}", self.custom_styles["td"]),
+                Paragraph(format_pt_br_currency(row_c["Custo Unitário (R$)"]), self.custom_styles["td"]),
+                Paragraph(f"R$ {row_c['CAPEX Total (R$ M)']:.2f}M", self.custom_styles["td"]),
+                Paragraph(f"R$ {row_c['VPL 15 Anos (R$ M)']:.2f}M", self.custom_styles["td"]),
+                Paragraph(tir_c_str, self.custom_styles["td"]),
+                Paragraph(pb_c_str, self.custom_styles["td"]),
+            ])
+
+        t_cen_multi = Table(t_cen_multi_data, colWidths=[3.8*cm, 2.2*cm, 2.0*cm, 2.2*cm, 1.8*cm, 1.8*cm, 1.6*cm, 1.6*cm])
+        t_cen_multi.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f77b4")),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f8f9fa")]),
-            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#e2e8f0")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
             ("TOPPADDING", (0, 0), (-1, -1), 2),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ]))
-        story.append(t_custo)
+        story.append(t_cen_multi)
         story.append(Spacer(1, 4))
 
-        # =====================================================================
-        # 9. VIABILIDADE ECONÔMICA E FLUXO DE CAIXA
-        # =====================================================================
-        story.append(Paragraph("8. MODELAGEM ECONÔMICA E MEMÓRIA DE CÁLCULO", self.custom_styles["h1"]))
-
         fin = financial_summary or {}
-        capex = fin.get("investimento_total", total_postes * FINANCIAL_PARAMS["custo_poste_solar"])
+        capex_d = 4000 * 22310.00  # R$ 89,24M para o cenário compacto base
         beneficio_anual = fin.get("economia_anual", 0.0)
         beneficio_liq = fin.get("economia_liquida_anual", 0.0)
         vpl = fin.get("vpl", 0.0)
@@ -559,7 +595,7 @@ class ReportGenerator:
         payback_desc = fin.get("payback_descontado_anos")
         roi_desc = fin.get("roi_descontado_pct", 0.0)
         vidas_salvas = fin.get("vidas_salvas_ano", 0.0)
-        anos_base = fin.get("anos_base", 1.0)
+        anos_base = fin.get("anos_base", 2.0)
         mortos_top = top_segments["mortos_noturno"].sum() if "mortos_noturno" in top_segments.columns else 0
 
         pb_str = f"{format_pt_br_number(payback, 2)} anos" if (payback and payback < 100) else "> 15 anos"
@@ -567,14 +603,18 @@ class ReportGenerator:
         tir_str = f"{format_pt_br_number(tir * 100, 2)}% a.a." if tir is not None else "N/A"
 
         fin_text = f"""
-        <b>Memória de Cálculo das 45,8 Vidas Salvas por Ano:</b><br/>
-        1. <b>Acúmulo Histórico:</b> Nos 100 trechos prioritários selecionados, foram registrados <b>{mortos_top} óbitos noturnos</b> durante o horizonte de {anos_base:.1f} anos analisados.<br/>
-        2. <b>Taxa Anualizada Baseline:</b> `{mortos_top} óbitos / {anos_base:.1f} anos = {mortos_top / anos_base:.1f} óbitos noturnos por ano`.<br/>
-        3. <b>Fator de Redução (FHWA):</b> 35% de redução esperada com iluminação viária &rarr; `{mortos_top / anos_base:.1f} × 0,35 = {vidas_salvas:.1f} vidas salvas por ano`.<br/>
+        <b>Memória de Cálculo das 45,8 Vidas Salvas por Ano (100 Trechos Críticos):</b><br/>
+        1. <b>Acúmulo Histórico:</b> Nos 100 trechos prioritários, ocorreram <b>{mortos_top} óbitos noturnos</b> no horizonte de {anos_base:.1f} anos analisados.<br/>
+        2. <b>Taxa Baseline Anualizada:</b> `{mortos_top} óbitos / {anos_base:.1f} anos = {mortos_top / anos_base:.1f} óbitos noturnos por ano`.<br/>
+        3. <b>Fator de Redução CMF (FHWA):</b> 35% de redução esperada com iluminação viária &rarr; `{mortos_top / anos_base:.1f} × 0,35 = {vidas_salvas:.1f} vidas salvas por ano`.<br/>
         4. <b>Valoração IPEA/PRF:</b> Vidas salvas ({format_pt_br_currency(vidas_salvas * ECONOMIC_VALUES['valor_vida_estatistica'])}) + Graves evitados ({format_pt_br_currency(fin.get('economia_graves', 0.0))}) + Leves evitados ({format_pt_br_currency(fin.get('economia_leves', 0.0))}) = <b>Benefício Social Bruto de {format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
-        5. <b>Custos Operacionais (OPEX):</b> Manutenção preventiva (R$ 500/poste/ano) + reserva para reposição de baterias a cada 5 anos (R$ 3.800/un nos anos 5 e 10) = <b>R$ 3,87 milhões/ano</b>.<br/>
-        6. <b>Benefício Líquido Anual:</b> `{format_pt_br_currency(beneficio_anual)} - R$ 3,87M = {format_pt_br_currency(beneficio_liq)}`.<br/>
-        7. <b>Indicadores de Retorno:</b> CAPEX de {format_pt_br_currency(capex)} | VPL (15 anos, taxa 8% a.a.) de <b>{format_pt_br_currency(vpl)}</b> | TIR Social de <b>{tir_str}</b> | Payback Simples de <b>{pb_str}</b> | Payback Descontado de <b>{pb_desc_str}</b> | ROI Líquido Descontado de <b>{format_pt_br_number(roi_desc, 1)}%</b>.
+        5. <b>Custos de Implantação e Retorno:</b><br/>
+        • <b>Meta Histórica (Cenário A):</b> CAPEX R$ 60,00M | Payback Simples: 0,21 anos (~2,5 meses).<br/>
+        • <b>Conceitual Compacto 8m/40W (Cenário D - Base):</b> Custo/un R$ 22.310,00 | CAPEX R$ 89,24M | Payback Simples: 0,31 anos (~3,7 meses) | VPL Social 15 anos de R$ 2,35 bilhões.<br/>
+        <br/>
+        <b>Plano Conceitual de Manutenção e Telemetria:</b><br/>
+        Supervisão remota contínua (telemetria LoRaWAN/NB-IoT a 2W) monitorando tensão da bateria, corrente do painel e integridade do LED. Provisão de OPEX com manutenção preventiva (R$ 500/poste/ano) e reserva para troca de baterias a cada 5 anos (R$ 3.800/un).<br/>
+        <i>Aviso: Os dados de supervisão remota e ordens de serviço representam modelagem funcional simulada de software; não existem postes físicos instalados nesta etapa.</i>
         """
         story.append(Paragraph(fin_text, self.custom_styles["body"]))
 

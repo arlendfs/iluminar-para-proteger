@@ -55,7 +55,137 @@ ENGENHARIA_SISTEMA_SOLAR = {
     "autonomia_sustentada_noites": 2.97,               # 1.382,4 Wh / 466 Wh = ~3 noites completas
     "potencia_modulo_fotovoltaico_w": 300,             # Módulo fotovoltaico de 300W (ou 2x 150W)
     "horas_sol_pleno_hsp_media": 4.5,                  # Média Brasil de Horas de Sol Pleno diárias
-    "geracao_solar_diaria_wh": 1012.5,                 # 300W * 4.5h * 0.75 ef. = 1.012,5 Wh/dia (cobre consumo diário e recarrega reserva)
+    "geracao_solar_diaria_wh": 1012.5,                 # 300W * 4.5h * 0.75 ef. = 1.012,5 Wh/dia
+}
+
+# Novo Conceito Físico e Energético Compacto (8m / 40W / 240Wp / 2.500Wh LiFePO4)
+ENGENHARIA_SISTEMA_SOLAR_COMPACTO = {
+    "altura_poste_m": 8.0,                             # Poste cônico galvanizado a fogo de 8 metros
+    "potencia_led_w": 40.0,                            # Luminária viária LED de 40W de alta eficiência
+    "potencia_painel_wp": 240.0,                       # Painel fotovoltaico compacto integrado de 240 Wp
+    "capacidade_bateria_wh": 2500.0,                   # Bateria LiFePO4 de 2.500 Wh nominais integrada
+    "perfil_noturno_horas": {
+        "h_100_pct": 4.0,                              # 4h a 100% (40W) = 160 Wh
+        "h_80_pct": 4.0,                               # 4h a 80% (32W) = 128 Wh
+        "h_60_pct": 4.0,                               # 4h a 60% (24W) = 96 Wh
+    },
+    "telemetria_w": 2.0,                               # 2W contínuos durante 24 horas = 48 Wh/dia
+    "autonomia_desejada_noites": 3.0,                  # Meta estrita de 3 noites com ZERO geração solar
+    "profundidade_descarga_dod": 0.80,                 # 80% DoD para garantir ciclo de vida
+    "eficiencia_bateria_driver": 0.90,                 # 90% rendimento combinado bateria/driver/MPPT
+    "capacidade_remanescente_eol": 0.80,               # 80% no fim de vida útil (End of Life)
+    "hsp_padrao": 4.5,                                 # Horas de Sol Pleno diárias
+    "desempenho_global_pr": 0.80,                      # Performance Ratio (perdas térmicas, poeira, ângulo)
+    "fator_recarga_nublado": 0.25,                     # 25% da irradiação padrão em dias nublados
+}
+
+# Cenários Orçamentários Comparáveis (A a E)
+CENARIOS_ORCAMENTO = {
+    "cenario_a": {
+        "id": "cenario_a",
+        "nome": "Cenário A — Meta Histórica",
+        "descricao": "Orçamento preliminar anterior sem cotação técnica atualizada (R$ 15.000 fixo).",
+        "tipo": "estimativa_historica",
+        "altura_poste_m": 8.0,
+        "potencia_led_w": 60.0,
+        "custo_kit": 15000.00,
+        "custo_instalacao_fundacao": 0.00,
+        "custo_telemetria": 0.00,
+        "contingencia_pct": 0.0,
+        "custo_unitario_total": 15000.00,
+        "fornecedor_referencia": "Estimativa Acadêmica Preliminar",
+    },
+    "cenario_b": {
+        "id": "cenario_b",
+        "nome": "Cenário B — Comercial 6m / 40W",
+        "descricao": "Kit comercial de referência (NeoSolar ZTL6-40). Não equivalente a poste viário de 8m.",
+        "tipo": "pesquisado_comercial",
+        "altura_poste_m": 6.0,
+        "potencia_led_w": 40.0,
+        "custo_kit": 11599.00,
+        "custo_instalacao_fundacao": 2500.00,
+        "custo_telemetria": 700.00,
+        "contingencia_pct": 0.15,
+        "custo_unitario_total": 17018.85,  # (11.599 + 2.500 + 700) * 1.15
+        "fornecedor_referencia": "NeoSolar ZTL6-40 (Cotação Pública Online)",
+    },
+    "cenario_c": {
+        "id": "cenario_c",
+        "nome": "Cenário C — Comercial 8m / 80W",
+        "descricao": "Kit comercial de referência (NeoSolar ZTL8-80) para vias arteriais.",
+        "tipo": "pesquisado_comercial",
+        "altura_poste_m": 8.0,
+        "potencia_led_w": 80.0,
+        "custo_kit": 20699.00,
+        "custo_instalacao_fundacao": 3000.00,
+        "custo_telemetria": 900.00,
+        "contingencia_pct": 0.15,
+        "custo_unitario_total": 28288.85,  # (20.699 + 3.000 + 900) * 1.15
+        "fornecedor_referencia": "NeoSolar ZTL8-80 (Cotação Pública Online)",
+    },
+    "cenario_d": {
+        "id": "cenario_d",
+        "nome": "Cenário D — Conceitual Compacto 8m / 40W (Base)",
+        "descricao": "Conjunto solar compacto com painel 240 Wp e bateria LiFePO4 de 2.500 Wh nominais.",
+        "tipo": "hipotese_conceitual",
+        "altura_poste_m": 8.0,
+        "potencia_led_w": 40.0,
+        "custo_kit": 15500.00,
+        "custo_instalacao_fundacao": 3000.00,
+        "custo_telemetria": 900.00,
+        "contingencia_pct": 0.15,
+        "custo_unitario_total": 22310.00,  # (15.500 + 3.000 + 900) * 1.15 = 19.400 * 1.15 = 22.310
+        "fornecedor_referencia": "Composição Conceitual Iluminar para Proteger",
+    },
+    "cenario_e": {
+        "id": "cenario_e",
+        "nome": "Cenário E — 8m / 80W com Bateria Reforçada",
+        "descricao": "Kit comercial de 8m/80W acrescido de reserva técnica de R$ 5.000 para expansão de bateria.",
+        "tipo": "hipotese_composta",
+        "altura_poste_m": 8.0,
+        "potencia_led_w": 80.0,
+        "custo_kit": 20699.00,
+        "reserva_bateria": 5000.00,
+        "custo_instalacao_fundacao": 3000.00,
+        "custo_telemetria": 900.00,
+        "contingencia_pct": 0.15,
+        "custo_unitario_total": 34038.85,  # (20.699 + 5.000 + 3.000 + 900) * 1.15 = 29.599 * 1.15 = 34.038,85
+        "fornecedor_referencia": "NeoSolar ZTL8-80 + Reserva de Armazenamento",
+    },
+}
+
+# Parâmetros de Segurança Luminotécnica (ABNT NBR 5101:2024)
+LUMINOTECNICA_PARAMETROS = {
+    "norma_referencia": "ABNT NBR 5101:2024 — Iluminação Pública e Rodoviária",
+    "status_conformidade": "Pendente de Validação Fotométrica (DIALux EVO)",
+    "aviso_metodologico": (
+        "A potência de 40W é uma hipótese energética preliminar. A adequação luminotécnica viária "
+        "depende do tipo de pista (simples/dupla), largura da faixa de rolamento, classificação da via (V1 a V5), "
+        "altura de montagem (8m), espaçamento (50m), distribuição fotométrica da luminária (ótipo IESNA Tipo II/III) "
+        "e uniformidade de luminância (Lm e U0). Exige-se cálculo computacional antes de qualquer implantação física."
+    ),
+    "classes_via": {
+        "V1": {"descricao": "Vias de trânsito rápido / autopistas", "luminancia_media_cd_m2": 2.0, "uniformidade_u0": 0.40},
+        "V2": {"descricao": "Vias arteriais de grande fluxo", "luminancia_media_cd_m2": 1.5, "uniformidade_u0": 0.40},
+        "V3": {"descricao": "Vias coletoras e rodovias padrão", "luminancia_media_cd_m2": 1.0, "uniformidade_u0": 0.35},
+        "V4": {"descricao": "Vias locais / rodovias de baixo fluxo", "luminancia_media_cd_m2": 0.75, "uniformidade_u0": 0.30},
+    },
+}
+
+# Parâmetros de Supervisão e Telemetria Conceitual
+TELEMETRIA_CONFIG = {
+    "disclaimer_obrigatorio": "SISTEMA DE TELEMETRIA SIMULADO — Representação conceitual de supervisão de ativos. Não existem postes físicos instalados.",
+    "protocolos_suportados": ["LoRaWAN", "NB-IoT / 4G Cat-M1", "MQTT"],
+    "estados_operacionais": {
+        "normal": {"label": "Operação Normal", "cor": "#28a745", "icone": "🟢"},
+        "bateria_baixa": {"label": "Bateria Baixa (< 20% SOC)", "cor": "#ffc107", "icone": "🟡"},
+        "falha_led": {"label": "Falha na Luminária LED", "cor": "#dc3545", "icone": "🔴"},
+        "falha_carregamento": {"label": "Falha no Carregamento Solar", "cor": "#fd7e14", "icone": "🟠"},
+        "violacao_gabinete": {"label": "Possível Violação / Furto", "cor": "#e83e8c", "icone": "🚨"},
+        "sem_comunicacao": {"label": "Perda de Comunicação", "cor": "#6c757d", "icone": "⚪"},
+        "manutencao_necessaria": {"label": "Manutenção Preventiva Agendada", "cor": "#17a2b8", "icone": "🔧"},
+    },
+    "ciclo_vida_ordem_servico": ["Aberta", "Em Análise", "Em Atendimento", "Concluída"],
 }
 
 # Composição analítica do custo de um poste solar autônomo auditado (Total R$ 15.000,00)
@@ -292,5 +422,29 @@ REFERENCES = [
         "instituicao": "Departamento Nacional de Infraestrutura de Transportes (DNIT)",
         "url": "https://www.gov.br/dnit/pt-br",
         "descricao": "Diretrizes de engenharia para projetos luminotécnicos viários.",
+    },
+    {
+        "titulo": "ABNT NBR 5101:2024 — Iluminação Pública e Rodoviária",
+        "instituicao": "Associação Brasileira de Normas Técnicas (ABNT)",
+        "url": "https://www.abntcatalogo.com.br/norma.aspx?ID=524810",
+        "descricao": "Requisitos de iluminância, luminância média, uniformidade e controle de ofuscamento para vias públicas.",
+    },
+    {
+        "titulo": "Referência Técnica Comercial — Poste Solar ZTL (NeoSolar)",
+        "instituicao": "NeoSolar Energia (ZTL6-40 / ZTL8-80)",
+        "url": "https://www.neosolar.com.br/loja/poste-solar-ztroon",
+        "descricao": "Cotações e especificações públicas de kits de postes solares comerciais autônomos integrados.",
+    },
+    {
+        "titulo": "Referência Técnica Comercial — Poste Solar LED 150Wp / 30W (EcoSoli)",
+        "instituicao": "EcoSoli Iluminação Sustentável",
+        "url": "https://www.ecosoli.com.br/lampada-solar/poste-solar-led-150-wp-luminaria-30-watts-5-metros",
+        "descricao": "Arquitetura compacta com painel integrado e bateria de lítio para iluminação solar autônoma.",
+    },
+    {
+        "titulo": "Referência Técnica de Engenharia — Postes Solares Industriais",
+        "instituicao": "Módulo Energia",
+        "url": "https://moduloenergia.com/poste-solar/",
+        "descricao": "Dimensionamento de sistemas solares viários autônomos, braços cônicos e estruturas metálicas.",
     },
 ]

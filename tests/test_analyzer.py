@@ -80,3 +80,54 @@ def test_analyzer_top_n():
     assert "payback_simples_anos" in agregados
     assert agregados["investimento_total"] > 0
 
+
+def test_elegibilidade_ocorrencias_nacionais_vs_segmentadas():
+    """
+    Testa a regra de elegibilidade:
+    - Ocorrências sem KM (br='N/A') são elegíveis para estatísticas nacionais e mantidas no filtro padrão;
+    - Apenas na segmentação viária (analyze_top_n) elas são isoladas para não concentrar no KM 0.0.
+    """
+    analyzer = AccidentAnalyzer()
+    df = pd.DataFrame({
+        "id": [1, 2, 3, 4],  # id 4 é sem KM e br='N/A'
+        "ano": [2025, 2025, 2026, 2026],
+        "uf": ["SC", "PR", "SP", "RJ"],
+        "br": ["101", "376", "116", "N/A"],
+        "km": [145.2, 50.0, 220.0, np.nan],
+        "latitude": [-27.0, -25.5, -23.5, -22.9],
+        "longitude": [-48.0, -49.2, -46.6, -43.2],
+        "fase_dia_agrupada": ["Noturno", "Diurno", "Noturno", "Noturno"],
+        "fase_dia_oficial": ["Plena Noite", "Pleno dia", "Plena Noite", "Plena Noite"],
+        "mortos": [1, 0, 0, 0],
+        "feridos_graves": [1, 0, 1, 1],
+        "feridos_leves": [0, 1, 2, 0],
+        "total_feridos": [1, 1, 3, 1],
+        "total_vitimas": [2, 1, 3, 1],
+        "acidente_fatal": [1, 0, 0, 0],
+    })
+    analyzer.data = df.copy()
+
+    # Filtro padrão com todas as BRs nominais
+    filtros_padrao = {
+        "brs": ["101", "376", "116"],  # Todas as BRs conhecidas selecionadas
+    }
+    filtered = analyzer.apply_filters(df, filtros_padrao)
+
+    # Todas as 4 ocorrências devem ser mantidas na análise geral
+    assert len(filtered) == 4
+    assert 4 in filtered["id"].values
+
+    # Na segmentação viária, a ocorrência sem KM é excluída dos trechos
+    top_df, agregados = analyzer.analyze_top_n(
+        df=filtered,
+        top_n=5,
+        comprimento_km=2.0,
+        spacing_m=50,
+        anos_base=2.0,
+    )
+    # Apenas os 3 sinistros com KM válido participam dos trechos
+    assert not top_df.empty
+    # Nenhum trecho deve ter KM nulo ou 'N/A'
+    assert not any("N/A" in str(tid) for tid in top_df["trecho_id"])
+
+

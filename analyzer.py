@@ -164,7 +164,14 @@ class AccidentAnalyzer:
 
         # Filtro de BRs (Rodovias)
         if filters.get("brs") and "br" in df.columns:
-            mask &= df["br"].isin([str(b) for b in filters["brs"]])
+            brs_sel = set(str(b) for b in filters["brs"])
+            todas_brs_nominais = set(str(b) for b in df["br"].dropna().unique() if str(b) != "N/A")
+            # Se todas as rodovias nominais foram selecionadas no filtro, preserva as ocorrências nacionais
+            # sem BR/KM identificado (os 267 sinistros), garantindo a elegibilidade nacional completa (121.241).
+            if todas_brs_nominais.issubset(brs_sel) or "N/A" in brs_sel:
+                pass
+            else:
+                mask &= df["br"].isin(brs_sel)
 
         # Filtro de Fase do Dia
         if filters.get("fase_dia") and len(filters["fase_dia"]) > 0:
