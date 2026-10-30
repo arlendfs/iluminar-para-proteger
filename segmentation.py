@@ -56,7 +56,15 @@ def create_road_segments(
     valid_df["has_geo"] = valid_df["latitude"].notna() & valid_df["longitude"].notna()
 
     # Período noturno
-    is_noturno = (valid_df["fase_dia_agrupada"] == "Noturno") if "fase_dia_agrupada" in valid_df.columns else (valid_df["fase_dia"] == "noturno")
+    if "fase_dia_agrupada" in valid_df.columns:
+        is_noturno = valid_df["fase_dia_agrupada"].astype(str).str.lower() == "noturno"
+    elif "fase_dia" in valid_df.columns:
+        is_noturno = valid_df["fase_dia"].astype(str).str.lower().isin(["noturno", "plena noite"])
+    elif "fase_dia_oficial" in valid_df.columns:
+        is_noturno = valid_df["fase_dia_oficial"].astype(str).str.lower() == "plena noite"
+    else:
+        is_noturno = pd.Series(False, index=valid_df.index)
+
     valid_df["is_noturno"] = is_noturno.astype(int)
     valid_df["_mortos_not"] = valid_df["mortos"] * valid_df["is_noturno"]
     valid_df["_graves_not"] = valid_df["feridos_graves"] * valid_df["is_noturno"]

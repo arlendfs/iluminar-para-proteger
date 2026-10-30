@@ -106,11 +106,18 @@ def main():
     if os.path.exists(data_dir):
         local_files = [f for f in os.listdir(data_dir) if f.endswith((".csv", ".parquet"))]
 
+    # Se a pasta /data estiver vazia (ex: deploy em nuvem no Streamlit Community Cloud),
+    # utiliza automaticamente as bases Parquet de 2025 e 2026 do repositório.
+    if not local_files and os.path.exists("parquet_samples"):
+        data_dir = "parquet_samples"
+        parquets_25_26 = [f for f in os.listdir(data_dir) if ("2025" in f or "2026" in f) and f.endswith(".parquet")]
+        local_files = sorted(parquets_25_26) if parquets_25_26 else sorted([f for f in os.listdir(data_dir) if f.endswith(".parquet")])
+
     use_local_files = False
     if local_files:
-        st.sidebar.caption(f"📂 {len(local_files)} arquivo(s) local(is) na pasta `/data`")
+        st.sidebar.caption(f"📂 {len(local_files)} arquivo(s) disponível(is) na pasta `{data_dir}`")
         use_local_files = st.sidebar.checkbox(
-            "Usar arquivos locais da pasta /data",
+            f"Usar dados da pasta /{data_dir}",
             value=True if not uploaded_files else False,
             key="use_local_files_checkbox",
         )

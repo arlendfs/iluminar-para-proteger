@@ -858,7 +858,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
         with st.expander("🛡️ Segurança Luminotécnica e Validação Pendente (ABNT NBR 5101:2024)", expanded=False):
             st.warning("⚠️ **Status da Validação Luminotécnica:** PENDENTE DE ESTUDO COMPUTACIONAL (DIALux EVO / Relux).")
             st.markdown(
-                """
+                r"""
                 **Aviso Metodológico de Engenharia de Tráfego:**  
                 A potência preliminar de 40W é uma **hipótese de trabalho conceitual**, não devendo ser considerada automaticamente suficiente para rodovias federais.  
                 A conformidade luminotécnica com a norma **ABNT NBR 5101:2024 (Iluminação Pública e Rodoviária)** depende de múltiplos fatores que devem ser modelados em software especializado antes de qualquer instalação:
@@ -931,7 +931,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
 
             # Detalhes das premissas de cada cenário
             st.markdown(
-                """
+                r"""
                 **Detalhamento Técnico dos Cenários:**
                 - **Cenário A — Meta Histórica:** R$ 15.000 fixo por poste | CAPEX R$ 60,00M (Orçamento preliminar anterior sem cotação detalhada).
                 - **Cenário B — Comercial 6m / 40W (NeoSolar ZTL6-40):** Kit R$ 11.599 + Instalação R$ 2.500 + Telemetria R$ 700 + Contingência 15% $\implies$ **R$ 17.018,85/un** | CAPEX **R$ 68,08M** (Não equivalente a poste robusto de 8m).
