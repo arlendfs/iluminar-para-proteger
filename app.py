@@ -18,18 +18,39 @@ from datetime import datetime
 import streamlit as st
 from analyzer import AccidentAnalyzer
 from dashboard import create_dashboard
-from config import (
-    APP_CONFIG,
-    BASE_DIR,
-    DATA_DIR,
-    REPORTS_DIR,
-    PARQUET_SAMPLES_DIR,
-    FASES_DIA_OFICIAIS,
-    CAUSAS_VISIBILIDADE_REACAO,
-    get_current_rss_mb,
-    log_memory_checkpoint,
-    get_container_memory_info,
-)
+try:
+    from config import (
+        APP_CONFIG,
+        BASE_DIR,
+        DATA_DIR,
+        REPORTS_DIR,
+        PARQUET_SAMPLES_DIR,
+        FASES_DIA_OFICIAIS,
+        CAUSAS_VISIBILIDADE_REACAO,
+        get_current_rss_mb,
+        log_memory_checkpoint,
+        get_container_memory_info,
+    )
+except ImportError:
+    import importlib
+    import config
+    importlib.reload(config)
+    from config import (
+        APP_CONFIG,
+        BASE_DIR,
+        DATA_DIR,
+        REPORTS_DIR,
+        PARQUET_SAMPLES_DIR,
+        FASES_DIA_OFICIAIS,
+        CAUSAS_VISIBILIDADE_REACAO,
+        get_current_rss_mb,
+        log_memory_checkpoint,
+    )
+    get_container_memory_info = getattr(
+        config,
+        "get_container_memory_info",
+        lambda: {"container_limit_mb": None, "limit_mb": None, "detected_environment": "fallback"}
+    )
 
 # Controle global de concorrência para processamento intensivo (máximo 2 análises pesadas simultâneas)
 HEAVY_ANALYSIS_SEMAPHORE = threading.BoundedSemaphore(2)

@@ -359,23 +359,44 @@ class AccidentAnalyzer:
             log_memory_checkpoint(f"Início upload: {filename}")
 
             try:
-                if filename.lower().endswith(".parquet"):
-                    df = pd.read_parquet(file)
-                    df["source_file"] = filename
-                elif filename.lower().endswith(".csv"):
-                    try:
-                        df = pd.read_csv(file, sep=";", encoding="latin1", low_memory=False)
-                    except Exception:
-                        if hasattr(file, "seek"):
-                            file.seek(0)
-                        df = pd.read_csv(file, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
-                    df["source_file"] = filename
-                else:
-                    continue
+                # Otimização: se o arquivo já possui versão normalizada em cache, carrega diretamente (bypass de 600k linhas)
+                cached_oc_p = NORMALIZED_CACHE_DIR / f"{filename}.oc.parquet"
+                cached_pes_p = NORMALIZED_CACHE_DIR / f"{filename}.pes.parquet"
+                cached_veic_p = NORMALIZED_CACHE_DIR / f"{filename}.veic.parquet"
+                cached_caus_p = NORMALIZED_CACHE_DIR / f"{filename}.caus.parquet"
+                cached_qual_p = NORMALIZED_CACHE_DIR / f"{filename}.qual.json"
 
-                oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
-                del df
-                gc.collect()
+                if (
+                    cached_oc_p.exists()
+                    and cached_pes_p.exists()
+                    and cached_veic_p.exists()
+                    and cached_caus_p.exists()
+                    and cached_qual_p.exists()
+                ):
+                    oc = pd.read_parquet(cached_oc_p)
+                    pes = pd.read_parquet(cached_pes_p)
+                    veic = pd.read_parquet(cached_veic_p)
+                    caus = pd.read_parquet(cached_caus_p)
+                    with open(cached_qual_p, "r", encoding="utf-8") as f_q:
+                        qual = json.load(f_q)
+                else:
+                    if filename.lower().endswith(".parquet"):
+                        df = pd.read_parquet(file)
+                        df["source_file"] = filename
+                    elif filename.lower().endswith(".csv"):
+                        try:
+                            df = pd.read_csv(file, sep=";", encoding="latin1", low_memory=False)
+                        except Exception:
+                            if hasattr(file, "seek"):
+                                file.seek(0)
+                            df = pd.read_csv(file, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
+                        df["source_file"] = filename
+                    else:
+                        continue
+
+                    oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
+                    del df
+                    gc.collect()
 
                 all_oc.append(oc)
                 all_pes.append(pes)

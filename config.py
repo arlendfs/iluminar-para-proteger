@@ -92,6 +92,7 @@ def get_container_memory_info() -> Dict[str, Any]:
             except Exception:
                 pass
 
+    info["limit_mb"] = info["container_limit_mb"]
     return info
 
 
