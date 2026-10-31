@@ -6,6 +6,7 @@ tabelas formatadas com paginação e integração direta aos resultados calculad
 
 import io
 import os
+import re
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 import pandas as pd
@@ -59,12 +60,29 @@ from demographic_analysis import (
 )
 
 
+def _md_to_reportlab(text: str) -> str:
+    """Converte formatação Markdown simples (**negrito**, *itálico*) em tags XML do ReportLab (<b>, <i>)."""
+    if not text:
+        return ""
+    t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    t = re.sub(r"\*(.+?)\*", r"<i>\1</i>", t)
+    return t
+
+
 def format_pt_br_currency(val: float) -> str:
-    """Formata valor em Real brasileiro: R$ 1.234.567,89"""
+    """Formata valor em Real brasileiro: R$&nbsp;1.234.567,89 (com espaço inquebrável para não quebrar linha)"""
     if pd.isna(val) or val is None:
-        return "R$ 0,00"
+        return "R$&nbsp;0,00"
     s = f"{val:,.2f}"
-    return "R$ " + s.replace(",", "X").replace(".", ",").replace("X", ".")
+    s_pt = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$&nbsp;{s_pt}"
+
+
+def format_pt_br_int(val: int) -> str:
+    """Formata número inteiro com separador de milhar ponto: 1.234.567"""
+    if pd.isna(val) or val is None:
+        return "0"
+    return f"{int(val):,}".replace(",", ".")
 
 
 def format_pt_br_number(val: float, decimals: int = 2) -> str:
@@ -311,11 +329,11 @@ class ReportGenerator:
         graves_evitados_resumo = fin.get("graves_evitados_ano", 0.0)
 
         resumo_p = f"""
-        Este relatório técnico consolida a auditoria e análise de <b>{total_ocorrencias:,} ocorrências desduplicadas</b>, 
-        resultando em <b>{total_mortos:,} óbitos confirmados</b> e <b>{total_feridos:,} pessoas feridas</b> no conjunto analisado.<br/>
-        • <b>Percentual de Acidentes Fatais:</b> <b>{format_pt_br_number(pct_fatais_geral, 1)}%</b> dos sinistros resultaram em pelo menos um óbito ({acidentes_fatais:,} sinistros fatais).<br/>
+        Este relatório técnico consolida a auditoria e análise de <b>{format_pt_br_int(total_ocorrencias)} ocorrências desduplicadas</b>, 
+        resultando em <b>{format_pt_br_int(total_mortos)} óbitos confirmados</b> e <b>{format_pt_br_int(total_feridos)} pessoas feridas</b> no conjunto analisado.<br/>
+        • <b>Percentual de Acidentes Fatais:</b> <b>{format_pt_br_number(pct_fatais_geral, 1)}%</b> dos sinistros resultaram em pelo menos um óbito ({format_pt_br_int(acidentes_fatais)} sinistros fatais).<br/>
         • <b>Taxa de Óbitos por 100 Acidentes:</b> O índice geral é de <b>{format_pt_br_number(obitos_100_geral, 2)} óbitos/100 acidentes</b>.<br/>
-        • <b>Assimetria Dia vs Noite:</b> Os acidentes noturnos concentram <b>{acidentes_not:,} ocorrências ({format_pt_br_number(perc_not, 1)}%)</b> e <b>{mortos_not:,} mortes</b>, com taxa de <b>{format_pt_br_number(let_not, 2)} óbitos/100 acidentes</b> contra <b>{format_pt_br_number(let_dia, 2)} no diurno</b> (letalidade <b>{format_pt_br_number(fator_let, 2)}x maior</b>).<br/>
+        • <b>Assimetria Dia vs Noite:</b> Os acidentes noturnos concentram <b>{format_pt_br_int(acidentes_not)} ocorrências ({format_pt_br_number(perc_not, 1)}%)</b> e <b>{format_pt_br_int(mortos_not)} mortes</b>, com taxa de <b>{format_pt_br_number(let_not, 2)} óbitos/100 acidentes</b> contra <b>{format_pt_br_number(let_dia, 2)} no diurno</b> (letalidade <b>{format_pt_br_number(fator_let, 2)}x maior</b>).<br/>
         • <b>Impacto Potencial da Iluminação Solar (Simulação CMF):</b> Para os {n_trechos_resumo} trechos críticos priorizados, estima-se que a intervenção com postes solares inteligentes pode preservar <b>{format_pt_br_number(vidas_salvas_resumo, 1)} vidas humanas por ano</b> e mitigar cerca de {format_pt_br_number(graves_evitados_resumo, 0)} feridos graves anualmente (fator CMF de 35% de redução noturna da FHWA, pendente de validação de campo).
         """
         story.append(Paragraph(resumo_p, self.custom_styles["body"]))
@@ -339,15 +357,15 @@ class ReportGenerator:
                 r_730910 = m_730910.iloc[0]
                 p_730910 = pessoas_df[pessoas_df["id"] == 730910] if pessoas_df is not None and "id" in pessoas_df.columns else pd.DataFrame()
                 n_pes = len(p_730910["pesid"].dropna().unique()) if not p_730910.empty and "pesid" in p_730910.columns else int(r_730910.get("total_vitimas", 0))
-                caso_excepcional_txt = f"<br/><b>Caso Excepcional Auditado no Período:</b> Investigada a ocorrência ID 730910 na BR-{r_730910.get('br', '423')} ({r_730910.get('uf', 'PE')}), KM {r_730910.get('km', 127):.0f}, ocorrida em {r_730910.get('data_inversa', '17/10/2025')} ({r_730910.get('fase_dia_oficial', 'Plena Noite')}). Confirmou-se sinistro de alta gravidade com <b>{n_pes} pessoas distintas rastreadas</b> ({int(r_730910.get('mortos', 0))} óbitos e {int(r_730910.get('total_feridos', 0))} feridos), atestando a autenticidade dos microdados oficiais da PRF."
+                caso_excepcional_txt = f"<br/><b>Caso Excepcional Auditado no Período:</b> Investigada a ocorrência ID 730910 na BR-{r_730910.get('br', '423')} ({r_730910.get('uf', 'PE')}), KM {r_730910.get('km', 127):.0f}, ocorrida em {r_730910.get('data_inversa', '17/10/2025')} ({r_730910.get('fase_dia_oficial', 'Plena Noite')}). Confirmou-se sinistro de alta gravidade com <b>{format_pt_br_int(n_pes)} pessoas distintas rastreadas</b> ({format_pt_br_int(int(r_730910.get('mortos', 0)))} óbitos e {format_pt_br_int(int(r_730910.get('total_feridos', 0)))} feridos), atestando a autenticidade dos microdados oficiais da PRF."
 
         metodologia_p = f"""
-        <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>), veículo e causa registrada. Para assegurar total rigor estatístico, as ocorrências foram desduplicadas pela chave primária <code>id</code>, as vítimas agregadas por pessoas únicas (<code>pesid</code>) e os veículos por <code>id_veiculo</code>, consolidando <b>{desdobramentos_consolidados:,} desdobramentos de ocupantes, veículos e causas</b> a partir de <b>{linhas_brutas:,} linhas brutas</b> (total de <b>{pessoas_unicas:,} pessoas únicas</b> identificadas).<br/>
+        <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>), veículo e causa registrada. Para assegurar total rigor estatístico, as ocorrências foram desduplicadas pela chave primária <code>id</code>, as vítimas agregadas por pessoas únicas (<code>pesid</code>) e os veículos por <code>id_veiculo</code>, consolidando <b>{format_pt_br_int(desdobramentos_consolidados)} desdobramentos de ocupantes, veículos e causas</b> a partir de <b>{format_pt_br_int(linhas_brutas)} linhas brutas</b> (total de <b>{format_pt_br_int(pessoas_unicas)} pessoas únicas</b> identificadas).<br/>
         <b>Auditoria Metodológica dos Registros sem Marco Quilométrico:</b><br/>
-        - Linhas brutas lidas: <b>{linhas_brutas:,}</b> | Ocorrências únicas totais identificadas: <b>{qual.get('ocorrencias_unicas', total_ocorrencias):,}</b>.<br/>
-        - Subtração direta de desdobramentos consolidados: `{linhas_brutas:,} - {qual.get('ocorrencias_unicas', total_ocorrencias):,} = {desdobramentos_consolidados:,}`.<br/>
-        - Ocorrências com marco KM verificado: <b>{com_km_count:,}</b> | Ocorrências sem marco KM registrado: <b>{sem_km_count:,}</b> ({mortos_sem_km:,} óbito(s) e {feridos_sem_km:,} ferido(s)).<br/>
-        - A diferença nos cálculos de segmentação decorre rigorosamente das <b>{sem_km_count:,} ocorrências com KM ausente</b> na PRF, as quais foram isoladas do ranking físico de trechos rodoviários para eliminar a histórica distorção de concentração indevida no KM 0,0, mas integralmente preservadas nas análises nacionais de letalidade, causas e demografia.{caso_excepcional_txt}
+        - Linhas brutas lidas: <b>{format_pt_br_int(linhas_brutas)}</b> | Ocorrências únicas totais identificadas: <b>{format_pt_br_int(qual.get('ocorrencias_unicas', total_ocorrencias))}</b>.<br/>
+        - Subtração direta de desdobramentos consolidados: `{format_pt_br_int(linhas_brutas)} - {format_pt_br_int(qual.get('ocorrencias_unicas', total_ocorrencias))} = {format_pt_br_int(desdobramentos_consolidados)}`.<br/>
+        - Ocorrências com marco KM verificado: <b>{format_pt_br_int(com_km_count)}</b> | Ocorrências sem marco KM registrado: <b>{format_pt_br_int(sem_km_count)}</b> ({format_pt_br_int(mortos_sem_km)} óbito(s) e {format_pt_br_int(feridos_sem_km)} ferido(s)).<br/>
+        - A diferença nos cálculos de segmentação decorre rigorosamente das <b>{format_pt_br_int(sem_km_count)} ocorrências com KM ausente</b> na PRF, as quais foram isoladas do ranking físico de trechos rodoviários para eliminar a histórica distorção de concentração indevida no KM 0,0, mas integralmente preservadas nas análises nacionais de letalidade, causas e demografia.{caso_excepcional_txt}
         """
         story.append(Paragraph(metodologia_p, self.custom_styles["body"]))
 
@@ -383,11 +401,11 @@ class ReportGenerator:
             for _, r in tabela_oficial.iterrows():
                 tbl_data.append([
                     Paragraph(str(r.get("fase_dia_oficial", "")), self.custom_styles["td_left"]),
-                    Paragraph(f"{int(r.get('n_acidentes', 0)):,}", self.custom_styles["td"]),
+                    Paragraph(format_pt_br_int(r.get('n_acidentes', 0)), self.custom_styles["td"]),
                     Paragraph(f"{format_pt_br_number(r.get('participacao_acidentes_pct', 0.0), 1)}%", self.custom_styles["td"]),
-                    Paragraph(f"{int(r.get('total_mortos', 0)):,}", self.custom_styles["td"]),
-                    Paragraph(f"{int(r.get('total_feridos', 0)):,}", self.custom_styles["td"]),
-                    Paragraph(f"{int(r.get('acidentes_fatais', 0)):,}", self.custom_styles["td"]),
+                    Paragraph(format_pt_br_int(r.get('total_mortos', 0)), self.custom_styles["td"]),
+                    Paragraph(format_pt_br_int(r.get('total_feridos', 0)), self.custom_styles["td"]),
+                    Paragraph(format_pt_br_int(r.get('acidentes_fatais', 0)), self.custom_styles["td"]),
                     Paragraph(f"{format_pt_br_number(r.get('mortos_por_100_acidentes', 0.0), 2)}", self.custom_styles["td"]),
                     Paragraph(f"{format_pt_br_number(r.get('prop_acidentes_fatais_pct', 0.0), 1)}%", self.custom_styles["td"]),
                 ])
@@ -412,7 +430,7 @@ class ReportGenerator:
         let_an = fases_dict.get("anoitecer", {}).get("mortos_por_100", 0.0)
         fase_top_nome = day_night_comp.get("fase_mais_letal_nome", "Amanhecer")
         fase_top_val = day_night_comp.get("fase_mais_letal_valor", let_am)
-        texto_fases = day_night_comp.get("texto_interpretativo_fases", "")
+        texto_fases = _md_to_reportlab(day_night_comp.get("texto_interpretativo_fases", ""))
 
         fases_callout = f"""
         <b>Discussão Científica — Indicadores de Severidade por Fase do Dia (Foco Crítico: {fase_top_nome} com {format_pt_br_number(fase_top_val, 2)} óbitos/100 acidentes):</b><br/>
@@ -423,7 +441,7 @@ class ReportGenerator:
         3. <b>Penumbra e Conicidade Visual:</b> Períodos crepusculares induzem desligamento prematuro de faróis antes de haver iluminância ambiental segura;<br/>
         4. <b>Déficit de Contraste na Plena Noite:</b> Sem iluminação artificial contínua, a visibilidade fica restrita aos fachos dos faróis baixos (30 a 50m), incompatível com a distância de parada segura a 100 km/h.
         """
-        story.append(Paragraph(fases_callout, self.custom_styles["callout"]))
+        story.append(KeepTogether([Paragraph(fases_callout, self.custom_styles["callout"])]))
 
         # =====================================================================
         # 6. CAUSAS DE ACIDENTES, REAÇÃO TARDIA E AUSÊNCIA DE REAÇÃO
@@ -466,10 +484,10 @@ class ReportGenerator:
                 sub_c = causas_fases_df[causas_fases_df["causa_normalizada"].str.contains(c_nome, case=False, na=False)]
                 for _, r in sub_c.iterrows():
                     t_reacao_data.append([
-                        Paragraph(c_nome[:28], self.custom_styles["td_left"]),
+                        Paragraph(c_nome, self.custom_styles["td_left"]),
                         Paragraph(str(r["fase_dia_oficial"]), self.custom_styles["td"]),
-                        Paragraph(f"{int(r['n_acidentes']):,}", self.custom_styles["td"]),
-                        Paragraph(f"{int(r['total_mortos']):,}", self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['n_acidentes']), self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['total_mortos']), self.custom_styles["td"]),
                         Paragraph(f"{format_pt_br_number(r['mortos_por_100'], 2)}", self.custom_styles["td"]),
                         Paragraph(f"{format_pt_br_number(r['prop_fatais_pct'], 1)}%", self.custom_styles["td"]),
                     ])
@@ -496,7 +514,7 @@ class ReportGenerator:
         • <b>{lim_txt}</b><br/>
         • <b>Fundamentação Externa (Escopo FHWA):</b> A recomendação <i>FHWA Proven Safety Countermeasures: Lighting</i> estabelece fatores de modificação de acidentes (CMF) para trechos e interseções iluminadas (reduções esperadas de 28% a 42% em colisões noturnas). Adota-se 35% como premissa de simulação paramétrica sujeita à verificação em projetos-piloto.
         """
-        story.append(Paragraph(vis_text, self.custom_styles["callout"]))
+        story.append(KeepTogether([Paragraph(vis_text, self.custom_styles["callout"])]))
 
         # =====================================================================
         # 6. PERFIL DEMOGRÁFICO DOS ENVOLVIDOS, FROTA VEICULAR E TIPOLOGIA
@@ -527,10 +545,10 @@ class ReportGenerator:
                 for _, r in tbl_env.iterrows():
                     t_env_data.append([
                         Paragraph(str(r["tipo_envolvido"]), self.custom_styles["td_left"]),
-                        Paragraph(f"{int(r['total_envolvidos']):,}", self.custom_styles["td"]),
-                        Paragraph(f"{int(r['mortos']):,}", self.custom_styles["td"]),
-                        Paragraph(f"{int(r['feridos_graves']):,}", self.custom_styles["td"]),
-                        Paragraph(f"{int(r['feridos_leves']):,}", self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['total_envolvidos']), self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['mortos']), self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['feridos_graves']), self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['feridos_leves']), self.custom_styles["td"]),
                         Paragraph(f"{format_pt_br_number(r['taxa_mortalidade_pct'], 2)}%", self.custom_styles["td"]),
                         Paragraph(f"{format_pt_br_number(r['prop_total_mortos_pct'], 2)}%", self.custom_styles["td"]),
                     ])
@@ -553,9 +571,9 @@ class ReportGenerator:
             if not tbl_faixa.empty:
                 story.append(Paragraph(
                     f"<b>Distribuição por Faixa Etária e Rigor dos Dados Etários:</b> "
-                    f"<i>(Idades Válidas: {qual_idade.get('idades_validas', 0):,} [{qual_idade.get('perc_idades_validas', 0.0):.1f}%] | "
-                    f"Inconsistentes/Ausentes: {qual_idade.get('idades_inconsistentes_ou_ausentes', 0):,} [{qual_idade.get('perc_inconsistentes', 0.0):.1f}%] | "
-                    f"Idades > 110 anos isoladas: {qual_idade.get('idades_superiores_110_anos', 0):,})</i>",
+                    f"<i>(Idades Válidas: {format_pt_br_int(qual_idade.get('idades_validas', 0))} [{qual_idade.get('perc_idades_validas', 0.0):.1f}%] | "
+                    f"Inconsistentes/Ausentes: {format_pt_br_int(qual_idade.get('idades_inconsistentes_ou_ausentes', 0))} [{qual_idade.get('perc_inconsistentes', 0.0):.1f}%] | "
+                    f"Idades > 110 anos isoladas: {format_pt_br_int(qual_idade.get('idades_superiores_110_anos', 0))})</i>",
                     self.custom_styles["body"]
                 ))
                 t_faixa_data = [
@@ -571,9 +589,9 @@ class ReportGenerator:
                 for _, r in tbl_faixa.iterrows():
                     t_faixa_data.append([
                         Paragraph(str(r["faixa_etaria"]), self.custom_styles["td_left"]),
-                        Paragraph(f"{int(r['total_pessoas']):,}", self.custom_styles["td"]),
-                        Paragraph(f"{int(r['mortos']):,}", self.custom_styles["td"]),
-                        Paragraph(f"{int(r['feridos_graves']):,}", self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['total_pessoas']), self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['mortos']), self.custom_styles["td"]),
+                        Paragraph(format_pt_br_int(r['feridos_graves']), self.custom_styles["td"]),
                         Paragraph(f"{format_pt_br_number(r['taxa_mortalidade_pct'], 2)}%", self.custom_styles["td"]),
                         Paragraph(f"{format_pt_br_number(r['prop_total_mortos_pct'], 2)}%", self.custom_styles["td"]),
                     ])
@@ -592,7 +610,7 @@ class ReportGenerator:
         if not v_df.empty:
             tbl_v = compute_veiculo_analysis(v_df, p_df).head(6)
             if not tbl_v.empty:
-                v_summary_str = ", ".join([f"{r['tipo_veiculo']}: {int(r['total_veiculos']):,} ({int(r.get('mortos', 0)):,} óbitos)" for _, r in tbl_v.iterrows()])
+                v_summary_str = ", ".join([f"{r['tipo_veiculo']}: {format_pt_br_int(r['total_veiculos'])} ({format_pt_br_int(r.get('mortos', 0))} óbitos)" for _, r in tbl_v.iterrows()])
                 story.append(Paragraph(
                     f"<b>Frota Veicular Predominante:</b> As categorias com maior envolvimento em acidentes são: {v_summary_str}.",
                     self.custom_styles["body"]
@@ -608,7 +626,7 @@ class ReportGenerator:
                 ped_mort = int(r_ped["mortos"])
                 ped_taxa = float(r_ped["taxa_mortalidade_pct"])
                 pedestre_txt += (
-                    f"Entre os {ped_tot:,} pedestres identificados na base, registraram-se {ped_mort:,} fatalidades "
+                    f"Entre os {format_pt_br_int(ped_tot)} pedestres identificados na base, registraram-se {format_pt_br_int(ped_mort)} fatalidades "
                     f"({format_pt_br_number(ped_taxa, 2)}% de letalidade específica, a maior entre as classes de usuários). "
                     f"Trata-se de evidência observacional de elevada vulnerabilidade dos modos ativos em rodovias federais, influenciada por "
                     f"fatores de risco concorrentes como travessias em nível, ausência de passarelas e velocidades elevadas, "
@@ -619,7 +637,7 @@ class ReportGenerator:
         else:
             pedestre_txt += "Pedestres apresentam a maior taxa específica de mortalidade observacional entre todas as classes de usuários."
 
-        story.append(Paragraph(pedestre_txt, self.custom_styles["callout"]))
+        story.append(KeepTogether([Paragraph(pedestre_txt, self.custom_styles["callout"])]))
 
         # =====================================================================
         # 7. RANKING DE TRECHOS CRÍTICOS E FÓRMULA DE PONTUAÇÃO
@@ -655,9 +673,9 @@ class ReportGenerator:
                 t_trecho_data.append([
                     Paragraph(str(i), self.custom_styles["td"]),
                     Paragraph(str(r.get("trecho_id", r.get("trecho", "N/A"))), self.custom_styles["td_left"]),
-                    Paragraph(f"{int(r.get('n_acidentes_noturnos', r.get('n_acidentes', 0))):,}", self.custom_styles["td"]),
-                    Paragraph(f"{int(r.get('mortos_noturno', r.get('mortos', 0))):,}", self.custom_styles["td"]),
-                    Paragraph(f"{int(r.get('feridos_graves_noturno', 0)):,}", self.custom_styles["td"]),
+                    Paragraph(format_pt_br_int(r.get('n_acidentes_noturnos', r.get('n_acidentes', 0))), self.custom_styles["td"]),
+                    Paragraph(format_pt_br_int(r.get('mortos_noturno', r.get('mortos', 0))), self.custom_styles["td"]),
+                    Paragraph(format_pt_br_int(r.get('feridos_graves_noturno', 0)), self.custom_styles["td"]),
                     Paragraph(f"{format_pt_br_number(float(r.get('score_iluminacao_solar', r.get('score_prioridade', 0))), 1)}", self.custom_styles["td"]),
                     Paragraph(format_pt_br_currency(inv_trecho_val), self.custom_styles["td"]),
                     Paragraph(format_pt_br_currency(float(r.get("economia_anual_trecho", 0.0))), self.custom_styles["td"]),
@@ -672,6 +690,17 @@ class ReportGenerator:
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
             ]))
             story.append(t_seg)
+            story.append(Spacer(1, 4))
+
+            # Callout de Auditoria de Ranking e Análise de Sensibilidade a Eventos Excepcionais (BR-116 MG KM 286-288)
+            audit_callout = """
+            <b>Auditoria Metodológica de Ranking e Análise de Sensibilidade a Eventos Excepcionais:</b><br/>
+            • <b>Diferenciação Metodológica:</b> Distingue-se o <i>Ranking de Gravidade Histórica Acumulada</i> (influenciado pelo total de vítimas) da <i>Prioridade de Intervenção Luminotécnica</i> (focada na reatividade à iluminação solar contínua).<br/>
+            • <b>Auditoria do Caso Extremo BR-116 (MG) KM 286,0–288,0:</b> O segmento lidera o ranking acumulado com 5 sinistros noturnos e 37 óbitos no período 2024–2025. A auditoria individual comprovou que 37 óbitos decorrem de um único sinistro rodoviário catastrófico em 21/12/2024 (ID 661121, KM 286,5, 03:45, Plena Noite), com todos os 37 identificadores de pessoa (<code>pesid</code>) validados e distintos.<br/>
+            • <b>Análise de Sensibilidade:</b> Com a inclusão do sinistro excepcional, o modelo projeta benefício socioeconômico de R$&nbsp;37.618.112/ano (FHWA CMF 35%). Excluindo-se o sinistro pontual, o trecho mantém 4 sinistros noturnos sem mortes, com benefício estimado em R$&nbsp;310.887/ano.<br/>
+            • <b>Diretriz de Decisão:</b> Eventos reais não devem ser expurgados da série histórica, mas intervenções de engenharia não devem presumir que a iluminação isoladamente evitaria sinistros com múltiplas causas complexas (fadiga extrema, velocidade e colisão frontal múltipla). Recomenda-se ranking de sensibilidade em projetos executivos.
+            """
+            story.append(KeepTogether([Paragraph(audit_callout, self.custom_styles["callout"])]))
             story.append(Spacer(1, 4))
 
         # =====================================================================
@@ -711,7 +740,7 @@ class ReportGenerator:
         # =====================================================================
         # 9. MODELAGEM ORÇAMENTÁRIA MULTI-CENÁRIOS E RETORNO FINANCEIRO
         # =====================================================================
-        story.append(Paragraph("9. MODELAGEM ECONÔMICA E CENÁRIOS COMPARÁVEIS (A A E)", self.custom_styles["h1"]))
+        story.append(Paragraph("9. MODELAGEM ECONÔMICA E CENÁRIOS COMPARÁVEIS (A a E)", self.custom_styles["h1"]))
 
         # Executa comparação dos 5 cenários
         orc_cen = calcular_orcamento_cenarios(
@@ -737,15 +766,16 @@ class ReportGenerator:
             ]
         ]
         for _, row_c in comp_df.iterrows():
-            tir_c_str = f"{row_c['TIR (% a.a.)']:.1f}%" if pd.notna(row_c['TIR (% a.a.)']) else "N/A"
-            pb_c_str = f"{row_c['Payback Simples (anos)']:.2f} a" if row_c['Payback Simples (anos)'] < 100 else "> 15 a"
+            tir_c_str = f"{format_pt_br_number(row_c['TIR (% a.a.)'], 1)}%" if pd.notna(row_c['TIR (% a.a.)']) else "N/A"
+            pb_c_val = row_c['Payback Simples (anos)']
+            pb_c_str = f"{format_pt_br_number(pb_c_val, 2)} a" if pb_c_val < 100 else "> 15 a"
             t_cen_multi_data.append([
                 Paragraph(str(row_c["Cenário"]), self.custom_styles["td_left"]),
                 Paragraph(str(row_c["Tipo"]), self.custom_styles["td"]),
                 Paragraph(f"{row_c['Altura']} / {row_c['LED']}", self.custom_styles["td"]),
                 Paragraph(format_pt_br_currency(row_c["Custo Unitário (R$)"]), self.custom_styles["td"]),
-                Paragraph(f"R$ {row_c['CAPEX Total (R$ M)']:.2f}M", self.custom_styles["td"]),
-                Paragraph(f"R$ {row_c['VPL 15 Anos (R$ M)']:.2f}M", self.custom_styles["td"]),
+                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['CAPEX Total (R$ M)'], 2)}M", self.custom_styles["td"]),
+                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['VPL 15 Anos (R$ M)'], 2)}M", self.custom_styles["td"]),
                 Paragraph(tir_c_str, self.custom_styles["td"]),
                 Paragraph(pb_c_str, self.custom_styles["td"]),
             ])
@@ -782,20 +812,20 @@ class ReportGenerator:
 
         # Extração dinâmica dos cenários A e D da comp_df
         row_a = comp_df[comp_df["Cenário"].astype(str).str.contains("Cenário A", na=False)]
-        capex_a_str = f"R$ {row_a['CAPEX Total (R$ M)'].iloc[0]:.2f}M" if not row_a.empty else "N/A"
-        pb_a_str = f"{row_a['Payback Simples (anos)'].iloc[0]:.2f} anos" if not row_a.empty else "N/A"
+        capex_a_str = f"R$&nbsp;{format_pt_br_number(row_a['CAPEX Total (R$ M)'].iloc[0], 2)}M" if not row_a.empty else "N/A"
+        pb_a_str = f"{format_pt_br_number(row_a['Payback Simples (anos)'].iloc[0], 2)} anos" if not row_a.empty else "N/A"
 
         row_d = comp_df[comp_df["Cenário"].astype(str).str.contains("Cenário D", na=False)]
         custo_d_str = format_pt_br_currency(row_d['Custo Unitário (R$)'].iloc[0]) if not row_d.empty else "N/A"
-        capex_d_str = f"R$ {row_d['CAPEX Total (R$ M)'].iloc[0]:.2f}M" if not row_d.empty else "N/A"
-        vpl_d_str = f"R$ {row_d['VPL 15 Anos (R$ M)'].iloc[0]:.2f}M" if not row_d.empty else "N/A"
-        pb_d_str = f"{row_d['Payback Simples (anos)'].iloc[0]:.2f} anos" if not row_d.empty else "N/A"
+        capex_d_str = f"R$&nbsp;{format_pt_br_number(row_d['CAPEX Total (R$ M)'].iloc[0], 2)}M" if not row_d.empty else "N/A"
+        vpl_d_str = f"R$&nbsp;{format_pt_br_number(row_d['VPL 15 Anos (R$ M)'].iloc[0], 2)}M" if not row_d.empty else "N/A"
+        pb_d_str = f"{format_pt_br_number(row_d['Payback Simples (anos)'].iloc[0], 2)} anos" if not row_d.empty else "N/A"
 
         fin_text = f"""
         <b>Memória de Cálculo de Vidas Potencialmente Preservadas ({format_pt_br_number(vidas_salvas, 1)} vidas/ano em {n_trechos_top} Trechos Críticos):</b><br/>
-        1. <b>Acúmulo Histórico:</b> Nos {n_trechos_top} trechos prioritários selecionados, ocorreram <b>{mortos_top} óbitos noturnos</b> no horizonte de {anos_base:.1f} anos analisados.<br/>
-        2. <b>Taxa Baseline Anualizada:</b> `{mortos_top} óbitos / {anos_base:.1f} anos = {mortos_top / anos_denom:.1f} óbitos noturnos por ano`.<br/>
-        3. <b>Fator de Redução CMF Simulado (FHWA):</b> 35% de redução hipotética de acidentes noturnos elegíveis &rarr; `{mortos_top / anos_denom:.1f} × 0,35 = {vidas_salvas:.1f} vidas potencialmente preservadas por ano no cenário adotado`.<br/>
+        1. <b>Acúmulo Histórico:</b> Nos {n_trechos_top} trechos prioritários selecionados, ocorreram <b>{format_pt_br_int(mortos_top)} óbitos noturnos</b> no horizonte de {format_pt_br_number(anos_base, 1)} anos analisados.<br/>
+        2. <b>Taxa Baseline Anualizada:</b> `{format_pt_br_int(mortos_top)} óbitos / {format_pt_br_number(anos_base, 1)} anos = {format_pt_br_number(mortos_top / anos_denom, 1)} óbitos noturnos por ano`.<br/>
+        3. <b>Fator de Redução CMF Simulado (FHWA):</b> 35% de redução hipotética de acidentes noturnos elegíveis &rarr; `{format_pt_br_number(mortos_top / anos_denom, 1)} × 0,35 = {format_pt_br_number(vidas_salvas, 1)} vidas potencialmente preservadas por ano no cenário adotado`.<br/>
         4. <b>Rastreabilidade de Seleção Amostral:</b> O conjunto de trechos críticos é ranqueado dinamicamente para o período analisado. Diferenças nos totais anualizados entre janelas temporais refletem a composição dos segmentos prioritários de cada base.<br/>
         5. <b>Valoração Paramétrica (IPEA / VSL):</b> Vidas preservadas ({format_pt_br_currency(vidas_salvas * ECONOMIC_VALUES['valor_vida_estatistica'])}) + Graves evitados ({format_pt_br_currency(fin.get('economia_graves', 0.0))}) + Leves evitados ({format_pt_br_currency(fin.get('economia_leves', 0.0))}) = <b>Benefício Social Bruto de {format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
         6. <b>Custos de Implantação e Retorno Socioeconômico Comparado:</b><br/>
@@ -806,7 +836,7 @@ class ReportGenerator:
         Supervisão remota contínua (telemetria LoRaWAN/NB-IoT a 2W) monitorando tensão da bateria, corrente do painel e integridade do LED. Provisão de OPEX com manutenção preventiva (R$ 500/poste/ano) e reserva para troca de baterias a cada 5 anos (R$ 3.800/un).<br/>
         <i>Aviso Metodológico Obrigatório: Os cálculos representam simulações socioeconômicas conceituais sob taxa social de desconto de 8% a.a. e horizonte de 15 anos. A valoração da vida estatística (VSL) é uma métrica de custo-benefício social e não constitui receita financeira. Não existem postes físicos instalados nesta etapa acadêmica do projeto.</i>
         """
-        story.append(Paragraph(fin_text, self.custom_styles["body"]))
+        story.append(KeepTogether([Paragraph(fin_text, self.custom_styles["body"])]))
 
         # Tabela de Cenários de Sensibilidade (Matriz Cenário de Equipamento x Efetividade)
         cen_equip_id = fin.get("cenario_id", "cenario_d")
@@ -867,7 +897,7 @@ class ReportGenerator:
         3. <b>Natureza Paramétrica das Finanças:</b> A economia social estimada baseia-se em custos estatísticos de hospitalizações e perda de vidas humanas (valoração IPEA), não correspondendo a faturamento ou caixa financeiro real.<br/>
         <b>Conclusão Condicional e Recomendações:</b> Os dados observacionais da PRF evidenciam que os sinistros noturnos e no amanhecer apresentam severidade e letalidade substancialmente superiores às do pleno dia. As simulações físico-econômicas indicam atratividade socioeconômica favorável sob as premissas de projeto adotadas (horizonte de 15 anos, taxa social de desconto de 8% a.a. e custos unitários do Cenário D). Contudo, a efetiva implantação em escala permanece condicionada a validações complementares indispensáveis: (i) realização de censo físico de iluminação artificial existente nos trechos; (ii) estudos computacionais fotométricos por trecho conforme ABNT NBR 5101:2024; (iii) ensaios geotécnicos e dimensionamento estrutural de fundação; (iv) cotações executivas de fornecedores e logística de instalação; e (v) mensuração empírica do VDMA por segmento. Recomenda-se a execução de projetos-piloto controlados nos primeiros trechos do ranking para aferição empírica do Fator de Modificação de Acidentes (CMF) antes de decisões definitivas de investimento.
         """
-        story.append(Paragraph(disc_p, self.custom_styles["body"]))
+        story.append(KeepTogether([Paragraph(disc_p, self.custom_styles["body"])]))
 
         story.append(Paragraph("11. REFERÊNCIAS BIBLIOGRÁFICAS E BASES OFICIAIS", self.custom_styles["h1"]))
         for ref in REFERENCES:

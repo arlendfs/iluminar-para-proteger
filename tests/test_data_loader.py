@@ -29,7 +29,7 @@ def test_clean_brazilian_float():
 
 
 def test_clean_km_series():
-    s = pd.Series(["145", "639,3", None, "abc", "174,4", "-5", "2000"])
+    s = pd.Series(["145", "639,3", None, "abc", "174,4", "-5", "2000", "9999"])
     cleaned = clean_km_series(s)
     assert cleaned.iloc[0] == 145.0
     assert pytest.approx(cleaned.iloc[1], 0.01) == 639.3
@@ -37,7 +37,8 @@ def test_clean_km_series():
     assert np.isnan(cleaned.iloc[3])  # Inválido vira NaN
     assert pytest.approx(cleaned.iloc[4], 0.01) == 174.4
     assert np.isnan(cleaned.iloc[5])  # Negativo vira NaN
-    assert np.isnan(cleaned.iloc[6])  # Acima de 1500 vira NaN
+    assert pytest.approx(cleaned.iloc[6], 0.01) == 2000.0  # Recuperado acima de 1500 (rodovias federais longas)
+    assert np.isnan(cleaned.iloc[7])  # Acima de 6000 vira NaN
 
 
 def test_clean_coordinate_series():

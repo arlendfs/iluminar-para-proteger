@@ -73,6 +73,12 @@ def create_road_segments(
     valid_df["_vitimas_not"] = valid_df["total_vitimas"] * valid_df["is_noturno"]
     valid_df["_fatais_not"] = valid_df["acidente_fatal"] * valid_df["is_noturno"]
 
+    # Identificação de eventos excepcionais / catástrofes coletivas (>= 5 óbitos no mesmo sinistro)
+    # Fundamental para auditoria de sensibilidade (ex: tragédia rodoviária de ônibus na BR-116/MG com 37 óbitos)
+    valid_df["is_excepcional"] = ((valid_df["mortos"] >= 5) & (valid_df["is_noturno"] == 1)).astype(int)
+    valid_df["_mortos_excepcional_not"] = valid_df["_mortos_not"] * valid_df["is_excepcional"]
+    valid_df["_mortos_not_sem_excepcional"] = valid_df["_mortos_not"] * (1 - valid_df["is_excepcional"])
+
     # Agregação por segmento (vetorizada de alta performance)
     segmentos = (
         valid_df.groupby(["trecho_id", "br", "uf", "km_inicio", "km_fim"], observed=True)
@@ -81,6 +87,9 @@ def create_road_segments(
             n_acidentes_noturnos=("is_noturno", "sum"),
             mortos_total=("mortos", "sum"),
             mortos_noturno=("_mortos_not", "sum"),
+            mortos_excepcionais_noturno=("_mortos_excepcional_not", "sum"),
+            mortos_noturno_sem_excepcional=("_mortos_not_sem_excepcional", "sum"),
+            n_eventos_excepcionais=("is_excepcional", "sum"),
             feridos_graves_total=("feridos_graves", "sum"),
             feridos_graves_noturno=("_graves_not", "sum"),
             feridos_leves_total=("feridos_leves", "sum"),
@@ -94,6 +103,9 @@ def create_road_segments(
         )
         .reset_index()
     )
+
+    # Identificador de presença de sinistro atípico / excepcional
+    segmentos["tem_evento_excepcional"] = segmentos["n_eventos_excepcionais"] > 0
 
     # Percentual noturno
     segmentos["perc_noturno"] = (
@@ -118,7 +130,7 @@ def create_road_segments(
         segmentos["feridos_leves_total"] * 1
     )
 
-    # Score de Prioridade para Iluminação Solar:
+    # Score de Prioridade para Iluminação Solar (Base Histórica Completa):
     # Focado no período NOTURNO: severidade noturna ponderada pela concentração noturna
     segmentos["score_iluminacao_solar"] = (
         (segmentos["mortos_noturno"] * 5 +
@@ -128,11 +140,30 @@ def create_road_segments(
         (1 + (segmentos["perc_noturno"] / 100))
     ).round(1)
 
-    # Score legível / justificativa
-    segmentos["justificativa_prioridade"] = (
+    # Score de Sensibilidade para Iluminação Solar (Sem Eventos Excepcionais Atípicos):
+    segmentos["score_iluminacao_solar_sem_excepcional"] = (
+        (segmentos["mortos_noturno_sem_excepcional"] * 5 +
+         segmentos["feridos_graves_noturno"] * 3 +
+         segmentos["feridos_leves_noturno"] * 1 +
+         segmentos["n_acidentes_noturnos"] * 2) *
+        (1 + (segmentos["perc_noturno"] / 100))
+    ).round(1)
+
+    # Score de Concentração Noturna (Puramente Frequência de Sinistros)
+    segmentos["score_concentracao_noturna"] = (
+        segmentos["n_acidentes_noturnos"] * (1 + (segmentos["perc_noturno"] / 100))
+    ).round(1)
+
+    # Score legível / justificativa com alerta de excepcionalidade
+    justificativa = (
         segmentos["n_acidentes_noturnos"].astype(str) + " acid. noturnos | " +
         segmentos["mortos_noturno"].astype(str) + " óbitos | " +
         segmentos["perc_noturno"].round(1).astype(str) + "% noturno"
+    )
+    segmentos["justificativa_prioridade"] = np.where(
+        segmentos["tem_evento_excepcional"],
+        justificativa + " [Evento Atípico/Catástrofe Coletiva]",
+        justificativa
     )
 
     # Metadados de segmentação
@@ -155,14 +186,26 @@ def rank_segments(
 ) -> pd.DataFrame:
     """
     Ordena e extrai o Top N trechos de acordo com o critério escolhido:
-    - 'iluminacao_solar': Foco em severidade e concentração de acidentes noturnos
-    - 'geral': Foco no total de acidentes e gravidade 24h
+    - 'iluminacao_solar': Foco em severidade e concentração de acidentes noturnos (base histórica integral).
+    - 'iluminacao_solar_sem_excepcionais': Análise de sensibilidade excluindo o impacto de catástrofes atípicas.
+    - 'concentracao_historica': Ranking de frequência pura de sinistros noturnos.
+    - 'gravidade_historica' / 'geral': Foco no total de vítimas e gravidade 24h.
     """
     if segmentos_df.empty:
         return pd.DataFrame()
 
-    col_sort = "score_iluminacao_solar" if criterio == "iluminacao_solar" else "score_gravidade_geral"
-    ranked = segmentos_df.sort_values(col_sort, ascending=False).reset_index(drop=True)
+    if criterio == "iluminacao_solar_sem_excepcionais":
+        col_sort = "score_iluminacao_solar_sem_excepcional"
+    elif criterio in ("concentracao_historica", "concentracao"):
+        col_sort = "n_acidentes_noturnos"
+    elif criterio in ("gravidade_historica", "geral"):
+        col_sort = "score_gravidade_geral"
+    else:
+        col_sort = "score_iluminacao_solar"
+
+    sort_cols = [c for c in [col_sort, "n_acidentes_noturnos", "mortos_noturno"] if c in segmentos_df.columns]
+    ascending = [False] * len(sort_cols)
+    ranked = segmentos_df.sort_values(sort_cols, ascending=ascending).reset_index(drop=True)
     ranked["ranking"] = np.arange(1, len(ranked) + 1)
     return ranked.head(top_n).copy()
 

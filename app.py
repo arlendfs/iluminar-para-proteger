@@ -8,6 +8,9 @@ import os
 import re
 import gc
 import time
+import uuid
+import shutil
+import threading
 import warnings
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -17,6 +20,7 @@ from analyzer import AccidentAnalyzer
 from dashboard import create_dashboard
 from config import (
     APP_CONFIG,
+    BASE_DIR,
     DATA_DIR,
     REPORTS_DIR,
     PARQUET_SAMPLES_DIR,
@@ -24,7 +28,14 @@ from config import (
     CAUSAS_VISIBILIDADE_REACAO,
     get_current_rss_mb,
     log_memory_checkpoint,
+    get_container_memory_info,
 )
+
+# Controle global de concorrência para processamento intensivo (máximo 2 análises pesadas simultâneas)
+HEAVY_ANALYSIS_SEMAPHORE = threading.BoundedSemaphore(2)
+
+# Rastreamento de sessões ativas sem expor identidades de usuários
+ACTIVE_SESSIONS: Dict[str, float] = {}
 
 warnings.filterwarnings("ignore")
 
@@ -121,6 +132,18 @@ def scan_project_folder(folder_name: str) -> List[Dict[str, Any]]:
 
 
 def main():
+    if "session_id" not in st.session_state:
+        st.session_state["session_id"] = str(uuid.uuid4())[:8]
+    if "uploader_key" not in st.session_state:
+        st.session_state["uploader_key"] = 0
+
+    now = time.time()
+    ACTIVE_SESSIONS[st.session_state["session_id"]] = now
+    for sid in list(ACTIVE_SESSIONS.keys()):
+        if now - ACTIVE_SESSIONS[sid] > 1800:
+            ACTIVE_SESSIONS.pop(sid, None)
+    active_sessions_count = len(ACTIVE_SESSIONS)
+
     st.markdown('<h1 class="main-header">🌟 Iluminar para Proteger</h1>', unsafe_allow_html=True)
     st.markdown(
         f'<p class="main-subtitle">{APP_CONFIG["subtitle"]}</p>',
@@ -146,6 +169,7 @@ def main():
         "Selecione arquivos de acidentes",
         type=["csv", "parquet"],
         accept_multiple_files=True,
+        key=f"uploader_{st.session_state['uploader_key']}",
         help="Arquivos CSV ou Parquet da PRF (ex: acidentes_todas_causas_tipos)",
     )
 
@@ -267,23 +291,59 @@ def main():
         st.session_state.pop("data_processed_once", None)
         gc.collect()
 
-    # Diagnóstico de Memória RSS em tempo real no servidor
+    # =========================================================================
+    # SIDEBAR: GESTÃO DE MEMÓRIA DA SESSÃO
+    # =========================================================================
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🧹 Gestão de Recursos da Sessão")
+    if st.sidebar.button(
+        "Limpar minha análise e liberar recursos",
+        type="secondary",
+        width="stretch",
+        help="Invalida os dados da sua sessão, remove arquivos temporários exclusivos e executa liberação de memória sem afetar outros usuários.",
+        key="btn_limpar_memoria_usuario",
+    ):
+        for k in [
+            "cached_analyzer_data",
+            "cached_analyzer_pessoas",
+            "cached_analyzer_veiculos",
+            "cached_analyzer_causas",
+            "cached_analyzer_quality",
+            "cached_file_signature",
+            "data_processed_once",
+        ]:
+            st.session_state.pop(k, None)
+        st.session_state["uploader_key"] = st.session_state.get("uploader_key", 0) + 1
+        sess_temp = BASE_DIR / "temp" / st.session_state.get("session_id", "")
+        if sess_temp.exists():
+            shutil.rmtree(sess_temp, ignore_errors=True)
+        analyzer.clear()
+        gc.collect()
+        st.sidebar.success("Recursos liberados para a sua sessão.")
+        st.rerun()
+
+    # Diagnóstico de Memória e Recursos do Servidor
     current_rss = get_current_rss_mb()
-    st.sidebar.caption(f"💾 Memória do Servidor (RSS): **{current_rss:.1f} MB**")
+    c_info = get_container_memory_info()
+    st.sidebar.caption(f"💾 Memória do Processo (RSS): **{current_rss:.1f} MB**")
+    if c_info.get("limit_mb") and c_info["limit_mb"] < 100000:
+        st.sidebar.caption(f"🖥️ Limite do Contêiner: **{c_info['limit_mb']:.0f} MB**")
+    st.sidebar.caption(f"👥 Sessões ativas estimadas: **{active_sessions_count}**")
 
     # =========================================================================
-    # SIDEBAR: RELATÓRIOS SALVOS
+    # SIDEBAR: RELATÓRIOS SALVOS DA SESSÃO
     # =========================================================================
     st.sidebar.subheader("📄 Relatórios Técnicos Salvos")
-    reports_dir = str(REPORTS_DIR)
+    session_reports_dir = REPORTS_DIR / st.session_state["session_id"]
+    session_reports_dir.mkdir(parents=True, exist_ok=True)
     try:
-        report_files = [f for f in os.listdir(reports_dir) if f.endswith(".pdf")]
+        report_files = [f for f in os.listdir(str(session_reports_dir)) if f.endswith(".pdf")]
         if not report_files:
-            st.sidebar.caption("Nenhum relatório gerado ainda.")
+            st.sidebar.caption("Nenhum relatório gerado nesta sessão ainda.")
         else:
             reports_with_dates = []
             for r_name in report_files:
-                r_path = os.path.join(reports_dir, r_name)
+                r_path = os.path.join(str(session_reports_dir), r_name)
                 reports_with_dates.append({
                     "name": r_name,
                     "path": r_path,
@@ -340,13 +400,30 @@ def main():
             analyzer.causas_data = st.session_state.get("cached_analyzer_causas")
             analyzer.quality_summary = st.session_state.get("cached_analyzer_quality", {})
         else:
-            with st.spinner("🔄 Processando arquivos incrementalmente e auditando dados com desduplicação..."):
-                t_load_start = time.time()
-                if active_source == "local":
-                    analyzer.data = analyzer.load_local_files(folder_path_str, selected_local_files)
-                else:
-                    analyzer.data = analyzer.load_data(uploaded_files)
-                log_memory_checkpoint("Carga incremental e auditoria concluída", start_time=t_load_start)
+            acquired = HEAVY_ANALYSIS_SEMAPHORE.acquire(blocking=False)
+            if not acquired:
+                st.sidebar.error("⚠️ O servidor atingiu o limite de análises concorrentes (máximo de 2 simultâneas). Por favor, aguarde alguns instantes e tente novamente.")
+                st.stop()
+            try:
+                with st.spinner("🔄 Processando arquivos incrementalmente e auditando dados com desduplicação..."):
+                    t_load_start = time.time()
+                    if active_source == "local":
+                        analyzer.data = analyzer.load_local_files(folder_path_str, selected_local_files)
+                    else:
+                        analyzer.data = analyzer.load_data(uploaded_files, session_id=st.session_state["session_id"])
+                    log_memory_checkpoint("Carga incremental e auditoria concluída", start_time=t_load_start)
+            except MemoryError:
+                st.error("❌ Memória insuficiente para processar a seleção de dados. Por favor, reduza a quantidade de arquivos/anos selecionados.")
+                analyzer.clear()
+                gc.collect()
+                st.stop()
+            except Exception as e:
+                st.error(f"❌ Erro durante o processamento de dados: {str(e)}")
+                analyzer.clear()
+                gc.collect()
+                st.stop()
+            finally:
+                HEAVY_ANALYSIS_SEMAPHORE.release()
 
             if analyzer.data is not None and not analyzer.data.empty:
                 st.session_state["cached_analyzer_data"] = analyzer.data

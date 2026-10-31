@@ -6,7 +6,7 @@ Define constantes, parâmetros de cálculo, engenharia e configurações do sist
 import os
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 # =============================================================================
 # CONFIGURAÇÕES GERAIS E DIRETÓRIOS
@@ -17,9 +17,10 @@ DATA_DIR = BASE_DIR / "data"
 TEMP_DIR = BASE_DIR / "temp"
 REPORTS_DIR = BASE_DIR / "reports"
 PARQUET_SAMPLES_DIR = BASE_DIR / "parquet_samples"
+NORMALIZED_CACHE_DIR = BASE_DIR / "normalized_cache"
 
 # Criar diretórios se não existirem
-for directory in [DATA_DIR, TEMP_DIR, REPORTS_DIR, PARQUET_SAMPLES_DIR]:
+for directory in [DATA_DIR, TEMP_DIR, REPORTS_DIR, PARQUET_SAMPLES_DIR, NORMALIZED_CACHE_DIR]:
     directory.mkdir(exist_ok=True)
 
 
@@ -34,16 +35,78 @@ def get_current_rss_mb() -> float:
         return 0.0
 
 
+def get_container_memory_info() -> Dict[str, Any]:
+    """
+    Detecta limites de memória do contêiner (cgroups v1/v2 em ambientes Streamlit Cloud / Docker)
+    e do sistema hospedeiro, evitando presumir limites fixos de 1 GB.
+    """
+    info = {
+        "container_limit_mb": None,
+        "container_usage_mb": None,
+        "host_total_mb": None,
+        "host_available_mb": None,
+        "host_percent": None,
+        "detected_environment": "local",
+    }
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        info["host_total_mb"] = vm.total / (1024.0 * 1024.0)
+        info["host_available_mb"] = vm.available / (1024.0 * 1024.0)
+        info["host_percent"] = vm.percent
+    except Exception:
+        pass
+
+    # Tentar ler cgroups v2 (Linux / contêineres modernos)
+    cgroup_max = Path("/sys/fs/cgroup/memory.max")
+    cgroup_current = Path("/sys/fs/cgroup/memory.current")
+    if cgroup_max.exists():
+        try:
+            content = cgroup_max.read_text().strip()
+            if content != "max":
+                info["container_limit_mb"] = int(content) / (1024.0 * 1024.0)
+                info["detected_environment"] = "cgroup_v2"
+        except Exception:
+            pass
+    if cgroup_current.exists():
+        try:
+            info["container_usage_mb"] = int(cgroup_current.read_text().strip()) / (1024.0 * 1024.0)
+        except Exception:
+            pass
+
+    # Tentar cgroups v1 se v2 não encontrou
+    if info["container_limit_mb"] is None:
+        cgroup1_limit = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        cgroup1_usage = Path("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+        if cgroup1_limit.exists():
+            try:
+                val = int(cgroup1_limit.read_text().strip())
+                if val < 10**15:
+                    info["container_limit_mb"] = val / (1024.0 * 1024.0)
+                    info["detected_environment"] = "cgroup_v1"
+            except Exception:
+                pass
+        if cgroup1_usage.exists():
+            try:
+                info["container_usage_mb"] = int(cgroup1_usage.read_text().strip()) / (1024.0 * 1024.0)
+            except Exception:
+                pass
+
+    return info
+
+
 def log_memory_checkpoint(stage: str, start_time: Optional[float] = None) -> float:
     """
-    Registra consumo de memória e tempo de execução sem expor dados pessoais.
+    Registra consumo de memória e tempo de execução sem expor dados pessoais ou internos ao público.
     """
     rss = get_current_rss_mb()
+    c_info = get_container_memory_info()
+    c_limit = f" | Contêiner: {c_info['container_usage_mb']:.1f}/{c_info['container_limit_mb']:.0f} MB" if c_info.get("container_limit_mb") else ""
     if start_time is not None:
         elapsed = time.time() - start_time
-        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | Duração: {elapsed:.2f}s | RSS: {rss:.1f} MB")
+        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | Duração: {elapsed:.2f}s | RSS: {rss:.1f} MB{c_limit}")
     else:
-        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | RSS: {rss:.1f} MB")
+        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | RSS: {rss:.1f} MB{c_limit}")
     return rss
 
 APP_CONFIG = {
@@ -387,7 +450,8 @@ VALIDATION_RULES = {
     },
     "km": {
         "min": 0.0,
-        "max": 1500.0, # Limite razoável para quilometragem contínua em rodovias federais
+        "max": 6000.0,         # Limite máximo físico para rodovias federais contínuas (ex: BR-101 ~4.650 km, BR-116 ~4.540 km)
+        "legacy_max": 1500.0,  # Limite legado anterior mantido estritamente para fins de auditoria de registros recuperados
     },
     "ano": {
         "min": 2000,
@@ -444,62 +508,64 @@ PDF_CONFIG = {
 }
 
 # =============================================================================
-# REFERÊNCIAS CIENTÍFICAS E INSTITUCIONAIS
+# REFERÊNCIAS CIENTÍFICAS E INSTITUCIONAIS AUDITADAS
 # =============================================================================
 
 REFERENCES = [
     {
         "titulo": "Dados Abertos da Polícia Rodoviária Federal — Acidentes",
-        "instituicao": "Polícia Rodoviária Federal (PRF / Ministério da Justiça)",
+        "instituicao": "Polícia Rodoviária Federal (PRF / Ministério da Justiça e Segurança Pública)",
+        "ano": 2026,
         "url": "https://www.gov.br/prf/pt-br/acesso-a-informacao/dados-abertos/dados-abertos-da-prf",
-        "descricao": "Registros oficiais de acidentes em rodovias federais brasileiras.",
+        "descricao": "Microdados oficiais de ocorrências, causas, tipologia e pessoas envolvidas nas rodovias federais do Brasil (2020 a 2026).",
     },
     {
         "titulo": "Dicionário de Dados de Acidentes da PRF",
-        "instituicao": "Polícia Rodoviária Federal (PRF)",
+        "instituicao": "Coordenação-Geral de Gestão Operacional / PRF",
+        "ano": 2024,
         "url": "https://www.gov.br/prf/pt-br/acesso-a-informacao/dados-abertos/dicionario-acidentes",
-        "descricao": "Estrutura descritiva de colunas, variáveis e classificações.",
+        "descricao": "Definição formal de variáveis cadastrais, chaves primárias (id, pesid, id_veiculo), classificações de gravidade e fases do dia.",
     },
     {
         "titulo": "Proven Safety Countermeasures: Roadway Lighting",
-        "instituicao": "Federal Highway Administration (FHWA / U.S. DOT)",
+        "instituicao": "Federal Highway Administration (FHWA / U.S. Department of Transportation)",
+        "ano": 2023,
         "url": "https://highways.fhwa.dot.gov/safety/proven-safety-countermeasures/lighting",
-        "descricao": "Evidências e pesquisas que indicam redução de 28% a 42% em acidentes noturnos com iluminação viária adequada.",
+        "descricao": "Fatores de Modificação de Acidentes (CMF ID: 436/437) que indicam redução estimada de 28% a 42% (média paramétrica de 35%) em colisões noturnas em rodovias com iluminação adequada.",
     },
     {
         "titulo": "Impactos Sociais e Econômicos dos Acidentes de Trânsito nas Rodovias Brasileiras / Estimativa dos Custos com Base no Valor da Vida Estatística (VVE)",
         "instituicao": "Instituto de Pesquisa Econômica Aplicada (IPEA / DNIT / ANTP)",
-        "url": "https://www.ipea.gov.br/portal/publicacoes/relatorios-de-pesquisa",
-        "descricao": "Metodologia oficial de valoração socioeconômica de sinistros, sequelas hospitalares e perda de vidas humanas (Capital Humano combinado com Disposição a Pagar / VSL), com procedimentos de atualização monetária via IPCA.",
+        "ano": 2020,
+        "url": "https://repositorio.ipea.gov.br/handle/11058/3358",
+        "descricao": "Metodologia oficial de valoração socioeconômica de perdas humanas e sequelas hospitalares no trânsito rodoviário brasileiro, com metodologia de atualização pelo IPCA.",
     },
     {
-        "titulo": "Manual de Projeto de Iluminação Rodoviária",
-        "instituicao": "Departamento Nacional de Infraestrutura de Transportes (DNIT)",
-        "url": "https://www.gov.br/dnit/pt-br",
-        "descricao": "Diretrizes de engenharia para projetos luminotécnicos viários.",
+        "titulo": "Manual de Projeto de Iluminação Rodoviária (Publicação IPR-726)",
+        "instituicao": "Departamento Nacional de Infraestrutura de Transportes (DNIT / Instituto de Pesquisas Rodoviárias)",
+        "ano": 2018,
+        "url": "https://www.gov.br/dnit/pt-br/assuntos/planejamento-e-pesquisa/ipr",
+        "descricao": "Diretrizes de engenharia geométrica, níveis mínimos de luminância, uniformidade e projeto eletromecânico para iluminação de rodovias federais.",
     },
     {
-        "titulo": "ABNT NBR 5101:2024 — Iluminação Pública e Rodoviária",
+        "titulo": "ABNT NBR 5101:2024 — Iluminação Pública e Rodoviária: Procedimento",
         "instituicao": "Associação Brasileira de Normas Técnicas (ABNT)",
+        "ano": 2024,
         "url": "https://www.abntcatalogo.com.br/norma.aspx?ID=524810",
-        "descricao": "Requisitos de iluminância, luminância média, uniformidade e controle de ofuscamento para vias públicas.",
+        "descricao": "Critérios normativos de iluminância e luminância para classes viárias V1 a V5, controle de ofuscamento e uniformidade longitudinal.",
     },
     {
         "titulo": "Referência Técnica Comercial — Poste Solar ZTL (NeoSolar)",
-        "instituicao": "NeoSolar Energia (ZTL6-40 / ZTL8-80)",
+        "instituicao": "NeoSolar Energia (Kits ZTL6-40 / ZTL8-80)",
+        "ano": 2026,
         "url": "https://www.neosolar.com.br/loja/poste-solar-ztroon",
-        "descricao": "Cotações e especificações públicas de kits de postes solares comerciais autônomos integrados.",
+        "descricao": "Cotações públicas e folhas de dados de sistemas solares autônomos integrados em poste de 6m/8m com bateria LiFePO4.",
     },
     {
-        "titulo": "Referência Técnica Comercial — Poste Solar LED 150Wp / 30W (EcoSoli)",
-        "instituicao": "EcoSoli Iluminação Sustentável",
-        "url": "https://www.ecosoli.com.br/lampada-solar/poste-solar-led-150-wp-luminaria-30-watts-5-metros",
-        "descricao": "Arquitetura compacta com painel integrado e bateria de lítio para iluminação solar autônoma.",
-    },
-    {
-        "titulo": "Referência Técnica de Engenharia — Postes Solares Industriais",
-        "instituicao": "Módulo Energia",
-        "url": "https://moduloenergia.com/poste-solar/",
-        "descricao": "Dimensionamento de sistemas solares viários autônomos, braços cônicos e estruturas metálicas.",
+        "titulo": "Sistema Nacional de Viação (SNV) e Malha Rodoviária Federal",
+        "instituicao": "Departamento Nacional de Infraestrutura de Transportes (DNIT)",
+        "ano": 2024,
+        "url": "https://www.gov.br/dnit/pt-br/assuntos/planejamento-e-pesquisa/snv",
+        "descricao": "Inventário oficial de extensão quilométrica contínua e por unidade federativa da malha rodoviária federal brasileira.",
     },
 ]

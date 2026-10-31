@@ -158,26 +158,32 @@ def compute_day_vs_night_comparison(df: pd.DataFrame) -> Dict[str, Any]:
 
     diff_am_pn = abs(let_am - let_pn)
     
-    # Texto interpretativo científico construído com dados estritamente dinâmicos
+    def _fmt_pt(v: float, d: int = 2) -> str:
+        return f"{v:.{d}f}".replace(".", ",")
+
+    prop_am = fases_oficiais_dict.get("amanhecer", {}).get("prop_fatais_pct", 0.0)
+    prop_pn = fases_oficiais_dict.get("plena_noite", {}).get("prop_fatais_pct", 0.0)
+
+    # Texto interpretativo científico construído com dados estritamente dinâmicos e Markdown puro (sem tags HTML)
     if let_am > let_pn:
         destaque_fases = (
-            f"Os microdados revelam que o <b>Amanhecer registrou a maior taxa específica com "
-            f"{let_am:.2f} óbitos/100 sinistros</b> ({fases_oficiais_dict.get('amanhecer', {}).get('prop_fatais_pct', 0.0):.1f}% fatais), "
-            f"seguido pela <b>Plena Noite com {let_pn:.2f} óbitos/100</b>, "
-            f"contrastando com <b>{let_an:.2f} no Anoitecer</b> e <b>{let_pd:.2f} no Pleno Dia</b>. "
-            f"A diferença entre Amanhecer e Plena Noite ({diff_am_pn:.2f} óbitos/100) aponta condições críticas compartilhadas: "
+            f"Os microdados revelam que o **Amanhecer registrou a maior taxa específica com "
+            f"{_fmt_pt(let_am, 2)} óbitos/100 acidentes** ({_fmt_pt(prop_am, 1)}% fatais), "
+            f"seguido pela **Plena Noite com {_fmt_pt(let_pn, 2)} óbitos/100 acidentes**, "
+            f"contrastando com **{_fmt_pt(let_an, 2)} no Anoitecer** e **{_fmt_pt(let_pd, 2)} no Pleno Dia**. "
+            f"A diferença entre Amanhecer e Plena Noite ({_fmt_pt(diff_am_pn, 2)} óbitos/100 acidentes) aponta condições críticas compartilhadas: "
             f"no Amanhecer atuam o nadir circadiano (fadiga biológica entre 04h e 06h) e o ofuscamento horizontal pelo sol nascente; "
             f"na Plena Noite atua a escuridão contínua com alcance restrito dos faróis."
         )
     else:
         destaque_fases = (
-            f"Os microdados revelam que a <b>Plena Noite registrou a maior taxa específica com "
-            f"{let_pn:.2f} óbitos/100 sinistros</b> ({fases_oficiais_dict.get('plena_noite', {}).get('prop_fatais_pct', 0.0):.1f}% fatais), "
-            f"seguida pelo <b>Amanhecer com {let_am:.2f} óbitos/100</b>, "
-            f"contrastando com <b>{let_an:.2f} no Anoitecer</b> e <b>{let_pd:.2f} no Pleno Dia</b>. "
-            f"A proximidade entre Plena Noite e Amanhecer (diferença de apenas {diff_am_pn:.2f} óbitos/100) "
+            f"Os microdados revelam que a **Plena Noite registrou a maior taxa específica com "
+            f"{_fmt_pt(let_pn, 2)} óbitos/100 acidentes** ({_fmt_pt(prop_pn, 1)}% fatais), "
+            f"seguida pelo **Amanhecer com {_fmt_pt(let_am, 2)} óbitos/100 acidentes**, "
+            f"contrastando com **{_fmt_pt(let_an, 2)} no Anoitecer** e **{_fmt_pt(let_pd, 2)} no Pleno Dia**. "
+            f"A proximidade entre Plena Noite e Amanhecer (diferença de apenas {_fmt_pt(diff_am_pn, 2)} óbitos/100 acidentes) "
             f"demonstra que ambos os períodos de iluminação natural reduzida ou transição apresentam gravidade severa "
-            f"quando comparados ao Pleno Dia ({let_pd:.2f} óbitos/100), exigindo atenção luminotécnica prioritária."
+            f"quando comparados ao Pleno Dia ({_fmt_pt(let_pd, 2)} óbitos/100 acidentes), exigindo atenção luminotécnica prioritária."
         )
 
     return {

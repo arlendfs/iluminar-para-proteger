@@ -1222,9 +1222,13 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     veiculos_df=analyzer.filtered_veiculos,
                 )
 
+                session_id = st.session_state.get("session_id", "default")
+                reports_dir = os.path.join("reports", session_id)
+                os.makedirs(reports_dir, exist_ok=True)
+
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 file_name = f"relatorio_cientifico_iluminar_{timestamp}.pdf"
-                save_path = os.path.join("reports", file_name)
+                save_path = os.path.join(reports_dir, file_name)
 
                 with open(save_path, "wb") as f:
                     f.write(report_buffer.getvalue())

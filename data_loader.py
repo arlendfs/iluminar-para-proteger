@@ -42,21 +42,85 @@ def clean_brazilian_float(val: Any) -> Optional[float]:
         return None
 
 
+def audit_and_clean_km_series(series: pd.Series) -> Tuple[pd.Series, pd.Series, Dict[str, Any]]:
+    """
+    Audita e higieniza a série de KM com separação analítica estrita:
+    - KM originalmente ausente (NaN, vazio, strings nulas);
+    - KM não numérico (caracteres textuais não conversíveis);
+    - KM negativo ou comprovadamente inválido (< 0.0);
+    - KM superior ao limite legado anterior (> 1500.0) e potencialmente legítimo (<= 6000.0);
+    - KM com erro extremo (> 6000.0, fisicamente impossível no Brasil).
+
+    Retorna tupla:
+    - km_limpo: pd.Series float32 com valores válidos (preservando valores > 1500) e NaN para inválidos.
+    - km_status: pd.Series com categorias de auditoria.
+    - km_audit_info: Dict com estatísticas e contagens exatas.
+    """
+    is_orig_null = series.isna()
+    if series.dtype == "object":
+        s = series.astype(str).str.strip()
+        is_empty_or_null_str = s.str.lower().isin(["nan", "none", "null", "", "n/a", "<na>"])
+        s_conv = s.str.replace(",", ".", regex=False)
+        num_km = pd.to_numeric(s_conv, errors="coerce")
+        is_orig_na = is_orig_null | is_empty_or_null_str
+        is_non_num = (~is_orig_na) & num_km.isna()
+    else:
+        num_km = pd.to_numeric(series, errors="coerce")
+        is_orig_na = is_orig_null
+        is_non_num = (~is_orig_na) & num_km.isna()
+
+    min_km = VALIDATION_RULES["km"]["min"]
+    max_km = VALIDATION_RULES["km"]["max"]
+    legacy_max = VALIDATION_RULES["km"].get("legacy_max", 1500.0)
+
+    is_neg = (~is_orig_na) & (~is_non_num) & (num_km < min_km)
+    is_valido_padrao = (~is_orig_na) & (~is_non_num) & (num_km >= min_km) & (num_km <= legacy_max)
+    is_sup_1500_recuperado = (~is_orig_na) & (~is_non_num) & (num_km > legacy_max) & (num_km <= max_km)
+    is_extremo = (~is_orig_na) & (~is_non_num) & (num_km > max_km)
+
+    condicoes = [
+        is_orig_na,
+        is_non_num,
+        is_neg,
+        is_valido_padrao,
+        is_sup_1500_recuperado,
+        is_extremo,
+    ]
+    escolhas = [
+        "ausente",
+        "nao_numerico",
+        "negativo",
+        "valido",
+        "superior_1500_recuperado",
+        "invalido_extremo",
+    ]
+    km_status = pd.Series(np.select(condicoes, escolhas, default="invalido"), index=series.index)
+
+    # Valores aceitos: válidos padrão (0 a 1500) E recuperados legítimos (1500 a 6000)
+    is_valido_total = is_valido_padrao | is_sup_1500_recuperado
+    km_limpo = num_km.where(is_valido_total, np.nan).astype("float32")
+
+    km_audit_info = {
+        "km_originalmente_ausente": int(is_orig_na.sum()),
+        "km_nao_numerico": int(is_non_num.sum()),
+        "km_negativo": int(is_neg.sum()),
+        "km_valido_padrao": int(is_valido_padrao.sum()),
+        "km_superior_1500_recuperados": int(is_sup_1500_recuperado.sum()),
+        "km_invalido_extremo": int(is_extremo.sum()),
+        "km_total_registros": len(series),
+    }
+
+    return km_limpo, km_status, km_audit_info
+
+
 def clean_km_series(series: pd.Series) -> pd.Series:
     """
     Limpa uma série de KM preservando valores nulos como NaN.
-    Valida limites razoáveis de rodovia federal (0 a 1500 km).
-    Vetorizado para altíssima performance e baixo consumo de memória.
+    Valida limites de rodovias federais incluindo trechos superiores a 1500 km.
+    Vetorizado para altíssima performance e compatibilidade de chamadas existentes.
     """
-    if series.dtype == "object":
-        s = series.astype(str).str.strip().str.replace(",", ".", regex=False)
-        cleaned = pd.to_numeric(s, errors="coerce")
-    else:
-        cleaned = pd.to_numeric(series, errors="coerce")
-    min_km = VALIDATION_RULES["km"]["min"]
-    max_km = VALIDATION_RULES["km"]["max"]
-    cleaned = cleaned.where((cleaned >= min_km) & (cleaned <= max_km), np.nan)
-    return cleaned.astype("float32")
+    km_limpo, _, _ = audit_and_clean_km_series(series)
+    return km_limpo
 
 
 def clean_coordinate_series(series: pd.Series, coord_type: str) -> pd.Series:
@@ -278,11 +342,25 @@ def process_raw_dataframe(
         if m:
             df["ano"] = int(m.group(1))
 
-    # 2. Limpeza de KM e Coordenadas
+    # 2. Limpeza e Auditoria Estrita de KM e Coordenadas
     if "km" in df.columns:
-        df["km_limpo"] = clean_km_series(df["km"])
+        df["km_original"] = df["km"].copy()
+        km_limpo_s, km_status_s, km_audit_info = audit_and_clean_km_series(df["km"])
+        df["km_limpo"] = km_limpo_s
+        df["km_status"] = km_status_s
     else:
+        df["km_original"] = np.nan
         df["km_limpo"] = np.nan
+        df["km_status"] = "ausente"
+        km_audit_info = {
+            "km_originalmente_ausente": len(df),
+            "km_nao_numerico": 0,
+            "km_negativo": 0,
+            "km_valido_padrao": 0,
+            "km_superior_1500_recuperados": 0,
+            "km_invalido_extremo": 0,
+            "km_total_registros": len(df),
+        }
 
     if "latitude" in df.columns:
         df["latitude_limpa"] = clean_coordinate_series(df["latitude"], "latitude")
@@ -315,21 +393,33 @@ def process_raw_dataframe(
             return s if s else "N/A"
         df["br"] = df["br"].apply(clean_br)
 
-    tem_id = "id" in df.columns
-    if not tem_id:
-        df["id"] = np.arange(1, len(df) + 1)
+    # Identificadores: garantia estrita de não-colisão entre arquivos quando id ou pesid estiverem ausentes
+    src_tag = re.sub(r'[^a-zA-Z0-9]', '_', str(source_name)) if source_name else "file"
+    if "id" not in df.columns:
+        df["id"] = [f"{src_tag}_row_{i+1}" for i in range(len(df))]
+        df["id_fabricado"] = True
+    else:
+        mask_id_na = df["id"].isna()
+        if mask_id_na.any():
+            generated_ids = pd.Series([f"{src_tag}_row_{i+1}" for i in range(len(df))], index=df.index)
+            df["id"] = df["id"].where(~mask_id_na, generated_ids)
+            df["id_fabricado"] = mask_id_na
+        else:
+            df["id_fabricado"] = False
 
-    tem_pesid = "pesid" in df.columns
-    total_linhas_sem_pesid = int(df["pesid"].isna().sum()) if tem_pesid else 0
+    tem_pesid = "pesid" in df.columns and df["pesid"].notna().any()
+    total_linhas_sem_pesid = int(df["pesid"].isna().sum()) if "pesid" in df.columns else len(df)
 
     # =========================================================================
     # TABELA 1: PESSOAS (pessoas_df)
     # =========================================================================
     if tem_pesid:
         pessoas_raw = df.dropna(subset=["pesid"]).drop_duplicates(subset=["id", "pesid"]).copy()
+        pessoas_raw["pesid_fabricado"] = False
     else:
         pessoas_raw = df.copy()
-        pessoas_raw["pesid"] = np.arange(1, len(pessoas_raw) + 1)
+        pessoas_raw["pesid"] = [f"{r_id}_pes_{i+1}" for i, r_id in enumerate(pessoas_raw["id"])]
+        pessoas_raw["pesid_fabricado"] = True
 
     # Limpeza e padronização demográfica de pessoas
     if "idade" in pessoas_raw.columns:
@@ -380,7 +470,7 @@ def process_raw_dataframe(
         "id", "pesid", "tipo_envolvido", "estado_fisico", "sexo", "idade",
         "idade_limpa", "faixa_etaria", "idade_valida_flag",
         "mortos", "feridos_graves", "feridos_leves", "ilesos", "total_feridos", "total_vitimas",
-        "id_veiculo", "tipo_veiculo", "ano", "mes", "uf", "br", "km_limpo",
+        "id_veiculo", "tipo_veiculo", "ano", "mes", "uf", "br", "km_original", "km_limpo", "km_status",
         "fase_dia_oficial", "fase_dia_agrupada", "condicao_metereologica", "tipo_acidente"
     ]
     cols_existentes_p = [c for c in cols_pessoa if c in pessoas_raw.columns]
@@ -415,7 +505,7 @@ def process_raw_dataframe(
     # =========================================================================
     cols_ocorrencia = [
         "id", "data_inversa", "data_dt", "ano", "mes", "ano_mes", "horario", "dia_semana",
-        "uf", "br", "km_limpo", "latitude_limpa", "longitude_limpa",
+        "uf", "br", "km_original", "km_limpo", "km_status", "latitude_limpa", "longitude_limpa",
         "fase_dia_oficial", "fase_dia_agrupada", "condicao_metereologica",
         "tipo_pista", "tracado_via", "uso_solo", "sentido_via",
         "tipo_acidente", "classificacao_acidente", "municipio"
@@ -515,6 +605,21 @@ def process_raw_dataframe(
             if len(meses) < 12 and a >= 2024:
                 anos_incompletos.append((a, sorted(list(meses))))
 
+    # Detalhamento de registros recuperados com KM > 1500
+    km_sup_1500_df = ocorrencias[ocorrencias.get("km_status", pd.Series()) == "superior_1500_recuperado"]
+    km_sup_1500_detalhe = []
+    if not km_sup_1500_df.empty:
+        for (br_v, uf_v, ano_v), g in km_sup_1500_df.groupby(["br", "uf", "ano"], observed=True):
+            km_sup_1500_detalhe.append({
+                "br": str(br_v),
+                "uf": str(uf_v),
+                "ano": int(ano_v) if pd.notna(ano_v) else "N/A",
+                "ocorrencias": len(g),
+                "km_min": float(g["km_limpo"].min()),
+                "km_max": float(g["km_limpo"].max()),
+                "mortos": int(g["mortos"].sum()),
+            })
+
     quality_summary = {
         "arquivo_origem": source_name,
         "registros_brutos": total_linhas_brutas,
@@ -530,6 +635,14 @@ def process_raw_dataframe(
         "mortos_sem_km": mortos_sem_km,
         "feridos_sem_km": feridos_sem_km,
         "perc_com_km": (ocorrencias_com_km / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+        # Auditoria detalhada de quilômetros (separação dos 5 estados de KM)
+        "km_originalmente_ausente": km_audit_info.get("km_originalmente_ausente", ocorrencias_sem_km),
+        "km_nao_numerico": km_audit_info.get("km_nao_numerico", 0),
+        "km_negativo": km_audit_info.get("km_negativo", 0),
+        "km_valido_padrao": km_audit_info.get("km_valido_padrao", ocorrencias_com_km),
+        "km_superior_1500_recuperados": km_audit_info.get("km_superior_1500_recuperados", 0),
+        "km_invalido_extremo": km_audit_info.get("km_invalido_extremo", 0),
+        "km_sup_1500_detalhe": km_sup_1500_detalhe,
         "ocorrencias_com_geo": ocorrencias_com_geo,
         "ocorrencias_sem_geo": ocorrencias_sem_geo,
         "perc_com_geo": (ocorrencias_com_geo / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,

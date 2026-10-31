@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 import numpy as np
 import streamlit as st
+import json
 from config import (
     APP_CONFIG,
     FINANCIAL_PARAMS,
@@ -21,6 +22,8 @@ from config import (
     DEFAULT_SPACING_M,
     DEFAULT_COMPRIMENTO_TRECHO_KM,
     DEFAULT_TRECHOS_TOP_N,
+    NORMALIZED_CACHE_DIR,
+    TEMP_DIR,
     log_memory_checkpoint,
     get_current_rss_mb,
 )
@@ -51,6 +54,21 @@ class AccidentAnalyzer:
         self.financial_analysis: Optional[Dict[str, Any]] = None
         self.visibility_analysis: Optional[Dict[str, Any]] = None
 
+    def clear(self):
+        """Libera todas as referências internas aos DataFrames e resumos da análise."""
+        self.data = None
+        self.pessoas_data = None
+        self.veiculos_data = None
+        self.causas_data = None
+        self.quality_summary = {}
+        self.filtered_data = None
+        self.filtered_pessoas = None
+        self.filtered_veiculos = None
+        self.filtered_causas = None
+        self.top_segments = None
+        self.financial_analysis = None
+        self.visibility_analysis = None
+
     def _consolidate_incremental_tables(
         self,
         all_oc: List[pd.DataFrame],
@@ -72,13 +90,13 @@ class AccidentAnalyzer:
 
         # 1. Concatenação e desduplicação global de ocorrências por ID
         ocorrencias = pd.concat(all_oc, ignore_index=True).drop_duplicates(subset=["id"])
-        del all_oc
+        all_oc.clear()
         gc.collect()
 
         # 2. Concatenação e desduplicação global de pessoas por (id, pesid)
         if all_pes:
             pessoas = pd.concat(all_pes, ignore_index=True).drop_duplicates(subset=["id", "pesid"])
-            del all_pes
+            all_pes.clear()
         else:
             pessoas = pd.DataFrame()
         gc.collect()
@@ -86,7 +104,7 @@ class AccidentAnalyzer:
         # 3. Concatenação e desduplicação global de veículos por (id, id_veiculo)
         if all_veic:
             veiculos = pd.concat(all_veic, ignore_index=True).drop_duplicates(subset=["id", "id_veiculo"])
-            del all_veic
+            all_veic.clear()
         else:
             veiculos = pd.DataFrame()
         gc.collect()
@@ -94,7 +112,7 @@ class AccidentAnalyzer:
         # 4. Concatenação e desduplicação global de causas
         if all_caus:
             causas = pd.concat(all_caus, ignore_index=True).drop_duplicates()
-            del all_caus
+            all_caus.clear()
         else:
             causas = pd.DataFrame()
         gc.collect()
@@ -145,6 +163,17 @@ class AccidentAnalyzer:
         for q in all_qual:
             todas_divergencias.extend(q.get("divergencias_classificacao", []))
 
+        # Agregar métricas de auditoria detalhada de KM
+        km_orig_na = sum(q.get("km_originalmente_ausente", 0) for q in all_qual)
+        km_non_num = sum(q.get("km_nao_numerico", 0) for q in all_qual)
+        km_neg = sum(q.get("km_negativo", 0) for q in all_qual)
+        km_val_pad = sum(q.get("km_valido_padrao", 0) for q in all_qual)
+        km_sup_1500 = sum(q.get("km_superior_1500_recuperados", 0) for q in all_qual)
+        km_extremo = sum(q.get("km_invalido_extremo", 0) for q in all_qual)
+        km_sup_1500_detalhe = []
+        for q in all_qual:
+            km_sup_1500_detalhe.extend(q.get("km_sup_1500_detalhe", []))
+
         quality_summary = {
             "arquivo_origem": source_name,
             "registros_brutos": total_linhas_brutas,
@@ -160,6 +189,14 @@ class AccidentAnalyzer:
             "mortos_sem_km": mortos_sem_km,
             "feridos_sem_km": feridos_sem_km,
             "perc_com_km": (com_km_count / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
+            # Auditoria detalhada de KM consolidada
+            "km_originalmente_ausente": km_orig_na,
+            "km_nao_numerico": km_non_num,
+            "km_negativo": km_neg,
+            "km_valido_padrao": km_val_pad,
+            "km_superior_1500_recuperados": km_sup_1500,
+            "km_invalido_extremo": km_extremo,
+            "km_sup_1500_detalhe": km_sup_1500_detalhe,
             "ocorrencias_com_geo": com_geo_count,
             "ocorrencias_sem_geo": sem_geo_count,
             "perc_com_geo": (com_geo_count / total_ocorrencias * 100) if total_ocorrencias > 0 else 0.0,
@@ -180,6 +217,9 @@ class AccidentAnalyzer:
             "data_minima": str(ocorrencias["data_inversa"].min()) if "data_inversa" in ocorrencias.columns else "N/A",
             "data_maxima": str(ocorrencias["data_inversa"].max()) if "data_inversa" in ocorrencias.columns else "N/A",
         }
+
+        if all_qual:
+            all_qual.clear()
 
         self.data = ocorrencias
         self.pessoas_data = pessoas
@@ -214,24 +254,58 @@ class AccidentAnalyzer:
             log_memory_checkpoint(f"Início processamento arquivo: {filename}")
 
             try:
-                if filename.lower().endswith(".parquet"):
-                    df = pd.read_parquet(filepath)
-                    df["source_file"] = filename
-                elif filename.lower().endswith(".csv"):
-                    try:
-                        df = pd.read_csv(filepath, sep=";", encoding="latin1", low_memory=False)
-                    except Exception:
-                        df = pd.read_csv(filepath, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
-                    df["source_file"] = filename
-                else:
-                    continue
+                # Verificação de Cache Normalizado Compacto pré-computado
+                oc_c = NORMALIZED_CACHE_DIR / f"{filename}.oc.parquet"
+                pes_c = NORMALIZED_CACHE_DIR / f"{filename}.pes.parquet"
+                veic_c = NORMALIZED_CACHE_DIR / f"{filename}.veic.parquet"
+                caus_c = NORMALIZED_CACHE_DIR / f"{filename}.caus.parquet"
+                qual_c = NORMALIZED_CACHE_DIR / f"{filename}.qual.json"
 
-                # Processa o arquivo individualmente gerando tabelas compactadas
-                oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
-                
-                # Descarte imediato do DataFrame bruto da memória
-                del df
-                gc.collect()
+                use_cache = (
+                    oc_c.exists()
+                    and pes_c.exists()
+                    and veic_c.exists()
+                    and caus_c.exists()
+                    and qual_c.exists()
+                    and os.path.exists(filepath)
+                    and oc_c.stat().st_mtime >= os.path.getmtime(filepath)
+                )
+
+                if use_cache:
+                    oc = pd.read_parquet(oc_c)
+                    pes = pd.read_parquet(pes_c)
+                    veic = pd.read_parquet(veic_c)
+                    caus = pd.read_parquet(caus_c)
+                    with open(qual_c, "r", encoding="utf-8") as f_q:
+                        qual = json.load(f_q)
+                else:
+                    if filename.lower().endswith(".parquet"):
+                        df = pd.read_parquet(filepath)
+                        df["source_file"] = filename
+                    elif filename.lower().endswith(".csv"):
+                        try:
+                            df = pd.read_csv(filepath, sep=";", encoding="latin1", low_memory=False)
+                        except Exception:
+                            df = pd.read_csv(filepath, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
+                        df["source_file"] = filename
+                    else:
+                        continue
+
+                    # Processa o arquivo individualmente gerando tabelas compactadas
+                    oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
+                    del df
+                    gc.collect()
+
+                    # Grava no cache normalizado para reutilização instantânea
+                    try:
+                        oc.to_parquet(oc_c, index=False, compression="snappy")
+                        pes.to_parquet(pes_c, index=False, compression="snappy")
+                        veic.to_parquet(veic_c, index=False, compression="snappy")
+                        caus.to_parquet(caus_c, index=False, compression="snappy")
+                        with open(qual_c, "w", encoding="utf-8") as f_q:
+                            json.dump(qual, f_q, ensure_ascii=False, indent=2, default=str)
+                    except Exception:
+                        pass
 
                 all_oc.append(oc)
                 all_pes.append(pes)
@@ -260,10 +334,11 @@ class AccidentAnalyzer:
             )
         return res
 
-    def load_data(self, files: List[Any]) -> Optional[pd.DataFrame]:
+    def load_data(self, files: List[Any], session_id: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        Carrega arquivos enviados por upload de forma incremental:
+        Carrega arquivos enviados por upload de forma incremental e segura por sessão:
         processa arquivo a arquivo e libera os brutos imediatamente da RAM.
+        Usa diretório temporário isolado por sessão quando aplicável.
         """
         if not files:
             return None
@@ -271,6 +346,11 @@ class AccidentAnalyzer:
         all_oc, all_pes, all_veic, all_caus, all_qual = [], [], [], [], []
         file_names = []
         progress_bar = st.progress(0, text="Processando arquivos enviados...")
+
+        # Diretório temporário de upload por sessão
+        sess_tag = session_id if session_id else f"sess_{int(time.time()*1000)}"
+        upload_temp_dir = TEMP_DIR / sess_tag
+        upload_temp_dir.mkdir(parents=True, exist_ok=True)
 
         for idx, file in enumerate(files, start=1):
             filename = getattr(file, "name", f"upload_{idx}")
@@ -286,7 +366,8 @@ class AccidentAnalyzer:
                     try:
                         df = pd.read_csv(file, sep=";", encoding="latin1", low_memory=False)
                     except Exception:
-                        file.seek(0)
+                        if hasattr(file, "seek"):
+                            file.seek(0)
                         df = pd.read_csv(file, sep=None, engine="python", encoding="latin1", on_bad_lines="warn")
                     df["source_file"] = filename
                 else:
