@@ -762,7 +762,6 @@ class ReportGenerator:
         story.append(Spacer(1, 4))
 
         fin = financial_summary or {}
-        capex_d = 4000 * 22310.00  # R$ 89,24M para o cenário compacto base
         beneficio_anual = fin.get("economia_anual", 0.0)
         beneficio_liq = fin.get("economia_liquida_anual", 0.0)
         vpl = fin.get("vpl", 0.0)

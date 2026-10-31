@@ -414,6 +414,12 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                     labels={"ano_mes": "Ano-Mês", "n_acidentes": "Acidentes"},
                     color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"], "Crepúsculo": COLOR_PALETTE["warning"]},
                 )
+                fig_mes.update_layout(xaxis_tickangle=-45)
+                n_meses_unicos = tendencia_mes["ano_mes"].nunique()
+                if n_meses_unicos > 36:
+                    fig_mes.update_xaxes(dtick=6)
+                elif n_meses_unicos > 12:
+                    fig_mes.update_xaxes(dtick=3)
                 st.plotly_chart(fig_mes)
 
     st.markdown("---")
