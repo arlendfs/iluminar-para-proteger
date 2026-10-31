@@ -680,6 +680,8 @@ class AccidentAnalyzer:
             "investimento_total": fin_eval["capex_total"],
             "economia_anual": fin_eval["beneficio_anual_bruto"],
             "economia_liquida_anual": fin_eval["beneficio_anual_liquido"],
+            "opex_anual": fin_eval["dimensionamento"]["total_postes"] * FINANCIAL_PARAMS["custo_manutencao_anual_por_poste"],
+            "opex_medio_anual": fin_eval["opex_medio_anual"],
             "economia_mortos": fin_eval["beneficios"]["economia_vidas_ano"],
             "economia_graves": fin_eval["beneficios"]["economia_graves_ano"],
             "economia_leves": fin_eval["beneficios"]["economia_leves_ano"],

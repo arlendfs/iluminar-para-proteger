@@ -7,7 +7,9 @@ segmentação de trechos, mapa, viabilidade econômica e protótipo 3D.
 
 import os
 import gc
+import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any
 import streamlit as st
 import streamlit.components.v1 as components
@@ -59,7 +61,7 @@ def format_pt_br_currency(val: float) -> str:
 
 
 
-def create_dashboard(analyzer: AccidentAnalyzer):
+def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
     """
     Constrói o painel de controle e visualizações com dados auditados.
     """
@@ -1246,3 +1248,560 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             st.error(f"❌ Erro ao gerar relatório PDF: {str(e)}")
 
     gc.collect()
+
+
+# ---------------------------------------------------------------------------
+# Navegação progressiva.  A implementação anterior foi mantida acima como
+# referência histórica, mas não é chamada: expanders/tabs do Streamlit não
+# interrompem a execução do código que contêm.
+# ---------------------------------------------------------------------------
+def _time_module(name: str, started: float) -> None:
+    timings = st.session_state.setdefault("module_timings", {})
+    timings[name] = round(time.perf_counter() - started, 3)
+
+
+def _period_label(data: pd.DataFrame) -> str:
+    if "ano" not in data.columns or data["ano"].dropna().empty:
+        return "período selecionado"
+    years = sorted(data["ano"].dropna().astype(int).unique())
+    return str(years[0]) if len(years) == 1 else f"{years[0]}–{years[-1]}"
+
+
+def render_visao_geral(analyzer: AccidentAnalyzer) -> None:
+    """Único módulo executado imediatamente após a ingestão."""
+    started = time.perf_counter()
+    data = analyzer.filtered_data
+    total = len(data)
+    mortos = int(data.get("mortos", pd.Series(dtype=int)).sum())
+    feridos = int(data.get("total_feridos", pd.Series(dtype=int)).sum())
+    fatais = int(data.get("acidente_fatal", pd.Series(dtype=int)).sum())
+    comp = compute_day_vs_night_comparison(data)
+    noite = (comp.get("noturno") or {}).get("mortos_por_100_acidentes", 0.0)
+    dia = (comp.get("diurno") or {}).get("mortos_por_100_acidentes", 0.0)
+
+    st.subheader("Visão geral")
+    st.caption(f"Período ativo: {_period_label(data)} · filtros globais já aplicados")
+    cols = st.columns(6)
+    for col, label, value in zip(cols, [
+        "Acidentes", "Pessoas mortas", "Pessoas feridas", "Acidentes fatais",
+        "Óbitos / 100 acidentes", "Plena noite vs. pleno dia",
+    ], [
+        f"{total:,}", f"{mortos:,}", f"{feridos:,}", f"{fatais:,}",
+        f"{(mortos / total * 100) if total else 0:.2f}", f"{noite:.2f} / {dia:.2f}",
+    ]):
+        col.metric(label, value)
+    st.info("Os módulos analíticos, mapa, protótipo 3D e PDF são carregados apenas quando selecionados.")
+    _time_module("Visão geral", started)
+
+
+def render_analise_cientifica(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter()
+    data, causas = analyzer.filtered_data, analyzer.filtered_causas
+    result = analyze_visibility_and_reaction(data, causas if causas is not None else pd.DataFrame())
+    st.subheader("Análise científica: visibilidade e reação")
+    st.caption(result.get("evidencias_texto", ""))
+    pivot = result.get("pivot_causas", pd.DataFrame())
+    if not pivot.empty:
+        numeric = [c for c in pivot.columns if c.startswith("n_acidentes_")]
+        if numeric:
+            plot = pivot.sort_values(numeric[0], ascending=False).head(12)
+            st.plotly_chart(px.bar(plot, x="causa_normalizada", y=numeric, barmode="group",
+                                   title="Causas associadas à visibilidade/reação"), config={"displaylogo": False, "responsive": True})
+    st.warning(result.get("limitacoes_texto", "Resultados observacionais; não estabelecem causalidade individual."))
+    _time_module("Análise científica", started)
+
+
+def render_perfil_vitimas(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter()
+    pessoas = analyzer.filtered_pessoas if analyzer.filtered_pessoas is not None else pd.DataFrame()
+    veiculos = analyzer.filtered_veiculos if analyzer.filtered_veiculos is not None else pd.DataFrame()
+    st.subheader("Perfil das vítimas e envolvidos")
+    envolvimento = compute_envolvimento_analysis(pessoas).get("resumo_envolvimento", pd.DataFrame())
+    if not envolvimento.empty:
+        st.dataframe(envolvimento, hide_index=True, width="stretch")
+    sexo = compute_sexo_analysis(pessoas).get("resumo_sexo", pd.DataFrame())
+    if not sexo.empty:
+        st.plotly_chart(px.bar(sexo, x=sexo.columns[0], y="mortos", title="Óbitos por sexo"), config={"displaylogo": False, "responsive": True})
+    if not veiculos.empty and "tipo_veiculo" in veiculos:
+        top = veiculos["tipo_veiculo"].fillna("Não informado").replace({"nan": "Não informado", "NaN": "Não informado"}).value_counts().head(12)
+        st.plotly_chart(px.bar(top, title="Veículos envolvidos"), config={"displaylogo": False, "responsive": True})
+    _time_module("Perfil de vítimas", started)
+
+
+# Camada central de apresentação: mantém os DataFrames científicos intactos e
+# impede que nomes de implementação sejam exibidos ao visitante.
+PRESENTATION_LABELS = {
+    "fase_dia": "Fase do Dia", "fase_dia_oficial": "Fase Oficial do Dia",
+    "fase_dia_agrupada": "Período do Dia", "ano_mes": "Ano/Mês",
+    "causa_normalizada": "Causa do Acidente", "tipo_envolvido": "Tipo de Envolvimento",
+    "total_envolvidos": "Total de Envolvidos", "mortos_noturno": "Óbitos Noturnos",
+    "n_acidentes_total": "Total de Acidentes", "n_acidentes_noturnos": "Acidentes Noturnos",
+    "km_inicio": "KM Inicial", "km_fim": "KM Final", "taxa_mortalidade_pct": "Percentual de Mortalidade",
+    "mortos_excepcionais_noturno": "Óbitos Noturnos em Eventos Excepcionais",
+    "n_acidentes": "Acidentes", "total_mortos": "Óbitos", "total_feridos": "Feridos",
+    "acidentes_fatais": "Acidentes Fatais", "obitos_por_100_acidentes": "Óbitos por 100 Acidentes",
+    "prop_acidentes_fatais_pct": "Percentual de Acidentes Fatais", "value": "Valor da Métrica",
+}
+PLOTLY_CONFIG = {"displayModeBar": True, "displaylogo": False, "responsive": True}
+
+
+def present_dataframe(frame: pd.DataFrame, **kwargs: Any) -> None:
+    """Mostra cópia rotulada, sem alterar estruturas usadas pelos cálculos."""
+    public = frame.copy()
+    text_columns = public.select_dtypes(include=["object", "string", "category"]).columns
+    for column in text_columns:
+        public[column] = public[column].astype(object).replace({"Nan": "Não Informado", "nan": "Não Informado", "NaN": "Não Informado"}).fillna("Não Informado")
+    public = public.rename(columns=PRESENTATION_LABELS)
+    st.dataframe(public, hide_index=True, use_container_width=True, **kwargs)
+
+
+def present_plot(fig: Any) -> None:
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+
+
+def _temporal_measure(frame: pd.DataFrame, group_cols: list[str], metric: str) -> pd.DataFrame:
+    aggregated = frame.groupby(group_cols, observed=True).agg(
+        acidentes=("id", "nunique"), obitos=("mortos", "sum"), feridos=("total_feridos", "sum"),
+        acidentes_fatais=("acidente_fatal", "sum"),
+    ).reset_index()
+    if metric == "Óbitos por 100 acidentes":
+        aggregated["valor"] = aggregated["obitos"] / aggregated["acidentes"].replace(0, np.nan) * 100
+    elif metric == "Percentual de acidentes fatais":
+        aggregated["valor"] = aggregated["acidentes_fatais"] / aggregated["acidentes"].replace(0, np.nan) * 100
+    else:
+        aggregated["valor"] = aggregated[{"Acidentes": "acidentes", "Óbitos": "obitos", "Feridos": "feridos", "Acidentes fatais": "acidentes_fatais"}[metric]]
+    numeric = aggregated.select_dtypes(include=[np.number]).columns
+    aggregated[numeric] = aggregated[numeric].fillna(0)
+    return aggregated
+
+
+def _render_evolucao_temporal_full(analyzer: AccidentAnalyzer) -> None:
+    """Séries anuais/mensais sob demanda, a partir da base já filtrada."""
+    started = time.perf_counter(); data = analyzer.filtered_data.copy()
+    st.subheader("Evolução Temporal dos Acidentes Rodoviários")
+    view = st.segmented_control("Visualização", ["Evolução Anual", "Evolução Mensal Detalhada"], default="Evolução Anual", key="temporal_view")
+    metric = st.selectbox("Métrica", ["Acidentes", "Óbitos", "Feridos", "Acidentes fatais", "Óbitos por 100 acidentes", "Percentual de acidentes fatais"], key="temporal_metric")
+    phase = st.selectbox("Fase do dia", ["Todas", "Diurno", "Noturno", "Crepúsculo", "Pleno dia", "Plena Noite", "Amanhecer", "Anoitecer"], key="temporal_phase")
+    comparison = st.selectbox("Comparação", ["Totais absolutos", "Participação percentual", "Variação entre períodos"], key="temporal_comparison")
+    if phase != "Todas":
+        field = "fase_dia_agrupada" if phase in {"Diurno", "Noturno", "Crepúsculo"} else "fase_dia_oficial"
+        if field in data: data = data[data[field].astype(str).str.casefold() == phase.casefold()]
+    years = sorted(data["ano"].dropna().astype(int).unique()) if "ano" in data else []
+    if 2026 in years and "mes" in data:
+        months = sorted(data.loc[data["ano"] == 2026, "mes"].dropna().unique())
+        if len(months) < 12: st.warning(f"2026 contém somente {len(months)} mês(es) observado(s); totais não são anualizados automaticamente.")
+    if view == "Evolução Anual":
+        grouping = st.radio("Séries", ["Três períodos agrupados", "Quatro fases oficiais"], horizontal=True, key="annual_series")
+        phase_col = "fase_dia_agrupada" if grouping.startswith("Três") else "fase_dia_oficial"
+        series = _temporal_measure(data, ["ano", phase_col], metric)
+        if comparison == "Participação percentual": series["valor"] = series["valor"] / series.groupby("ano")["valor"].transform("sum").replace(0, np.nan) * 100
+        elif comparison == "Variação entre períodos": series["valor"] = series.sort_values("ano").groupby(phase_col)["valor"].pct_change() * 100
+        labels = {"ano": "Ano", phase_col: "Período do Dia", "valor": "Percentual (%)" if comparison != "Totais absolutos" else metric}
+        fig = px.line(series, x="ano", y="valor", color=phase_col, markers=True, title="Evolução Anual dos Acidentes por Período", labels=labels, color_discrete_map={"Diurno": COLOR_PALETTE["diurno"], "Noturno": COLOR_PALETTE["noturno"], "Crepúsculo": COLOR_PALETTE["warning"]})
+        fig.update_xaxes(dtick=1, tickformat="d")
+        present_plot(fig)
+        annual = _temporal_measure(data, ["ano"], "Acidentes")
+        annual["obitos_por_100"] = annual["obitos"] / annual["acidentes"].replace(0, np.nan) * 100
+        annual["variacao_anual_pct"] = annual["acidentes"].pct_change() * 100
+        present_dataframe(annual.rename(columns={"obitos_por_100": "Óbitos por 100 Acidentes", "variacao_anual_pct": "Variação anual (%)"}))
+        st.caption("Agrupamentos: Diurno = Pleno dia; Noturno = Plena Noite; Crepúsculo = Amanhecer + Anoitecer. As quatro fases oficiais permanecem disponíveis no seletor.")
+    else:
+        if "ano_mes" not in data: st.info("A granularidade mensal não está disponível nesta base."); _time_module("Evolução temporal", started); return
+        selected_years = st.multiselect("Anos para comparação sazonal", years, default=years, key="monthly_years")
+        monthly = data[data["ano"].isin(selected_years)] if selected_years else data.iloc[0:0]
+        split = st.checkbox("Separar por fase do dia", value=True, key="monthly_split")
+        cols = ["ano_mes"] + (["fase_dia_oficial"] if split else [])
+        series = _temporal_measure(monthly, cols, metric)
+        fig = px.line(series, x="ano_mes", y="valor", color="fase_dia_oficial" if split else None, markers=True, title="Evolução Mensal Detalhada", labels={"ano_mes": "Ano/Mês", "valor": metric, "fase_dia_oficial": "Fase Oficial do Dia"}, hover_data={"acidentes": True, "obitos": True, "feridos": True})
+        fig.update_xaxes(tickangle=-45); present_plot(fig)
+        if st.checkbox("Comparar sazonalidade por mês", key="seasonality") and "mes" in monthly:
+            seasonal = _temporal_measure(monthly, ["ano", "mes"], metric)
+            present_plot(px.line(seasonal, x="mes", y="valor", color="ano", markers=True, title="Sazonalidade: comparação entre anos", labels={"mes": "Mês", "valor": metric, "ano": "Ano"}))
+    annual_all = _temporal_measure(data, ["ano"], "Acidentes") if "ano" in data else pd.DataFrame()
+    if not annual_all.empty:
+        annual_all["taxa"] = annual_all["obitos"] / annual_all["acidentes"].replace(0, np.nan) * 100
+        night = data[data.get("fase_dia_agrupada", pd.Series(index=data.index)).eq("Noturno")].groupby("ano", observed=True)["id"].nunique()
+        shares = (night / annual_all.set_index("ano")["acidentes"] * 100).dropna()
+        st.markdown("#### Interpretação da Evolução Temporal")
+        st.info(f"O maior total de acidentes ocorreu em {int(annual_all.loc[annual_all['acidentes'].idxmax(), 'ano'])}. A maior taxa de óbitos por 100 acidentes foi {annual_all['taxa'].max():.2f}. A participação noturna variou entre {shares.min():.1f}% e {shares.max():.1f}% nos anos comparáveis. As tendências são descritivas: não demonstram causalidade nem efeito de iluminação.")
+    _time_module("Evolução temporal", started)
+
+
+def _render_trechos_financas_full(analyzer: AccidentAnalyzer) -> None:
+    """Painel completo, calculado apenas quando este módulo é selecionado."""
+    started = time.perf_counter(); data = analyzer.filtered_data
+    st.subheader("Priorização de Trechos Críticos e Viabilidade de Iluminação Solar")
+    with st.form("trechos_local_controls"):
+        a, b, c, d = st.columns(4)
+        spacing = a.slider("Espaçamento entre postes (m)", 20, 100, DEFAULT_SPACING_M, 5)
+        length = b.slider("Extensão do trecho (km)", .5, 10., DEFAULT_COMPRIMENTO_TRECHO_KM, .5)
+        ranking_mode = c.selectbox("Critério de priorização", ["iluminacao_solar", "geral"], format_func=lambda x: "Iluminação solar" if x == "iluminacao_solar" else "Gravidade geral")
+        scenario = d.selectbox("Cenário de equipamento", ["cenario_d", "cenario_a", "cenario_b", "cenario_c", "cenario_e"], format_func=lambda x: {"cenario_a":"A — Meta histórica", "cenario_b":"B — Comercial 6 m / 40 W", "cenario_c":"C — Comercial 8 m / 80 W", "cenario_d":"D — Compacto 8 m / 40 W", "cenario_e":"E — Bateria reforçada"}[x])
+        update = st.form_submit_button("Atualizar análise")
+    params = st.session_state.setdefault("trechos_params", {"spacing": spacing, "length": length, "mode": ranking_mode, "scenario": scenario})
+    if update: params.update({"spacing": spacing, "length": length, "mode": ranking_mode, "scenario": scenario})
+    signature = (len(data), tuple(data.get("id", pd.Series(dtype=str)).head(50).astype(str)), tuple(params.values()))
+    cached = st.session_state.get("trechos_full_cache")
+    if cached and cached[0] == signature: top, summary = cached[1], cached[2]
+    else:
+        with st.spinner("Calculando ranking e viabilidade para o cenário ativo..."):
+            top, summary = analyzer.analyze_top_n(data, top_n=100, comprimento_km=params["length"], spacing_m=params["spacing"], criterio_ranking=params["mode"], cenario_id=params["scenario"])
+        st.session_state["trechos_full_cache"] = (signature, top, summary)
+    if top.empty: st.warning("Não há ocorrências com BR e marco quilométrico elegíveis para o ranking."); return
+    dim = summary.get("dimensionamento", {}); vidas = summary.get("vidas_salvas_ano", 0)
+    st.markdown("#### 1. Resumo financeiro do cenário selecionado")
+    values = [("Extensão contemplada", f"{len(top) * params['length']:.1f} km"), ("Postes por trecho", f"{dim.get('postes_por_trecho', 0):,}"), ("Total de postes", f"{dim.get('total_postes', 0):,}"), ("CAPEX", format_pt_br_currency(summary.get("investimento_total", 0))), ("OPEX anual", format_pt_br_currency(summary.get("opex_anual", summary.get("dimensionamento", {}).get("opex_anual", 0)))), ("Benefício bruto anual", format_pt_br_currency(summary.get("economia_anual", 0))), ("Benefício líquido anual", format_pt_br_currency(summary.get("economia_liquida_anual", 0))), ("VPL social", format_pt_br_currency(summary.get("vpl", 0))), ("TIR social", f"{(summary.get('tir') or 0) * 100:.2f}% a.a."), ("Payback simples", f"{summary.get('payback_simples_anos', 0):.2f} anos"), ("Payback descontado", f"{summary.get('payback_descontado_anos', 0):.2f} anos"), ("Óbitos potencialmente evitáveis/ano", f"{vidas:.1f} (simulação)")]
+    for row in range(0, len(values), 4):
+        for col, (label, value) in zip(st.columns(4), values[row:row+4]): col.metric(label, value)
+    st.caption("O benefício líquido é uma média anual que inclui a provisão de reposições. A manutenção anual é o OPEX ordinário; reposições ocorrem nos anos previstos. A redução de 35% corresponde a CMF 0,65 para o desfecho modelado. A aplicação proporcional aos óbitos é uma hipótese adicional exploratória, não eficácia comprovada.")
+    st.markdown("#### 2. Ranking de trechos críticos")
+    count = st.segmented_control("Quantidade exibida", [10, 20, 50, 100], default=20, key="top_segments_count") or 20
+    rank_metric = st.selectbox("Métrica do gráfico de priorização", ["Acidentes noturnos", "Óbitos noturnos", "Feridos graves", "Pontuação de prioridade"], key="ranking_metric")
+    metric_col = {"Acidentes noturnos":"n_acidentes_noturnos", "Óbitos noturnos":"mortos_noturno", "Feridos graves":"feridos_graves_noturno", "Pontuação de prioridade":"score_prioridade"}[rank_metric]
+    shown = top.head(int(count)).copy(); shown["Trecho"] = shown.get("trecho", shown.get("trecho_id", "Não Informado"))
+    present_plot(px.bar(shown.sort_values(metric_col), x=metric_col, y="Trecho", orientation="h", title=f"Top {count} trechos por {rank_metric}", labels={metric_col: rank_metric, "Trecho": "Trecho rodoviário"}))
+    public_cols = [x for x in ["ranking", "br", "uf", "km_inicio", "km_fim", "n_acidentes_noturnos", "mortos_noturno", "feridos_graves_noturno", "score_prioridade", "investimento_trecho"] if x in shown]
+    present_dataframe(shown[public_cols], height=420)
+    with st.expander("Dados técnicos completos e exportação", expanded=False):
+        st.download_button("Baixar ranking em CSV", top.to_csv(index=False).encode("utf-8-sig"), "ranking_trechos.csv", "text/csv")
+        present_dataframe(top)
+    st.markdown("#### 3. Acidentes noturnos versus diurnos nos trechos priorizados")
+    night = int(top.get("n_acidentes_noturnos", pd.Series(dtype=int)).sum()); total = int(top.get("n_acidentes_total", pd.Series(dtype=int)).sum()); day = max(total-night, 0)
+    comparison = pd.DataFrame({"Período":["Noturno", "Diurno"], "Acidentes":[night, day], "Óbitos":[top.get("mortos_noturno", pd.Series(dtype=float)).sum(), max(top.get("mortos", pd.Series(dtype=float)).sum()-top.get("mortos_noturno", pd.Series(dtype=float)).sum(), 0)]})
+    left, right = st.columns(2); left.plotly_chart(px.bar(comparison, x="Período", y="Acidentes", color="Período", title="Ocorrências nos trechos priorizados"), use_container_width=True, config=PLOTLY_CONFIG); right.plotly_chart(px.bar(comparison, x="Período", y="Óbitos", color="Período", title="Óbitos nos trechos priorizados"), use_container_width=True, config=PLOTLY_CONFIG)
+    st.caption("Esta comparação refere-se somente aos segmentos priorizados; não representa o total nacional mostrado na Visão Geral.")
+    st.markdown("#### 4. Análises estatísticas avançadas")
+    state_metric = st.selectbox("Métrica por estado", ["Acidentes", "Óbitos", "Feridos", "Total de vítimas", "Acidentes fatais", "Óbitos por 100 acidentes"], key="state_metric")
+    states = data.groupby("uf", observed=True).agg(Acidentes=("id", "nunique"), Óbitos=("mortos", "sum"), Feridos=("total_feridos", "sum"), **{"Acidentes fatais":("acidente_fatal", "sum")}).reset_index(); states["Total de vítimas"] = states["Óbitos"] + states["Feridos"]; states["Óbitos por 100 acidentes"] = states["Óbitos"] / states["Acidentes"].replace(0, np.nan) * 100
+    causes = analyzer.filtered_causas if analyzer.filtered_causas is not None else pd.DataFrame()
+    left, right = st.columns(2)
+    with left: present_plot(px.bar(states.nlargest(10, state_metric).sort_values(state_metric), x=state_metric, y="uf", orientation="h", title=f"Top 10 estados — {state_metric}", labels={"uf":"UF"}))
+    with right:
+        if not causes.empty and {"id", "causa_acidente"}.issubset(causes):
+            merged = causes[["id", "causa_acidente"]].drop_duplicates().merge(data[["id", "mortos", "total_feridos", "fase_dia_agrupada"]], on="id", how="inner")
+            cause_metric = st.selectbox("Métrica das causas", ["Ocorrências associadas", "Óbitos associados", "Feridos associados"], key="cause_metric")
+            cg = merged.groupby("causa_acidente", observed=True).agg(**{"Ocorrências associadas":("id","nunique"), "Óbitos associados":("mortos","sum"), "Feridos associados":("total_feridos","sum")}).reset_index()
+            present_plot(px.bar(cg.nlargest(10,cause_metric).sort_values(cause_metric),x=cause_metric,y="causa_acidente",orientation="h",title="Top 10 causas registradas",labels={"causa_acidente":"Causa do acidente"}))
+            st.caption("Causas podem coexistir na mesma ocorrência; barras não devem ser somadas como categorias exclusivas.")
+    st.markdown("#### 5. Memória de cálculo e engenharia solar")
+    deaths = float(top.get("mortos_noturno", pd.Series(dtype=float)).sum()); years = summary.get("anos_base", 1) or 1
+    with st.expander("Memória de cálculo científico", expanded=False): st.markdown(f"Óbitos noturnos históricos: **{deaths:.0f}**; horizonte: **{years:.1f} anos**; baseline anualizado: **{deaths/years:.1f} óbitos/ano**; hipótese CMF: **35%**; projeção condicional: **{vidas:.1f} óbitos potencialmente evitáveis/ano**. CAPEX: **{format_pt_br_currency(summary.get('investimento_total',0))}**; benefício bruto/líquido: **{format_pt_br_currency(summary.get('economia_anual',0))} / {format_pt_br_currency(summary.get('economia_liquida_anual',0))}**; VPL, TIR e payback constam dos cards do cenário ativo.")
+    energy = calcular_balanco_energetico_detalhado()
+    with st.expander("Balanço energético e autonomia", expanded=False): st.markdown(f"LED: **{energy['consumo_led_wh']:.0f} Wh/noite**; telemetria: **{energy['consumo_telemetria_wh']:.0f} Wh/dia**; bateria útil BOL/EOL: **{energy['capacidade_util_bol_wh']:.0f}/{energy['capacidade_util_eol_wh']:.0f} Wh**; autonomia BOL/EOL: **{energy['autonomia_zero_sol_bol_noites']:.2f}/{energy['autonomia_zero_sol_eol_noites']:.2f} noites**; geração solar plena/nublada: **{energy['geracao_solar_sol_pleno_wh']:.0f}/{energy['geracao_solar_dia_nublado_wh']:.0f} Wh/dia**; recuperação: **{energy['dias_recarga_apos_3_noites']:.1f} dias**. {energy['status_aviso']}")
+    with st.expander("Segurança luminotécnica", expanded=False): st.warning("A autonomia energética não comprova atendimento à ABNT NBR 5101:2024. São necessários estudo fotométrico, classificação da via, uniformidade, controle de ofuscamento e geometria de instalação.")
+    st.markdown("#### 6. Cenários orçamentários A–E e sensibilidade")
+    multi = calcular_orcamento_cenarios(top, len(top), params["length"], params["spacing"], years, EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"], FINANCIAL_PARAMS["taxa_desconto_anual"], FINANCIAL_PARAMS["vida_util_anos"]); scenarios = multi.get("comparativo_df", pd.DataFrame())
+    if not scenarios.empty:
+        present_dataframe(scenarios)
+        present_plot(px.bar(scenarios, x="Cenário", y=["CAPEX Total (R$ M)", "VPL 15 Anos (R$ M)"], barmode="group", title="Comparativo Financeiro: Investimento Inicial (CAPEX) vs VPL Social Líquido", labels={"value":"R$ milhões", "variable":"Indicador"}))
+    sensitivity = summary.get("cenarios", {})
+    if sensitivity:
+        sensitivity_table = pd.DataFrame([{"Cenário": row["nome"], "Redução hipotética": f"{row['taxa_reducao']:.0%}", "Óbitos potencialmente evitáveis/ano": row["vidas_salvas_ano"], "VPL social": format_pt_br_currency(row["vpl"]), "Payback simples": f"{row['payback_simples']:.2f} anos"} for row in sensitivity.values()])
+        present_dataframe(sensitivity_table)
+    _time_module("Trechos e finanças", started)
+
+
+def render_evolucao_temporal(analyzer: AccidentAnalyzer) -> None:
+    started=time.perf_counter(); data=analyzer.filtered_data
+    st.subheader("Evolução temporal dos acidentes")
+    mode=st.radio("Série",["Evolução anual","Evolução mensal detalhada"],horizontal=True,key="temporal_mode")
+    years=sorted(data["ano"].dropna().astype(int).unique()) if "ano" in data else []
+    partial=2026 in years and "mes" in data and data.loc[data["ano"]==2026,"mes"].nunique()<12
+    if partial: st.warning("2026 possui cobertura parcial e não deve ser comparado diretamente como ano completo.")
+    phase="fase_dia_agrupada" if "fase_dia_agrupada" in data else None
+    if mode=="Evolução anual" and "ano" in data:
+        grouped=data.groupby(["ano",phase],observed=True).size().reset_index(name="acidentes") if phase else data.groupby("ano",observed=True).size().reset_index(name="acidentes")
+        st.plotly_chart(px.line(grouped,x="ano",y="acidentes",color=phase,markers=True,title="Evolução anual por período",labels={"acidentes":"Ocorrências","ano":"Ano","fase_dia_agrupada":"Período"}))
+    elif "ano_mes" in data:
+        grouped=data.groupby(["ano_mes",phase],observed=True).size().reset_index(name="acidentes") if phase else data.groupby("ano_mes",observed=True).size().reset_index(name="acidentes")
+        fig=px.line(grouped,x="ano_mes",y="acidentes",color=phase,markers=True,title="Evolução mensal e sazonalidade",labels={"ano_mes":"Ano-mês","acidentes":"Ocorrências","fase_dia_agrupada":"Período"}); fig.update_xaxes(tickangle=-45); st.plotly_chart(fig)
+    else: st.info("A base selecionada não contém granularidade mensal.")
+    _time_module("Evolução temporal",started)
+
+
+def render_trechos_financas(analyzer: AccidentAnalyzer) -> None:
+    started=time.perf_counter(); data=analyzer.filtered_data
+    st.subheader("Trechos prioritários, engenharia e viabilidade financeira")
+    with st.form("financial_parameters"):
+        a,b,c=st.columns(3); spacing=a.slider("Espaçamento entre postes (m)",20,100,DEFAULT_SPACING_M,5); length=b.slider("Extensão do trecho (km)",.5,10.,DEFAULT_COMPRIMENTO_TRECHO_KM,.5); top_n=c.slider("Trechos prioritários",5,200,DEFAULT_TRECHOS_TOP_N,5)
+        scenario=st.selectbox("Cenário de equipamento",["cenario_d","cenario_a","cenario_b","cenario_c","cenario_e"],format_func=lambda x: {"cenario_a":"A — Meta histórica 8 m / 60 W", "cenario_b":"B — Comercial 6 m / 40 W", "cenario_c":"C — Comercial 8 m / 80 W", "cenario_d":"D — Compacto conceitual 8 m / 40 W", "cenario_e":"E — 8 m / 80 W com bateria reforçada"}[x])
+        criterion=st.selectbox("Critério de ranqueamento",["iluminacao_solar","geral"],format_func=lambda x:"Prioridade para iluminação solar" if x=="iluminacao_solar" else "Ranking geral de acidentes")
+        submitted=st.form_submit_button("Atualizar cenário")
+    params=st.session_state.setdefault("financial_params",{"spacing":spacing,"length":length,"top_n":top_n,"scenario":scenario,"criterion":criterion})
+    if submitted: params.update({"spacing":spacing,"length":length,"top_n":top_n,"scenario":scenario,"criterion":criterion})
+    cache_key=(len(data),tuple(sorted(data["id"].astype(str).head(100))) if "id" in data else (),tuple(params.values()))
+    cached=st.session_state.get("rich_financial_results")
+    if cached and cached[0]==cache_key: top,summary=cached[1],cached[2]
+    else:
+        with st.spinner("Segmentando trechos e calculando o cenário selecionado..."):
+            top,summary=analyzer.analyze_top_n(data,top_n=params["top_n"],comprimento_km=params["length"],spacing_m=params["spacing"],criterio_ranking=params["criterion"],cenario_id=params["scenario"])
+        st.session_state["rich_financial_results"]=(cache_key,top,summary)
+    if top.empty: st.warning("Não há trechos com BR e KM elegíveis."); return
+    dim=summary.get("dimensionamento",{}); vidas=summary.get("vidas_salvas_ano",0); anos=summary.get("anos_base",1) or 1; mortos=int(top.get("mortos_noturno",pd.Series(dtype=int)).sum())
+    cols=st.columns(5)
+    for col,label,value in zip(cols,["Extensão total","Postes","CAPEX","VPL social","Payback simples"],[f"{len(top)*params['length']:.1f} km",f"{dim.get('total_postes',0):,}",format_pt_br_currency(summary.get('investimento_total',0)),format_pt_br_currency(summary.get('vpl',0)),f"{summary.get('payback_simples_anos',0):.2f} anos"]): col.metric(label,value)
+    st.info(f"Cenário de sensibilidade: {vidas:.1f} óbitos potencialmente evitáveis/ano; o CMF de 35% não é uma eficácia comprovada para os trechos.")
+    with st.expander("Memória de cálculo científico",expanded=False):
+        st.markdown(f"Foram observados **{mortos:,} óbitos noturnos** nos {len(top)} trechos ao longo de **{anos:.1f} anos**. A taxa anualizada é **{mortos/anos:.1f}**; o cenário aplica **35%** como hipótese paramétrica, resultando em **{vidas:.1f}** óbitos potencialmente evitáveis/ano. O benefício social anual bruto é {format_pt_br_currency(summary.get('economia_anual',0))}, o líquido é {format_pt_br_currency(summary.get('economia_liquida_anual',0))}, com OPEX e desconto incorporados no VPL.")
+    energy=calcular_balanco_energetico_detalhado()
+    with st.expander("Balanço energético e autonomia — 8 m / 40 W",expanded=False):
+        st.markdown(f"LED: **{energy['consumo_led_wh']:.0f} Wh/noite**; telemetria: **{energy['consumo_telemetria_wh']:.0f} Wh/dia**; consumo total: **{energy['consumo_total_diario_wh']:.0f} Wh/dia**. Bateria útil BOL/EOL: **{energy['capacidade_util_bol_wh']:.0f}/{energy['capacidade_util_eol_wh']:.0f} Wh**; autonomia sem geração: **{energy['autonomia_zero_sol_bol_noites']:.2f}/{energy['autonomia_zero_sol_eol_noites']:.2f} noites**. Geração em sol pleno: **{energy['geracao_solar_sol_pleno_wh']:.0f} Wh/dia**; nublado: **{energy['geracao_solar_dia_nublado_wh']:.0f} Wh/dia**. {energy['status_aviso']}")
+    with st.expander("Validação luminotécnica pendente — ABNT NBR 5101:2024",expanded=False): st.warning("A simulação energética não comprova conformidade luminotécnica. São necessários estudo DIALux/Relux, classe da via, luminância, uniformidade, ofuscamento e geometria local.")
+    multi=calcular_orcamento_cenarios(top,len(top),params["length"],params["spacing"],anos,EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"],FINANCIAL_PARAMS["taxa_desconto_anual"],FINANCIAL_PARAMS["vida_util_anos"]); comparison=multi.get("comparativo_df",pd.DataFrame())
+    if not comparison.empty:
+        st.markdown("#### Comparativo de orçamentos A–E")
+        st.dataframe(comparison,hide_index=True,width="stretch")
+        st.plotly_chart(px.bar(comparison,x="Cenário",y=["CAPEX Total (R$ M)","VPL 15 Anos (R$ M)"],barmode="group",title="CAPEX versus VPL social (R$ milhões)"))
+    st.markdown("#### Ranking dos trechos prioritários")
+    essential=[x for x in ["ranking","trecho","n_acidentes","mortos","total_feridos","score_prioridade","confiabilidade_geo","investimento_trecho","economia_anual_trecho","payback_anos"] if x in top]
+    st.dataframe(top[essential],hide_index=True,width="stretch",height=380,column_config={"ranking":"Posição","trecho":"BR / UF / intervalo de KM","n_acidentes":"Acidentes noturnos","mortos":"Óbitos noturnos","total_feridos":"Feridos noturnos","score_prioridade":"Pontuação","confiabilidade_geo":"Confiabilidade geográfica","investimento_trecho":"CAPEX (R$)","economia_anual_trecho":"Benefício social anual (R$)","payback_anos":"Payback (anos)"})
+    with st.expander("Dados técnicos completos e exportação",expanded=False): st.download_button("Baixar ranking CSV",top.to_csv(index=False).encode("utf-8-sig"),"ranking_trechos.csv","text/csv"); st.dataframe(top,hide_index=True,width="stretch")
+    _time_module("Trechos e finanças",started)
+
+
+def render_mapa(analyzer: AccidentAnalyzer) -> None:
+    started=time.perf_counter(); data=analyzer.filtered_data
+    st.subheader("Mapa geográfico de ocorrências e trechos críticos")
+    if not {"latitude","longitude"}.issubset(data): st.warning("A base não possui coordenadas geográficas."); return
+    eligible=data[data["latitude"].notna() & data["longitude"].notna() & data["latitude"].between(-34,5.5) & data["longitude"].between(-74,-32)].copy()
+    limit=st.slider("Máximo de marcadores exibidos",100,2000,APP_CONFIG.get("max_map_points",800),100,key="map_limit")
+    shown=eligible.sample(min(len(eligible),limit),random_state=42) if len(eligible)>limit else eligible
+    st.caption(f"Total georreferenciado elegível: {len(eligible):,}; exibido: {len(shown):,}. A limitação visual não altera estatísticas nem ranking.")
+    if shown.empty: st.warning("Não há coordenadas válidas para os filtros atuais."); return
+    m=folium.Map(location=[float(shown.latitude.median()),float(shown.longitude.median())],zoom_start=6,tiles="OpenStreetMap"); cluster=MarkerCluster(name="Ocorrências").add_to(m)
+    cols=[x for x in ["latitude","longitude","br","uf","km","mortos","total_feridos","fase_dia_oficial","causa_acidente"] if x in shown]
+    for row in shown[cols].itertuples(index=False):
+        item=dict(zip(cols,row)); fatal=item.get("mortos",0)>0; night=item.get("fase_dia_oficial")=="Plena Noite"; color="#d62728" if fatal else ("#1f77b4" if night else "#ff7f0e")
+        text=f"<b>BR-{item.get('br','Não informado')} / {item.get('uf','')}</b><br>KM: {item.get('km','Não informado')}<br>Óbitos: {item.get('mortos',0)}<br>Feridos: {item.get('total_feridos',0)}<br>Fase: {item.get('fase_dia_oficial','Não informado')}"
+        folium.CircleMarker([item["latitude"],item["longitude"]],radius=6 if fatal else 4,popup=text,color=color,fill=True,fill_color=color,fill_opacity=.7).add_to(cluster)
+    folium_static(m,width=1100,height=520)
+    st.caption("Vermelho: ocorrência fatal; azul: plena noite; laranja: demais fases. O agrupamento reduz a sobrecarga do navegador.")
+    _time_module("Mapa",started)
+
+
+def render_prototipo_3d() -> None:
+    started=time.perf_counter(); st.subheader("Protótipo 3D — poste solar inteligente compacto")
+    left,right=st.columns([3,1])
+    with left:
+        try: components.html((Path(__file__).parent / "solar_post_3d.html").read_text(encoding="utf-8"),height=640)
+        except OSError: st.error("Arquivo solar_post_3d.html não encontrado.")
+    with right:
+        st.html("<div class='metric-container'><h4>Controles do modelo</h4><p>🌙 Dia/noite e LED</p><p>🔋 Bateria, painel e MPPT</p><p>📡 Telemetria e radar</p><p>🚨 Falhas simuladas e alertas</p><p>📷 Movimento e reinicialização da câmera</p><hr><small>Representação conceitual: não substitui dimensionamento fotométrico, estrutural ou solar local.</small></div>")
+    _time_module("Protótipo 3D",started)
+
+
+def render_evolucao_temporal(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter()
+    data = analyzer.filtered_data
+    st.subheader("Evolução temporal")
+    group_col = "ano_mes" if "ano_mes" in data.columns and data["ano_mes"].nunique() > 1 else "ano"
+    if group_col in data.columns:
+        series = data.groupby(group_col, observed=True).size().reset_index(name="acidentes")
+        st.plotly_chart(px.line(series, x=group_col, y="acidentes", markers=True,
+                                title="Ocorrências no período"), config={"displaylogo": False, "responsive": True})
+    _time_module("Evolução temporal", started)
+
+
+def _financial_results(analyzer: AccidentAnalyzer) -> tuple[pd.DataFrame, Dict[str, Any]]:
+    data = analyzer.filtered_data
+    signature = (tuple(sorted(data.get("id", pd.Series(dtype=int)).astype(str).head(50))), len(data))
+    cached = st.session_state.get("financial_results")
+    if cached and cached[0] == signature:
+        return cached[1], cached[2]
+    top, summary = analyzer.analyze_top_n(data)
+    st.session_state["financial_results"] = (signature, top, summary)
+    return top, summary
+
+
+def render_trechos_financas(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter()
+    st.subheader("Trechos prioritários e cenário financeiro")
+    top, summary = _financial_results(analyzer)
+    if top.empty:
+        st.warning("Não há ocorrências elegíveis com BR e KM para a segmentação.")
+    else:
+        st.dataframe(top.head(100), hide_index=True, width="stretch", height=420)
+        st.caption("O CMF de 35% é uma hipótese de sensibilidade para o cenário, não uma previsão de vidas efetivamente salvas.")
+        st.metric("VPL social estimado", format_pt_br_currency(summary.get("vpl", 0)))
+    _time_module("Trechos e finanças", started)
+
+
+def render_mapa(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter()
+    data = analyzer.filtered_data
+    st.subheader("Mapa geográfico")
+    mask = data["latitude"].notna() & data["longitude"].notna() if {"latitude", "longitude"}.issubset(data.columns) else pd.Series(False, index=data.index)
+    eligible = data[mask]
+    limit = APP_CONFIG.get("max_map_points", 800)
+    shown = eligible.sample(min(len(eligible), limit), random_state=42) if not eligible.empty else eligible
+    st.caption(f"Ocorrências georreferenciadas elegíveis: {len(eligible):,}; exibidas: {len(shown):,}. A limitação é visual e não altera os totais.")
+    if not shown.empty:
+        m = folium.Map(location=[float(shown.latitude.median()), float(shown.longitude.median())], zoom_start=6)
+        cluster = MarkerCluster().add_to(m)
+        for row in shown[["latitude", "longitude", "br", "uf", "km", "mortos"]].itertuples(index=False):
+            folium.CircleMarker([row.latitude, row.longitude], radius=4, popup=f"BR-{row.br}/{row.uf} · KM {row.km} · óbitos {row.mortos}").add_to(cluster)
+        folium_static(m, width=1100, height=520)
+    else:
+        st.warning("Não há coordenadas válidas para os filtros ativos.")
+    _time_module("Mapa", started)
+
+
+def render_prototipo_3d() -> None:
+    started = time.perf_counter()
+    st.subheader("Protótipo 3D do poste solar")
+    try:
+        components.html((Path(__file__).parent / "solar_post_3d.html").read_text(encoding="utf-8"), height=640)
+    except OSError:
+        st.error("Arquivo solar_post_3d.html não encontrado.")
+    _time_module("Protótipo 3D", started)
+
+
+def render_relatorio_pdf(analyzer: AccidentAnalyzer) -> None:
+    st.subheader("Relatório científico em PDF")
+    st.caption("A geração é independente dos módulos visuais; só calcula a segmentação necessária após o clique.")
+    if st.button("Gerar relatório PDF", type="primary", key="generate_lazy_pdf"):
+        started = time.perf_counter()
+        with st.spinner("Gerando relatório e suas agregações necessárias..."):
+            top, summary = _financial_results(analyzer)
+            result = ReportGenerator().generate_accident_analysis_report(
+                filtered_data=analyzer.filtered_data, top_segments=top,
+                financial_summary=summary, quality_summary=analyzer.quality_summary,
+                pessoas_df=analyzer.filtered_pessoas, veiculos_df=analyzer.filtered_veiculos,
+                causas_df=analyzer.filtered_causas,
+            )
+        st.session_state["generated_pdf"] = (result.getvalue(), "relatorio_cientifico_iluminar_" + datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S") + ".pdf")
+        _time_module("PDF", started)
+    if "generated_pdf" in st.session_state:
+        pdf_bytes, pdf_name = st.session_state["generated_pdf"]
+        st.download_button("Baixar PDF", pdf_bytes, pdf_name, "application/pdf")
+
+
+def create_dashboard(analyzer: AccidentAnalyzer) -> None:
+    """Despacha somente o módulo selecionado; não usa tabs/expanders como lazy-load."""
+    if analyzer.filtered_data is None or analyzer.filtered_data.empty:
+        st.warning("Não há registros para exibir com os filtros selecionados.")
+        return
+    modules = {
+        "Visão geral": lambda: render_visao_geral(analyzer),
+        "Análise científica": lambda: render_analise_cientifica(analyzer),
+        "Perfil de vítimas": lambda: render_perfil_vitimas(analyzer),
+        "Evolução temporal": lambda: render_evolucao_temporal(analyzer),
+        "Trechos e finanças": lambda: render_trechos_financas(analyzer),
+        "Mapa": lambda: render_mapa(analyzer),
+        "Protótipo 3D": render_prototipo_3d,
+        "Relatório PDF": lambda: render_relatorio_pdf(analyzer),
+    }
+    active = st.radio("Módulo", list(modules), horizontal=True, key="active_dashboard_module")
+    modules[active]()
+    timings = st.session_state.get("module_timings", {})
+    if timings:
+        st.caption("Tempo Python do último carregamento: " + ", ".join(f"{k}: {v:.2f}s" for k, v in timings.items()))
+
+
+# Recuperação seletiva do conteúdo existente em render_legacy_full_dashboard.
+# Estas funções substituem as versões resumidas acima; a navegação continua a
+# chamar uma única função por vez e, portanto, não reintroduz renderização geral.
+def render_visao_geral(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter(); data = analyzer.filtered_data; quality = analyzer.quality_summary or {}
+    total, mortos = len(data), int(data["mortos"].sum())
+    feridos, fatais = int(data["total_feridos"].sum()), int(data["acidente_fatal"].sum())
+    com_km = int(data["km"].notna().sum()) if "km" in data else 0
+    com_geo = int((data["latitude"].notna() & data["longitude"].notna()).sum()) if {"latitude", "longitude"}.issubset(data) else 0
+    st.subheader("Visão geral e auditoria metodológica")
+    with st.expander("Auditoria metodológica e qualidade dos dados", expanded=False):
+        cols = st.columns(4)
+        vals = [("Linhas brutas", quality.get("registros_brutos", total)), ("Ocorrências únicas", total),
+                ("Pessoas identificadas", quality.get("pessoas_unicas_pesid", 0)), ("Veículos únicos", quality.get("veiculos_unicos", 0))]
+        for col, (label, value) in zip(cols, vals): col.metric(label, f"{value:,}")
+        st.markdown(f"**Desdobramentos consolidados:** {quality.get('desdobramentos_consolidados', 0):,} · "
+                    f"**KM informado:** {com_km:,} · **KM ausente:** {quality.get('ocorrencias_sem_km', total-com_km):,} · "
+                    f"**Coordenadas válidas:** {com_geo:,}.  Estatísticas nacionais usam todas as ocorrências; "
+                    "o ranking físico usa somente BR e KM elegíveis.")
+    metrics = st.columns(6)
+    for col, label, value in zip(metrics, ["Acidentes únicos", "Pessoas mortas", "Pessoas feridas", "Acidentes fatais", "% de acidentes fatais", "Óbitos / 100 acidentes"],
+                                 [total, mortos, feridos, fatais, fatais / total * 100 if total else 0, mortos / total * 100 if total else 0]):
+        col.metric(label, f"{value:,}" if isinstance(value, int) else f"{value:.2f}" + ("%" if label.startswith("%") else ""))
+    comp = compute_day_vs_night_comparison(data); tabela = comp.get("tabela_oficial", pd.DataFrame())
+    noite, dia = comp.get("noturno") or {}, comp.get("diurno") or {}
+    st.subheader("Comparação por fase oficial do dia")
+    a, b, c = st.columns(3)
+    a.metric("Óbitos / 100 na plena noite", f"{noite.get('mortos_por_100_acidentes', 0):.2f}")
+    b.metric("Óbitos / 100 no pleno dia", f"{dia.get('mortos_por_100_acidentes', 0):.2f}")
+    c.metric("Razão de letalidade", f"{comp.get('razao_letalidade_obitos', 0):.2f}x")
+    if not tabela.empty:
+        left, right = st.columns(2)
+        colors = {"Pleno dia": COLOR_PALETTE["diurno"], "Plena Noite": COLOR_PALETTE["noturno"], "Amanhecer": COLOR_PALETTE["amanhecer"], "Anoitecer": COLOR_PALETTE["anoitecer"]}
+        with left: st.plotly_chart(px.pie(tabela, names="fase_dia_oficial", values="n_acidentes", hole=.4, title="Distribuição de ocorrências por fase", color="fase_dia_oficial", color_discrete_map=colors))
+        with right: st.plotly_chart(px.bar(tabela, x="fase_dia_oficial", y="mortos_por_100_acidentes", color="fase_dia_oficial", title="Óbitos por 100 acidentes", color_discrete_map=colors))
+        present_dataframe(tabela)
+        st.info(comp.get("texto_interpretativo_fases", "Comparação descritiva; não representa risco por viagem."))
+    _time_module("Visão geral", started)
+
+
+def render_analise_cientifica(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter(); data = analyzer.filtered_data
+    result = analyze_visibility_and_reaction(data, analyzer.filtered_causas if analyzer.filtered_causas is not None else pd.DataFrame())
+    st.subheader("Visibilidade noturna, tempo de reação e fatores associados")
+    pivot = result.get("pivot_causas", pd.DataFrame()); reacao = result.get("reacao_df", pd.DataFrame())
+    if not pivot.empty:
+        selected = pivot[pivot.get("is_reacao_visibilidade", False)].copy()
+        noturno = next((x for x in selected.columns if "n_acidentes_noturno" in x), None); diurno = next((x for x in selected.columns if "n_acidentes_diurno" in x), None)
+        left, right = st.columns([3, 2])
+        with left:
+            if noturno and diurno:
+                plot = selected.sort_values(noturno, ascending=False).head(12)
+                fig = go.Figure([go.Bar(name="Noturno", x=plot["causa_normalizada"], y=plot[noturno], marker_color=COLOR_PALETTE["noturno"]), go.Bar(name="Diurno", x=plot["causa_normalizada"], y=plot[diurno], marker_color=COLOR_PALETTE["diurno"])])
+                fig.update_layout(title="Ocorrências por causa: noturno versus diurno", barmode="group", xaxis_tickangle=-30); st.plotly_chart(fig)
+        with right:
+            st.html(f"<div class='highlight-box'><h4>Rigor científico</h4><p><b>Evidência observacional:</b> {result.get('evidencias_texto','')}</p><p><b>Hipótese interpretativa:</b> {result.get('hipotese_texto','')}</p><p><b>Limitações:</b> {result.get('limitacoes_texto','')}</p></div>")
+        present_dataframe(selected)
+    meteo, pista = result.get("meteo_strat", pd.DataFrame()), result.get("pista_strat", pd.DataFrame())
+    st.markdown("#### Estratificação ambiental e geometria da via")
+    left, right = st.columns(2)
+    if not meteo.empty:
+        with left: st.plotly_chart(px.bar(meteo, x="condicao_metereologica", y="n_acidentes", color="fase_dia_agrupada", barmode="group", title="Causas por condição meteorológica", labels={"condicao_metereologica":"Meteorologia", "n_acidentes":"Ocorrências"}))
+    if not pista.empty:
+        with right: st.plotly_chart(px.bar(pista, x="tipo_pista", y="n_acidentes", color="fase_dia_agrupada", barmode="group", title="Causas por tipo de pista", labels={"tipo_pista":"Tipo de pista", "n_acidentes":"Ocorrências"}))
+    if not reacao.empty:
+        st.markdown("#### Estatísticas detalhadas de causas, gravidade e período")
+        present_dataframe(reacao)
+    _time_module("Análise científica", started)
+
+
+def render_perfil_vitimas(analyzer: AccidentAnalyzer) -> None:
+    started = time.perf_counter(); pessoas = analyzer.filtered_pessoas if analyzer.filtered_pessoas is not None else pd.DataFrame(); veiculos = analyzer.filtered_veiculos if analyzer.filtered_veiculos is not None else pd.DataFrame(); data = analyzer.filtered_data
+    st.subheader("Perfil de vítimas, frota e tipologia")
+    choice = st.radio("Dimensão", ["Envolvimento", "Faixa etária", "Sexo", "Frota", "Tipo de acidente"], horizontal=True, key="profile_dimension")
+    if choice == "Envolvimento" and not pessoas.empty:
+        res = compute_envolvimento_analysis(pessoas); tbl = res.get("resumo_envolvimento", pd.DataFrame())
+        if not tbl.empty:
+            vitimas_plot = tbl[["tipo_envolvido", "mortos", "feridos_graves", "feridos_leves"]].copy()
+            vitimas_plot["tipo_envolvido"] = vitimas_plot["tipo_envolvido"].astype(str).replace({"nan": "Não informado", "Nan": "Não informado"})
+            vitimas_plot = vitimas_plot.melt(id_vars="tipo_envolvido", var_name="gravidade", value_name="quantidade")
+            vitimas_plot["gravidade"] = vitimas_plot["gravidade"].map({"mortos": "Óbitos", "feridos_graves": "Feridos graves", "feridos_leves": "Feridos leves"})
+            a,b=st.columns(2); a.plotly_chart(px.bar(vitimas_plot,x="tipo_envolvido",y="quantidade",color="gravidade",barmode="stack",title="Distribuição de Vítimas por Tipo de Envolvimento",labels={"quantidade":"Pessoas", "gravidade":"Gravidade", "tipo_envolvido":"Envolvimento"})); b.plotly_chart(px.bar(tbl,x="tipo_envolvido",y="taxa_mortalidade_pct",title="Taxa de mortalidade por envolvimento",labels={"taxa_mortalidade_pct":"Mortalidade (%)","tipo_envolvido":"Envolvimento"}))
+            present_dataframe(tbl)
+    elif choice == "Faixa etária" and not pessoas.empty:
+        res=compute_faixa_etaria_analysis(pessoas); tbl=res.get("resumo_faixa_etaria",pd.DataFrame()); q=res.get("metricas_qualidade_idade",{})
+        c=st.columns(3); c[0].metric("Idades válidas",f"{q.get('idades_validas',0):,}"); c[1].metric("Não informadas/inconsistentes",f"{q.get('idades_inconsistentes_ou_ausentes',0):,}"); c[2].metric("Acima de 110 anos",f"{q.get('idades_superiores_110_anos',0):,}")
+        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.bar(tbl,x="faixa_etaria",y="total_pessoas",title="Pessoas por faixa etária",labels={"faixa_etaria":"Faixa etária","total_pessoas":"Pessoas"})); b.plotly_chart(px.bar(tbl,x="faixa_etaria",y="mortos",title="Óbitos por faixa etária",labels={"faixa_etaria":"Faixa etária","mortos":"Óbitos"})); present_dataframe(tbl)
+    elif choice == "Sexo" and not pessoas.empty:
+        tbl=compute_sexo_analysis(pessoas).get("resumo_sexo",pd.DataFrame())
+        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.pie(tbl,names="sexo",values="total_pessoas",hole=.4,title="Envolvidos por sexo",labels={"total_pessoas":"Pessoas"})); b.plotly_chart(px.bar(tbl,x="sexo",y="taxa_mortalidade_pct",title="Mortalidade por sexo",labels={"taxa_mortalidade_pct":"Percentual de mortalidade"})); present_dataframe(tbl)
+    elif choice == "Frota" and not veiculos.empty:
+        tbl=compute_veiculo_analysis(veiculos,pessoas)
+        if not tbl.empty: st.plotly_chart(px.bar(tbl.head(10),x="tipo_veiculo",y="total_veiculos",title="Top 10 veículos envolvidos",labels={"tipo_veiculo":"Tipo de veículo","total_veiculos":"Veículos"})); present_dataframe(tbl)
+    else:
+        res=compute_tipo_acidente_analysis(data); tbl=res.get("resumo_tipo_acidente",pd.DataFrame())
+        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.bar(tbl.head(10),x="tipo_acidente",y="mortos",title="Tipos de acidente por óbitos",labels={"tipo_acidente":"Tipo de acidente","mortos":"Óbitos"})); b.plotly_chart(px.bar(tbl.head(10),x="tipo_acidente",y="obitos_por_100_acidentes",title="Óbitos por 100 acidentes",labels={"tipo_acidente":"Tipo de acidente","obitos_por_100_acidentes":"Óbitos por 100 acidentes"})); present_dataframe(tbl)
+    _time_module("Perfil de vítimas", started)
+
+
+# Os despachantes abaixo são definidos por último para prevalecer sobre as
+# versões simplificadas mantidas no arquivo apenas para histórico local.
+def render_evolucao_temporal(analyzer: AccidentAnalyzer) -> None:
+    _render_evolucao_temporal_full(analyzer)
+
+
+def render_trechos_financas(analyzer: AccidentAnalyzer) -> None:
+    _render_trechos_financas_full(analyzer)

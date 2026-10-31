@@ -257,6 +257,20 @@ class ReportGenerator:
         """
         Gera o documento PDF estruturado com todas as 15 seções científicas.
         """
+        # Valores ausentes são uma categoria de qualidade, nunca a string
+        # técnica "nan" nas tabelas entregues ao público.
+        def _public_missing(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+            if df is None:
+                return None
+            clean = df.copy()
+            for col in clean.select_dtypes(include=["object", "string"]).columns:
+                clean[col] = clean[col].replace(r"^\\s*(nan|none|null|n/a)\\s*$", "Não informado", regex=True).fillna("Não informado")
+            return clean
+
+        filtered_data = _public_missing(filtered_data)
+        causas_df = _public_missing(causas_df)
+        pessoas_df = _public_missing(pessoas_df)
+        veiculos_df = _public_missing(veiculos_df)
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer,
@@ -334,7 +348,7 @@ class ReportGenerator:
         • <b>Percentual de Acidentes Fatais:</b> <b>{format_pt_br_number(pct_fatais_geral, 1)}%</b> dos sinistros resultaram em pelo menos um óbito ({format_pt_br_int(acidentes_fatais)} sinistros fatais).<br/>
         • <b>Taxa de Óbitos por 100 Acidentes:</b> O índice geral é de <b>{format_pt_br_number(obitos_100_geral, 2)} óbitos/100 acidentes</b>.<br/>
         • <b>Assimetria Dia vs Noite:</b> Os acidentes noturnos concentram <b>{format_pt_br_int(acidentes_not)} ocorrências ({format_pt_br_number(perc_not, 1)}%)</b> e <b>{format_pt_br_int(mortos_not)} mortes</b>, com taxa de <b>{format_pt_br_number(let_not, 2)} óbitos/100 acidentes</b> contra <b>{format_pt_br_number(let_dia, 2)} no diurno</b> (letalidade <b>{format_pt_br_number(fator_let, 2)}x maior</b>).<br/>
-        • <b>Impacto Potencial da Iluminação Solar (Simulação CMF):</b> Para os {n_trechos_resumo} trechos críticos priorizados, estima-se que a intervenção com postes solares inteligentes pode preservar <b>{format_pt_br_number(vidas_salvas_resumo, 1)} vidas humanas por ano</b> e mitigar cerca de {format_pt_br_number(graves_evitados_resumo, 0)} feridos graves anualmente (fator CMF de 35% de redução noturna da FHWA, pendente de validação de campo).
+        • <b>Cenário exploratório:</b> Redução hipotética de 35% corresponde a CMF 0,65 para o desfecho modelado. Aplicar a mesma redução aos óbitos pressupõe proporcionalidade adicional não comprovada; a estimativa de <b>{format_pt_br_number(vidas_salvas_resumo, 1)} óbitos potencialmente evitáveis/ano</b> não prevê o efeito real.
         """
         story.append(Paragraph(resumo_p, self.custom_styles["body"]))
 
@@ -345,10 +359,13 @@ class ReportGenerator:
 
         linhas_brutas = qual.get("registros_brutos", total_ocorrencias)
         desdobramentos_consolidados = qual.get("desdobramentos_consolidados", qual.get("duplicatas_linhas_evitadas", 0))
-        com_km_count = qual.get("ocorrencias_com_km", total_ocorrencias)
-        sem_km_count = qual.get("ocorrencias_sem_km", 0)
+        com_km_count = int(filtered_data["km"].notna().sum()) if "km" in filtered_data else 0
+        sem_km_count = total_ocorrencias - com_km_count
         mortos_sem_km = qual.get("mortos_sem_km", 0)
         feridos_sem_km = qual.get("feridos_sem_km", 0)
+        km_ausente = qual.get("km_originalmente_ausente", sem_km_count)
+        km_invalido = qual.get("km_nao_numerico", 0) + qual.get("km_negativo", 0) + qual.get("km_invalido_extremo", 0)
+        km_recuperado = qual.get("km_superior_1500_recuperados", 0)
         pessoas_unicas = qual.get("pessoas_unicas_pesid", len(pessoas_df) if pessoas_df is not None else 0)
         caso_excepcional_txt = ""
         if filtered_data is not None and not filtered_data.empty and "id" in filtered_data.columns:
@@ -363,9 +380,11 @@ class ReportGenerator:
         <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>), veículo e causa registrada. Para assegurar total rigor estatístico, as ocorrências foram desduplicadas pela chave primária <code>id</code>, as vítimas agregadas por pessoas únicas (<code>pesid</code>) e os veículos por <code>id_veiculo</code>, consolidando <b>{format_pt_br_int(desdobramentos_consolidados)} desdobramentos de ocupantes, veículos e causas</b> a partir de <b>{format_pt_br_int(linhas_brutas)} linhas brutas</b> (total de <b>{format_pt_br_int(pessoas_unicas)} pessoas únicas</b> identificadas).<br/>
         <b>Auditoria Metodológica dos Registros sem Marco Quilométrico:</b><br/>
         - Linhas brutas lidas: <b>{format_pt_br_int(linhas_brutas)}</b> | Ocorrências únicas totais identificadas: <b>{format_pt_br_int(qual.get('ocorrencias_unicas', total_ocorrencias))}</b>.<br/>
+        - Linhas brutas com KM ausente nos arquivos carregados: <b>{format_pt_br_int(km_ausente)}</b> (não é contagem de ocorrências e pode não refletir filtros posteriores).<br/>
         - Subtração direta de desdobramentos consolidados: `{format_pt_br_int(linhas_brutas)} - {format_pt_br_int(qual.get('ocorrencias_unicas', total_ocorrencias))} = {format_pt_br_int(desdobramentos_consolidados)}`.<br/>
-        - Ocorrências com marco KM verificado: <b>{format_pt_br_int(com_km_count)}</b> | Ocorrências sem marco KM registrado: <b>{format_pt_br_int(sem_km_count)}</b> ({format_pt_br_int(mortos_sem_km)} óbito(s) e {format_pt_br_int(feridos_sem_km)} ferido(s)).<br/>
-        - A diferença nos cálculos de segmentação decorre rigorosamente das <b>{format_pt_br_int(sem_km_count)} ocorrências com KM ausente</b> na PRF, as quais foram isoladas do ranking físico de trechos rodoviários para eliminar a histórica distorção de concentração indevida no KM 0,0, mas integralmente preservadas nas análises nacionais de letalidade, causas e demografia.{caso_excepcional_txt}
+        - Ocorrências com KM numericamente válido: <b>{format_pt_br_int(com_km_count)}</b> | Ocorrências sem KM válido: <b>{format_pt_br_int(sem_km_count)}</b> ({format_pt_br_int(mortos_sem_km)} óbito(s) e {format_pt_br_int(feridos_sem_km)} ferido(s)).<br/>
+        - Por ocorrência única no recorte: ausente <b>{format_pt_br_int(int((filtered_data['km_status'] == 'ausente').sum()) if 'km_status' in filtered_data else 0)}</b>; inválido <b>{format_pt_br_int(int(filtered_data['km_status'].isin(['nao_numerico', 'negativo', 'invalido_extremo', 'invalido']).sum()) if 'km_status' in filtered_data else 0)}</b>; recuperado acima de 1.500 <b>{format_pt_br_int(int((filtered_data['km_status'] == 'superior_1500_recuperado').sum()) if 'km_status' in filtered_data else 0)}</b>. A validação numérica não comprova localização física.<br/>
+        - Todas as ocorrências permanecem nas estatísticas gerais. A segmentação exige também BR e UF válidas; sua exclusão pode superar o total sem KM válido.{caso_excepcional_txt}
         """
         story.append(Paragraph(metodologia_p, self.custom_styles["body"]))
 
@@ -435,11 +454,7 @@ class ReportGenerator:
         fases_callout = f"""
         <b>Discussão Científica — Indicadores de Severidade por Fase do Dia (Foco Crítico: {fase_top_nome} com {format_pt_br_number(fase_top_val, 2)} óbitos/100 acidentes):</b><br/>
         {texto_fases}<br/>
-        <b>Fatores Intervenientes Documentados na Literatura de Tráfego:</b><br/>
-        1. <b>Nadir Circadiano (Fadiga Biológica):</b> Entre 04h e 06h ocorre o vale circadiano de vigília, elevando a probabilidade de microssono e tempo de percepção retardado;<br/>
-        2. <b>Ofuscamento Horizontal (Glare Solar):</b> No amanhecer, o ângulo rasteiro do sol nascente reduz drasticamente o contraste óptico para veículos em sentido leste;<br/>
-        3. <b>Penumbra e Conicidade Visual:</b> Períodos crepusculares induzem desligamento prematuro de faróis antes de haver iluminância ambiental segura;<br/>
-        4. <b>Déficit de Contraste na Plena Noite:</b> Sem iluminação artificial contínua, a visibilidade fica restrita aos fachos dos faróis baixos (30 a 50m), incompatível com a distância de parada segura a 100 km/h.
+        <b>Hipóteses e limitações:</b> Mudanças de luminosidade, orientação da via e atenção dos condutores podem contribuir para diferenças observadas. Os microdados não identificam a contribuição individual desses fatores, nem comprovam ofuscamento, fadiga ou ausência de iluminação. A distância de parada depende de velocidade, reação, aderência, declividade e frenagem; o alcance dos faróis varia conforme veículo e condições.
         """
         story.append(KeepTogether([Paragraph(fases_callout, self.custom_styles["callout"])]))
 
@@ -512,7 +527,7 @@ class ReportGenerator:
         • <b>{evid_txt}</b><br/>
         • <b>{hip_txt}</b><br/>
         • <b>{lim_txt}</b><br/>
-        • <b>Fundamentação Externa (Escopo FHWA):</b> A recomendação <i>FHWA Proven Safety Countermeasures: Lighting</i> estabelece fatores de modificação de acidentes (CMF) para trechos e interseções iluminadas (reduções esperadas de 28% a 42% em colisões noturnas). Adota-se 35% como premissa de simulação paramétrica sujeita à verificação em projetos-piloto.
+        • <b>Fundamentação Externa (Escopo FHWA):</b> <i>Proven Safety Countermeasures: Lighting</i> apresenta resultados para tipos e locais específicos de acidentes noturnos. O cenário de 35% é uma hipótese independente, não uma estimativa comprovada de redução de óbitos em rodovias brasileiras.
         """
         story.append(KeepTogether([Paragraph(vis_text, self.custom_styles["callout"])]))
 
@@ -610,7 +625,7 @@ class ReportGenerator:
         if not v_df.empty:
             tbl_v = compute_veiculo_analysis(v_df, p_df).head(6)
             if not tbl_v.empty:
-                v_summary_str = ", ".join([f"{r['tipo_veiculo']}: {format_pt_br_int(r['total_veiculos'])} ({format_pt_br_int(r.get('mortos', 0))} óbitos)" for _, r in tbl_v.iterrows()])
+                v_summary_str = ", ".join([f"{str(r['tipo_veiculo']).replace('Semireboque', 'Semirreboque')}: {format_pt_br_int(r['total_veiculos'])} veículos ({format_pt_br_int(r.get('mortos', 0))} {'óbito' if int(r.get('mortos', 0)) == 1 else 'óbitos'} entre ocupantes vinculados)" for _, r in tbl_v.iterrows()])
                 story.append(Paragraph(
                     f"<b>Frota Veicular Predominante:</b> As categorias com maior envolvimento em acidentes são: {v_summary_str}.",
                     self.custom_styles["body"]
@@ -693,11 +708,20 @@ class ReportGenerator:
             story.append(Spacer(1, 4))
 
             # Callout de Auditoria de Ranking e Análise de Sensibilidade a Eventos Excepcionais (BR-116 MG KM 286-288)
-            audit_callout = """
+            has_br116_2024 = (
+                filtered_data is not None and "id" in filtered_data.columns
+                and (filtered_data["id"] == 661121).any()
+            )
+            exceptional_detail = """
+            • <b>Auditoria do Caso Extremo BR-116 (MG) KM 286,0–288,0:</b> A ocorrência ID 661121, de 21/12/2024, é exibida somente porque pertence ao período ativo. Eventos excepcionais permanecem na série histórica, mas não autorizam inferir que iluminação isolada evitaria colisões de múltiplas causas.
+            """ if has_br116_2024 else """
+            • <b>Auditoria de período:</b> Não há referência a ocorrências de 2024 fora do conjunto elegível deste relatório. O ranking e os exemplos narrativos usam exclusivamente os eventos dos filtros ativos.
+            """
+            audit_callout = f"""
             <b>Auditoria Metodológica de Ranking e Análise de Sensibilidade a Eventos Excepcionais:</b><br/>
             • <b>Diferenciação Metodológica:</b> Distingue-se o <i>Ranking de Gravidade Histórica Acumulada</i> (influenciado pelo total de vítimas) da <i>Prioridade de Intervenção Luminotécnica</i> (focada na reatividade à iluminação solar contínua).<br/>
-            • <b>Auditoria do Caso Extremo BR-116 (MG) KM 286,0–288,0:</b> O segmento lidera o ranking acumulado com 5 sinistros noturnos e 37 óbitos no período 2024–2025. A auditoria individual comprovou que 37 óbitos decorrem de um único sinistro rodoviário catastrófico em 21/12/2024 (ID 661121, KM 286,5, 03:45, Plena Noite), com todos os 37 identificadores de pessoa (<code>pesid</code>) validados e distintos.<br/>
-            • <b>Análise de Sensibilidade:</b> Com a inclusão do sinistro excepcional, o modelo projeta benefício socioeconômico de R$&nbsp;37.618.112/ano (FHWA CMF 35%). Excluindo-se o sinistro pontual, o trecho mantém 4 sinistros noturnos sem mortes, com benefício estimado em R$&nbsp;310.887/ano.<br/>
+            {exceptional_detail}<br/>
+            • <b>Análise de Sensibilidade:</b> Redução hipotética de 35% equivale a CMF 0,65 para o desfecho modelado. Sua aplicação proporcional aos óbitos é uma premissa adicional exploratória, não eficácia comprovada para os trechos brasileiros.<br/>
             • <b>Diretriz de Decisão:</b> Eventos reais não devem ser expurgados da série histórica, mas intervenções de engenharia não devem presumir que a iluminação isoladamente evitaria sinistros com múltiplas causas complexas (fadiga extrema, velocidade e colisão frontal múltipla). Recomenda-se ranking de sensibilidade em projetos executivos.
             """
             story.append(KeepTogether([Paragraph(audit_callout, self.custom_styles["callout"])]))
@@ -720,7 +744,7 @@ class ReportGenerator:
         <b>Conceito Físico do Poste Solar Compacto (8m / 40W / 240Wp / 2.500Wh LiFePO4):</b><br/>
         • <b>Estrutura Mecânica:</b> Poste cônico contínuo de 8 metros em aço galvanizado a fogo com base flangeada e chumbadores de ancoragem. Braço curvo viário com avanço de 1,5m sobre o leito da rodovia.<br/>
         • <b>Compartimento de Baterias e Eletrônica:</b> Gabinete integrado ao corpo inferior do poste com vedação estanque IP66 e portinhola de manutenção autorizada.<br/>
-        • <b>Conjunto Solar Compacto Integrado:</b> Módulo fotovoltaico monocristalino de <b>240 Wp</b> fixado no topo com inclinação ótima de 22° para a latitude média brasileira, sem módulos residenciais gigantes desproporcionais.<br/>
+        • <b>Conjunto Solar Compacto Integrado:</b> Módulo fotovoltaico monocristalino de <b>240 Wp</b>, com inclinação conceitual de 22°, sujeita à localização, orientação e sombreamento do trecho.<br/>
         • <b>Luminária Viária LED:</b> Potência de <b>40 W</b> com ótica viária Tipo II (corte total anti-ofuscamento), sensor Doppler por radar de micro-ondas e antena de telemetria.<br/>
         <br/>
         <b>Balanço Energético Auditado e Autonomia com ZERO Geração Solar:</b><br/>
@@ -733,7 +757,7 @@ class ReportGenerator:
         • <b>Hipótese de Inclinação e Localização:</b> A inclinação referencial de 22° adotada na simulação constitui parâmetro de modelagem média nacional, devendo ser calibrada para a latitude específica de cada trecho rodoviário.<br/>
         <br/>
         <b>Segurança Luminotécnica e Validação Pendente (ABNT NBR 5101:2024):</b><br/>
-        A potência de 40W é uma <b>hipótese preliminar de engenharia</b>. A conformidade com as classes viárias V1 a V5 da ABNT NBR 5101:2024 (luminância de pista <i>L<sub>m</sub></i> &ge; 1,0 cd/m², uniformidade <i>U<sub>0</sub></i> &ge; 0,35 e ofuscamento <i>TI</i> &le; 10%) requer validação computacional em software de simulação luminotécnica (DIALux EVO) considerando a largura da via e o espaçamento de {espacamento} m.
+        A potência de 40 W é hipótese preliminar. Os requisitos de luminância (cd/m²), iluminância (lux), uniformidade e ofuscamento dependem da classe viária e das condições específicas. A conformidade com a ABNT NBR 5101:2024 requer classificação e estudo fotométrico em DIALux evo ou ferramenta equivalente; não foi demonstrada neste projeto.
         """
         story.append(Paragraph(eng_p, self.custom_styles["body"]))
 
@@ -759,8 +783,8 @@ class ReportGenerator:
                 Paragraph("Classificação", self.custom_styles["th"]),
                 Paragraph("Poste / LED", self.custom_styles["th"]),
                 Paragraph("Custo/Poste", self.custom_styles["th"]),
-                Paragraph("CAPEX (R$ M)", self.custom_styles["th"]),
-                Paragraph("VPL 15a (R$ M)", self.custom_styles["th"]),
+                Paragraph("CAPEX (R$ milhões)", self.custom_styles["th"]),
+                Paragraph("VPL 15a (R$ milhões)", self.custom_styles["th"]),
                 Paragraph("TIR (% a.a.)", self.custom_styles["th"]),
                 Paragraph("Payback", self.custom_styles["th"]),
             ]
@@ -774,8 +798,8 @@ class ReportGenerator:
                 Paragraph(str(row_c["Tipo"]), self.custom_styles["td"]),
                 Paragraph(f"{row_c['Altura']} / {row_c['LED']}", self.custom_styles["td"]),
                 Paragraph(format_pt_br_currency(row_c["Custo Unitário (R$)"]), self.custom_styles["td"]),
-                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['CAPEX Total (R$ M)'], 2)}M", self.custom_styles["td"]),
-                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['VPL 15 Anos (R$ M)'], 2)}M", self.custom_styles["td"]),
+                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['CAPEX Total (R$ M)'], 2)} milhões", self.custom_styles["td"]),
+                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['VPL 15 Anos (R$ M)'], 2)} milhões", self.custom_styles["td"]),
                 Paragraph(tir_c_str, self.custom_styles["td"]),
                 Paragraph(pb_c_str, self.custom_styles["td"]),
             ])
@@ -812,22 +836,22 @@ class ReportGenerator:
 
         # Extração dinâmica dos cenários A e D da comp_df
         row_a = comp_df[comp_df["Cenário"].astype(str).str.contains("Cenário A", na=False)]
-        capex_a_str = f"R$&nbsp;{format_pt_br_number(row_a['CAPEX Total (R$ M)'].iloc[0], 2)}M" if not row_a.empty else "N/A"
+        capex_a_str = f"R$&nbsp;{format_pt_br_number(row_a['CAPEX Total (R$ M)'].iloc[0], 2)} milhões" if not row_a.empty else "N/A"
         pb_a_str = f"{format_pt_br_number(row_a['Payback Simples (anos)'].iloc[0], 2)} anos" if not row_a.empty else "N/A"
 
         row_d = comp_df[comp_df["Cenário"].astype(str).str.contains("Cenário D", na=False)]
         custo_d_str = format_pt_br_currency(row_d['Custo Unitário (R$)'].iloc[0]) if not row_d.empty else "N/A"
-        capex_d_str = f"R$&nbsp;{format_pt_br_number(row_d['CAPEX Total (R$ M)'].iloc[0], 2)}M" if not row_d.empty else "N/A"
-        vpl_d_str = f"R$&nbsp;{format_pt_br_number(row_d['VPL 15 Anos (R$ M)'].iloc[0], 2)}M" if not row_d.empty else "N/A"
+        capex_d_str = f"R$&nbsp;{format_pt_br_number(row_d['CAPEX Total (R$ M)'].iloc[0], 2)} milhões" if not row_d.empty else "N/A"
+        vpl_d_str = f"R$&nbsp;{format_pt_br_number(row_d['VPL 15 Anos (R$ M)'].iloc[0], 2)} milhões" if not row_d.empty else "N/A"
         pb_d_str = f"{format_pt_br_number(row_d['Payback Simples (anos)'].iloc[0], 2)} anos" if not row_d.empty else "N/A"
 
         fin_text = f"""
         <b>Memória de Cálculo de Vidas Potencialmente Preservadas ({format_pt_br_number(vidas_salvas, 1)} vidas/ano em {n_trechos_top} Trechos Críticos):</b><br/>
         1. <b>Acúmulo Histórico:</b> Nos {n_trechos_top} trechos prioritários selecionados, ocorreram <b>{format_pt_br_int(mortos_top)} óbitos noturnos</b> no horizonte de {format_pt_br_number(anos_base, 1)} anos analisados.<br/>
         2. <b>Taxa Baseline Anualizada:</b> `{format_pt_br_int(mortos_top)} óbitos / {format_pt_br_number(anos_base, 1)} anos = {format_pt_br_number(mortos_top / anos_denom, 1)} óbitos noturnos por ano`.<br/>
-        3. <b>Fator de Redução CMF Simulado (FHWA):</b> 35% de redução hipotética de acidentes noturnos elegíveis &rarr; `{format_pt_br_number(mortos_top / anos_denom, 1)} × 0,35 = {format_pt_br_number(vidas_salvas, 1)} vidas potencialmente preservadas por ano no cenário adotado`.<br/>
+        3. <b>Hipótese exploratória:</b> Redução de 35% (CMF 0,65) aplicada proporcionalmente aos óbitos como premissa adicional não comprovada &rarr; `{format_pt_br_number(mortos_top / anos_denom, 1)} × 0,35 = {format_pt_br_number(vidas_salvas, 1)} óbitos potencialmente evitáveis por ano`.<br/>
         4. <b>Rastreabilidade de Seleção Amostral:</b> O conjunto de trechos críticos é ranqueado dinamicamente para o período analisado. Diferenças nos totais anualizados entre janelas temporais refletem a composição dos segmentos prioritários de cada base.<br/>
-        5. <b>Valoração Paramétrica (IPEA / VSL):</b> Vidas preservadas ({format_pt_br_currency(vidas_salvas * ECONOMIC_VALUES['valor_vida_estatistica'])}) + Graves evitados ({format_pt_br_currency(fin.get('economia_graves', 0.0))}) + Leves evitados ({format_pt_br_currency(fin.get('economia_leves', 0.0))}) = <b>Benefício Social Bruto de {format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
+        5. <b>Valoração paramétrica provisória:</b> Os valores por óbito ({format_pt_br_currency(ECONOMIC_VALUES['valor_vida_estatistica'])}), ferido grave ({format_pt_br_currency(ECONOMIC_VALUES['custo_medio_acidente_grave'])}) e leve ({format_pt_br_currency(ECONOMIC_VALUES['custo_medio_acidente_leve'])}) têm fonte, ano-base e atualização pendentes de validação. São premissas do modelo, não valores atribuídos ao Ipea. Benefício social bruto simulado: <b>{format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
         6. <b>Custos de Implantação e Retorno Socioeconômico Comparado:</b><br/>
         • <b>Meta Histórica (Cenário A):</b> CAPEX {capex_a_str} | Payback Simples: {pb_a_str}.<br/>
         • <b>Conceitual Compacto 8m/40W (Cenário D - Base):</b> Custo/un {custo_d_str} | CAPEX {capex_d_str} | Payback Simples: {pb_d_str} | VPL Social 15 anos: {vpl_d_str}.<br/>
@@ -849,7 +873,7 @@ class ReportGenerator:
         }
         cen_equip_nome = cen_nome_map.get(cen_equip_id, "Cenário D — Compacto 8m/40W (Base)")
         capex_val = float(fin.get("investimento_total", 4000 * 22310.00))
-        story.append(Paragraph(f"<b>Matriz de Sensibilidade de Efetividade (Simulação sob {cen_equip_nome} — CAPEX {format_pt_br_currency(capex_val)}):</b>", self.custom_styles["body"]))
+        sensitivity_title = Paragraph(f"<b>Matriz de Sensibilidade de Efetividade (Simulação sob {cen_equip_nome} — CAPEX {format_pt_br_currency(capex_val)}):</b>", self.custom_styles["body"])
         cenarios = fin.get("cenarios", {})
         if cenarios:
             t_cen_data = [
@@ -882,7 +906,7 @@ class ReportGenerator:
                 ("TOPPADDING", (0, 0), (-1, -1), 2),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
             ]))
-            story.append(t_cen)
+            story.append(KeepTogether([sensitivity_title, t_cen]))
             story.append(Spacer(1, 4))
 
         # =====================================================================
@@ -894,7 +918,7 @@ class ReportGenerator:
         <b>Limitações Metodológicas Reconhecidas:</b><br/>
         1. <b>Ausência de Censo Luminotécnico:</b> A PRF não audita a presença física de postes ou nível de iluminância (lux) no boletim de ocorrência;<br/>
         2. <b>Exposição ao Tráfego:</b> Os dados públicos da PRF não registram Volume Médio Diário Anual (VDMA) por quilômetro em toda a malha, impedindo o cálculo de taxa de risco por veículo-quilômetro percorrido;<br/>
-        3. <b>Natureza Paramétrica das Finanças:</b> A economia social estimada baseia-se em custos estatísticos de hospitalizações e perda de vidas humanas (valoração IPEA), não correspondendo a faturamento ou caixa financeiro real.<br/>
+        3. <b>Natureza Paramétrica das Finanças:</b> Os valores socioeconômicos são premissas provisórias com fonte e atualização pendentes, não correspondendo a faturamento ou caixa financeiro real.<br/>
         <b>Conclusão Condicional e Recomendações:</b> Os dados observacionais da PRF evidenciam que os sinistros noturnos e no amanhecer apresentam severidade e letalidade substancialmente superiores às do pleno dia. As simulações físico-econômicas indicam atratividade socioeconômica favorável sob as premissas de projeto adotadas (horizonte de 15 anos, taxa social de desconto de 8% a.a. e custos unitários do Cenário D). Contudo, a efetiva implantação em escala permanece condicionada a validações complementares indispensáveis: (i) realização de censo físico de iluminação artificial existente nos trechos; (ii) estudos computacionais fotométricos por trecho conforme ABNT NBR 5101:2024; (iii) ensaios geotécnicos e dimensionamento estrutural de fundação; (iv) cotações executivas de fornecedores e logística de instalação; e (v) mensuração empírica do VDMA por segmento. Recomenda-se a execução de projetos-piloto controlados nos primeiros trechos do ranking para aferição empírica do Fator de Modificação de Acidentes (CMF) antes de decisões definitivas de investimento.
         """
         story.append(KeepTogether([Paragraph(disc_p, self.custom_styles["body"])]))
@@ -960,7 +984,7 @@ class ReportGenerator:
         elif len(x_vals) > 6:
             ax.set_xticks(range(len(x_vals)))
             ax.set_xticklabels(x_vals, rotation=30, ha="right", fontsize=6.5)
-        ax.legend(fontsize=6.5, loc="upper right")
+        ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=3)
         plt.tight_layout()
 
         img_buffer = io.BytesIO()

@@ -171,9 +171,9 @@ def compute_day_vs_night_comparison(df: pd.DataFrame) -> Dict[str, Any]:
             f"{_fmt_pt(let_am, 2)} óbitos/100 acidentes** ({_fmt_pt(prop_am, 1)}% fatais), "
             f"seguido pela **Plena Noite com {_fmt_pt(let_pn, 2)} óbitos/100 acidentes**, "
             f"contrastando com **{_fmt_pt(let_an, 2)} no Anoitecer** e **{_fmt_pt(let_pd, 2)} no Pleno Dia**. "
-            f"A diferença entre Amanhecer e Plena Noite ({_fmt_pt(diff_am_pn, 2)} óbitos/100 acidentes) aponta condições críticas compartilhadas: "
-            f"no Amanhecer atuam o nadir circadiano (fadiga biológica entre 04h e 06h) e o ofuscamento horizontal pelo sol nascente; "
-            f"na Plena Noite atua a escuridão contínua com alcance restrito dos faróis."
+            f"A diferença observada entre Amanhecer e Plena Noite foi de {_fmt_pt(diff_am_pn, 2)} óbitos/100 acidentes. "
+            "Mudanças na luminosidade, orientação da via e atenção dos condutores são hipóteses possíveis, "
+            "mas os microdados não permitem isolar esses mecanismos nem demonstrar causalidade."
         )
     else:
         destaque_fases = (
@@ -182,8 +182,8 @@ def compute_day_vs_night_comparison(df: pd.DataFrame) -> Dict[str, Any]:
             f"seguida pelo **Amanhecer com {_fmt_pt(let_am, 2)} óbitos/100 acidentes**, "
             f"contrastando com **{_fmt_pt(let_an, 2)} no Anoitecer** e **{_fmt_pt(let_pd, 2)} no Pleno Dia**. "
             f"A proximidade entre Plena Noite e Amanhecer (diferença de apenas {_fmt_pt(diff_am_pn, 2)} óbitos/100 acidentes) "
-            f"demonstra que ambos os períodos de iluminação natural reduzida ou transição apresentam gravidade severa "
-            f"quando comparados ao Pleno Dia ({_fmt_pt(let_pd, 2)} óbitos/100 acidentes), exigindo atenção luminotécnica prioritária."
+            f"descreve a gravidade observada nesses períodos em comparação ao Pleno Dia ({_fmt_pt(let_pd, 2)} óbitos/100 acidentes). "
+            "A diferença não identifica a presença de iluminação nem estabelece sua contribuição causal."
         )
 
     return {

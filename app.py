@@ -310,6 +310,7 @@ def main():
         st.session_state.pop("cached_analyzer_causas", None)
         st.session_state.pop("cached_analyzer_quality", None)
         st.session_state.pop("data_processed_once", None)
+        st.session_state.pop("applied_filters", None)
         gc.collect()
 
     # =========================================================================
@@ -461,25 +462,28 @@ def main():
             # =================================================================
             st.sidebar.markdown("---")
             st.sidebar.subheader("🔍 Filtros Dinâmicos")
+            # Widgets em formulário: mudar uma seleção não dispara cálculos nem
+            # recria o módulo aberto até o clique explícito em Aplicar.
+            filter_form = st.sidebar.form("global_filters", clear_on_submit=False)
 
             # 1. Filtro de Anos
             if "ano" in analyzer.data.columns:
                 anos_disp = sorted([int(a) for a in analyzer.data["ano"].dropna().unique()])
-                anos_sel = st.sidebar.multiselect("📅 Ano(s)", anos_disp, default=anos_disp)
+                anos_sel = filter_form.multiselect("📅 Ano(s)", anos_disp, default=anos_disp)
             else:
                 anos_sel = []
 
             # 2. Filtro de Estados (UF)
             if "uf" in analyzer.data.columns:
                 ufs_disp = sorted([str(u) for u in analyzer.data["uf"].dropna().unique()])
-                ufs_sel = st.sidebar.multiselect("📍 Estados (UF)", ufs_disp, default=ufs_disp)
+                ufs_sel = filter_form.multiselect("📍 Estados (UF)", ufs_disp, default=ufs_disp)
             else:
                 ufs_sel = []
 
             # 3. Filtro de Rodovias (BR)
             if "br" in analyzer.data.columns:
                 brs_disp = sorted([str(b) for b in analyzer.data["br"].dropna().unique() if str(b) != "N/A"])
-                brs_sel = st.sidebar.multiselect(
+                brs_sel = filter_form.multiselect(
                     "🛣️ Rodovias Federais (BR)",
                     brs_disp,
                     default=brs_disp,
@@ -491,7 +495,7 @@ def main():
             # 4. Filtro de Fase do Dia (Oficial da PRF)
             col_fase = "fase_dia_oficial" if "fase_dia_oficial" in analyzer.data.columns else "fase_dia"
             fases_disp = sorted([str(f) for f in analyzer.data[col_fase].dropna().unique()])
-            fases_sel = st.sidebar.multiselect(
+            fases_sel = filter_form.multiselect(
                 "🌙 Fase do Dia",
                 fases_disp,
                 default=fases_disp,
@@ -501,20 +505,20 @@ def main():
             # 5. Filtro de Condição Meteorológica
             if "condicao_metereologica" in analyzer.data.columns:
                 cond_disp = sorted([str(c) for c in analyzer.data["condicao_metereologica"].dropna().unique()])
-                cond_sel = st.sidebar.multiselect("🌤️ Condição Meteorológica", cond_disp, default=cond_disp)
+                cond_sel = filter_form.multiselect("🌤️ Condição Meteorológica", cond_disp, default=cond_disp)
             else:
                 cond_sel = []
 
             # 6. Filtro Opcional por Grupo de Causas
             causas_sel = []
             if analyzer.causas_data is not None and not analyzer.causas_data.empty:
-                opcoes_causas = st.sidebar.checkbox("Filtrar apenas causas de visibilidade/reação", value=False)
+                opcoes_causas = filter_form.checkbox("Filtrar apenas causas de visibilidade/reação", value=False)
                 if opcoes_causas:
                     causas_disp = sorted([
                         c for c in analyzer.causas_data["causa_acidente"].dropna().unique()
                         if any(term.lower() in str(c).lower() for term in ["reação", "dormindo", "velocidade", "ultrapassagem", "atenção", "álcool", "pedestre", "faixa"])
                     ])
-                    causas_sel = st.sidebar.multiselect("Causas Selecionadas", causas_disp, default=causas_disp[:10])
+                    causas_sel = filter_form.multiselect("Causas Selecionadas", causas_disp, default=causas_disp[:10])
 
             # 7. Filtros Demográficos e de Frota (Opcionais)
             tipos_env_sel = []
@@ -523,7 +527,7 @@ def main():
             tipos_veic_sel = []
 
             if analyzer.pessoas_data is not None and not analyzer.pessoas_data.empty:
-                with st.sidebar.expander("👥 Perfil Demográfico e Frota", expanded=False):
+                with filter_form.expander("👥 Perfil Demográfico e Frota", expanded=False):
                     # Envolvimento
                     if "tipo_envolvido" in analyzer.pessoas_data.columns:
                         env_disp = sorted([str(e) for e in analyzer.pessoas_data["tipo_envolvido"].dropna().unique()])
@@ -565,7 +569,10 @@ def main():
                 "faixas_etarias": faixas_sel,
                 "tipos_veiculo": tipos_veic_sel,
             }
-            analyzer.filtered_data = analyzer.apply_filters(analyzer.data, filters)
+            submitted = filter_form.form_submit_button("Aplicar filtros", type="primary", width="stretch")
+            if submitted or "applied_filters" not in st.session_state:
+                st.session_state["applied_filters"] = filters
+            analyzer.filtered_data = analyzer.apply_filters(analyzer.data, st.session_state["applied_filters"])
 
             if not analyzer.filtered_data.empty:
                 create_dashboard(analyzer)
