@@ -171,22 +171,69 @@ def analyze_visibility_and_reaction(
         causas_fases_df["acidentes_fatais"] / causas_fases_df["n_acidentes"].replace(0, np.nan) * 100
     ).fillna(0).round(2)
 
-    # Textos de fundamentação e rigor científico
+    # Cálculos dinâmicos e reconciliação de sobreposição para causas de reação psicomotora
+    m_rt = merged["causa_normalizada"].str.contains("reação tardia", case=False, na=False)
+    m_ar = merged["causa_normalizada"].str.contains("ausência de reação", case=False, na=False)
+
+    ids_rt = set(merged.loc[m_rt, "id"].dropna())
+    ids_ar = set(merged.loc[m_ar, "id"].dropna())
+    ids_reacao_uniao = ids_rt.union(ids_ar)
+    ids_reacao_intersecao = ids_rt.intersection(ids_ar)
+
+    df_u_reacao = ocorrencias_df[ocorrencias_df["id"].isin(ids_reacao_uniao)] if not ocorrencias_df.empty else pd.DataFrame()
+    mortos_reacao = int(df_u_reacao["mortos"].sum()) if not df_u_reacao.empty and "mortos" in df_u_reacao.columns else 0
+    feridos_reacao = int(df_u_reacao["total_feridos"].sum()) if not df_u_reacao.empty and "total_feridos" in df_u_reacao.columns else 0
+
+    col_fase_of = "fase_dia_oficial" if "fase_dia_oficial" in ocorrencias_df.columns else col_periodo
+
+    def get_let_fase(ids_set, fase_busca):
+        sub = ocorrencias_df[ocorrencias_df["id"].isin(ids_set)]
+        if sub.empty or col_fase_of not in sub.columns:
+            return 0.0, 0
+        m = sub[sub[col_fase_of].astype(str).str.lower().str.contains(fase_busca)]
+        n = len(m)
+        mort = m["mortos"].sum() if "mortos" in m.columns else 0
+        return ((mort / n * 100) if n > 0 else 0.0), n
+
+    let_rt_pn, n_rt_pn = get_let_fase(ids_rt, "plena noite")
+    let_rt_pd, n_rt_pd = get_let_fase(ids_rt, "pleno dia")
+    let_ar_pn, n_ar_pn = get_let_fase(ids_ar, "plena noite")
+    let_ar_pd, n_ar_pd = get_let_fase(ids_ar, "pleno dia")
+
+    resumo_reacao_dinamico = {
+        "n_assoc_reacao_tardia": len(ids_rt),
+        "n_assoc_ausencia_reacao": len(ids_ar),
+        "total_associacoes_soma": len(ids_rt) + len(ids_ar),
+        "n_acidentes_sobrepostos": len(ids_reacao_intersecao),
+        "n_acidentes_unicos_reacao": len(ids_reacao_uniao),
+        "total_mortos_reacao": mortos_reacao,
+        "total_feridos_reacao": feridos_reacao,
+        "let_rt_plena_noite": let_rt_pn,
+        "let_rt_pleno_dia": let_rt_pd,
+        "let_ar_plena_noite": let_ar_pn,
+        "let_ar_pleno_dia": let_ar_pd,
+    }
+
+    # Textos de fundamentação e rigor científico rigorosamente dinâmicos
     evidencias_texto = (
-        "EVIDÊNCIA OBSERVACIONAL: A base da PRF registra a frequência de causas como 'Reação tardia "
-        "ou ineficiente' e 'Ausência de reação', permitindo contrastar sua ocorrência no período noturno versus diurno. "
-        "Ressalta-se que uma mesma ocorrência pode conter múltiplas causas apontadas pelo agente rodoviário, "
-        "de modo que as categorias podem apresentar sobreposição parcial."
+        f"EVIDÊNCIA OBSERVACIONAL AUDITADA: As ocorrências com registro de 'Reação tardia ou ineficiente' "
+        f"({len(ids_rt):,} associações) e 'Ausência de reação' ({len(ids_ar):,} associações) somam "
+        f"{len(ids_rt) + len(ids_ar):,} apontamentos de causa. Após expurgo de sobreposições "
+        f"({len(ids_reacao_intersecao):,} acidentes com ambas as causas registradas conjuntamente), "
+        f"identificam-se {len(ids_reacao_uniao):,} sinistros únicos, resultando em {mortos_reacao:,} óbitos "
+        f"e {feridos_reacao:,} feridos. A taxa de mortalidade em Plena Noite atinge {let_rt_pn:.2f} óbitos/100 para reação tardia "
+        f"e {let_ar_pn:.2f} óbitos/100 para ausência de reação, contrastando com {let_rt_pd:.2f} e {let_ar_pd:.2f} em Pleno Dia."
     )
     hipotese_texto = (
-        "HIPÓTESE INTERPRETATIVA: A visibilidade reduzida e o alcance limitado dos faróis à noite podem encurtar a "
-        "distância de visão disponível em relação à distância de parada segura (DPS), diminuindo o tempo hábil "
-        "para a resposta do motorista (mecanismo PIEV - Percepção, Identificação, Emoção, Volição)."
+        "HIPÓTESE INTERPRETATIVA (MECANISMO PIEV): O alcance útil dos faróis baixos (30 a 50 metros) é inferior "
+        "à Distância de Parada Segura (DPS) em velocidades regulamentares de 80 a 110 km/h (80 a 140 metros). "
+        "Essa limitação geométrica pode comprimir o tempo disponível para Percepção, Identificação, Emoção e Volição "
+        "(mecanismo PIEV), atuando como hipótese explicativa para o retardo ou impossibilidade de frenagem."
     )
     limitacoes_texto = (
-        "LIMITAÇÃO CIENTÍFICA: A base oficial da PRF não possui uma variável direta indicando a presença ou "
-        "nível de iluminância artificial nos trechos no momento do sinistro. Portanto, correlações observadas não "
-        "comprovam isoladamente que a ausência de iluminação foi a causa exclusiva do acidente."
+        "LIMITAÇÃO METODOLÓGICA EXPLÍCITA: A base pública da PRF não audita a presença nem os níveis de luminância "
+        "artificial (lux) nos trechos. Fatores concorrentes (como alcoolemia, fadiga e distração) coexistem nas "
+        "ocorrências. Portanto, correlações estatísticas não configuram causalidade isolada ou exclusiva da falta de iluminação."
     )
 
     return {
@@ -197,6 +244,7 @@ def analyze_visibility_and_reaction(
         "reacao_df": reacao_df,
         "meteo_strat": meteo_strat,
         "pista_strat": pista_strat,
+        "resumo_reacao_dinamico": resumo_reacao_dinamico,
         "evidencias_texto": evidencias_texto,
         "hipotese_texto": hipotese_texto,
         "limitacoes_texto": limitacoes_texto,

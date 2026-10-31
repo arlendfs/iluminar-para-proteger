@@ -467,10 +467,10 @@ REFERENCES = [
         "descricao": "Evidências e pesquisas que indicam redução de 28% a 42% em acidentes noturnos com iluminação viária adequada.",
     },
     {
-        "titulo": "Estimativa dos Custos dos Acidentes de Trânsito no Brasil",
-        "instituicao": "Instituto de Pesquisa Econômica Aplicada (IPEA)",
-        "url": "https://www.ipea.gov.br",
-        "descricao": "Metodologia de valoração do custo social de acidentes, hospitalizações e perda de vidas humanas.",
+        "titulo": "Impactos Sociais e Econômicos dos Acidentes de Trânsito nas Rodovias Brasileiras / Estimativa dos Custos com Base no Valor da Vida Estatística (VVE)",
+        "instituicao": "Instituto de Pesquisa Econômica Aplicada (IPEA / DNIT / ANTP)",
+        "url": "https://www.ipea.gov.br/portal/publicacoes/relatorios-de-pesquisa",
+        "descricao": "Metodologia oficial de valoração socioeconômica de sinistros, sequelas hospitalares e perda de vidas humanas (Capital Humano combinado com Disposição a Pagar / VSL), com procedimentos de atualização monetária via IPCA.",
     },
     {
         "titulo": "Manual de Projeto de Iluminação Rodoviária",

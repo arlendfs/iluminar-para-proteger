@@ -261,12 +261,21 @@ class ReportGenerator:
         ))
 
         qual = quality_summary or {}
-        data_min = qual.get("data_minima", "01/01/2025")
-        data_max = qual.get("data_maxima", "31/08/2026")
+        data_min = qual.get("data_minima", "01/01/2021")
+        data_max = qual.get("data_maxima", "31/12/2025")
+        
+        # Alerta metodológico apenas se houver anos incompletos efetivamente presentes
+        alerta_anos_inc = ""
+        anos_inc = qual.get("anos_incompletos", [])
+        if anos_inc:
+            textos_inc = []
+            for a, m in anos_inc:
+                textos_inc.append(f"ano {a} com dados parciais até o mês {max(m):02d}")
+            alerta_anos_inc = f" (com alerta metodológico para: {', '.join(textos_inc)})"
         
         info_header = f"""
         <b>Instituição:</b> Centro Universitário Internacional (UNINTER) — Extensão Universitária em Ciência de Dados<br/>
-        <b>Período Analisado:</b> {data_min} a {data_max} (com alerta metodológico para o ano de 2026 com dados parciais até agosto)<br/>
+        <b>Período Analisado:</b> {data_min} a {data_max}{alerta_anos_inc}<br/>
         <b>Data de Emissão:</b> {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')} | <b>Bases Oficiais:</b> Polícia Rodoviária Federal (PRF), IPEA e FHWA
         """
         story.append(Paragraph(info_header, self.custom_styles["body"]))
@@ -323,6 +332,14 @@ class ReportGenerator:
         mortos_sem_km = qual.get("mortos_sem_km", 0)
         feridos_sem_km = qual.get("feridos_sem_km", 0)
         pessoas_unicas = qual.get("pessoas_unicas_pesid", len(pessoas_df) if pessoas_df is not None else 0)
+        caso_excepcional_txt = ""
+        if filtered_data is not None and not filtered_data.empty and "id" in filtered_data.columns:
+            m_730910 = filtered_data[filtered_data["id"] == 730910]
+            if not m_730910.empty:
+                r_730910 = m_730910.iloc[0]
+                p_730910 = pessoas_df[pessoas_df["id"] == 730910] if pessoas_df is not None and "id" in pessoas_df.columns else pd.DataFrame()
+                n_pes = len(p_730910["pesid"].dropna().unique()) if not p_730910.empty and "pesid" in p_730910.columns else int(r_730910.get("total_vitimas", 0))
+                caso_excepcional_txt = f"<br/><b>Caso Excepcional Auditado no Período:</b> Investigada a ocorrência ID 730910 na BR-{r_730910.get('br', '423')} ({r_730910.get('uf', 'PE')}), KM {r_730910.get('km', 127):.0f}, ocorrida em {r_730910.get('data_inversa', '17/10/2025')} ({r_730910.get('fase_dia_oficial', 'Plena Noite')}). Confirmou-se sinistro de alta gravidade com <b>{n_pes} pessoas distintas rastreadas</b> ({int(r_730910.get('mortos', 0))} óbitos e {int(r_730910.get('total_feridos', 0))} feridos), atestando a autenticidade dos microdados oficiais da PRF."
 
         metodologia_p = f"""
         <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>), veículo e causa registrada. Para assegurar total rigor estatístico, as ocorrências foram desduplicadas pela chave primária <code>id</code>, as vítimas agregadas por pessoas únicas (<code>pesid</code>) e os veículos por <code>id_veiculo</code>, consolidando <b>{desdobramentos_consolidados:,} desdobramentos de ocupantes, veículos e causas</b> a partir de <b>{linhas_brutas:,} linhas brutas</b> (total de <b>{pessoas_unicas:,} pessoas únicas</b> identificadas).<br/>
@@ -330,8 +347,7 @@ class ReportGenerator:
         - Linhas brutas lidas: <b>{linhas_brutas:,}</b> | Ocorrências únicas totais identificadas: <b>{qual.get('ocorrencias_unicas', total_ocorrencias):,}</b>.<br/>
         - Subtração direta de desdobramentos consolidados: `{linhas_brutas:,} - {qual.get('ocorrencias_unicas', total_ocorrencias):,} = {desdobramentos_consolidados:,}`.<br/>
         - Ocorrências com marco KM verificado: <b>{com_km_count:,}</b> | Ocorrências sem marco KM registrado: <b>{sem_km_count:,}</b> ({mortos_sem_km:,} óbito(s) e {feridos_sem_km:,} ferido(s)).<br/>
-        - A diferença nos cálculos de segmentação decorre rigorosamente das <b>{sem_km_count:,} ocorrências com KM ausente</b> na PRF, as quais foram isoladas do ranking físico de trechos rodoviários para eliminar a histórica distorção de concentração indevida no KM 0,0, mas integralmente preservadas nas análises nacionais de letalidade, causas e demografia.<br/>
-        <b>Caso Excepcional Auditado:</b> Investigada a ocorrência ID 730910 na BR-423 (PE), KM 127 (Saloá/PE), em 17/10/2025 (Plena Noite). Confirmou-se o tombamento de um ônibus com <b>37 pessoas distintas rastreadas</b> (16 óbitos, 19 feridos graves e 2 leves), atestando a autenticidade dos dados oficiais da PRF.
+        - A diferença nos cálculos de segmentação decorre rigorosamente das <b>{sem_km_count:,} ocorrências com KM ausente</b> na PRF, as quais foram isoladas do ranking físico de trechos rodoviários para eliminar a histórica distorção de concentração indevida no KM 0,0, mas integralmente preservadas nas análises nacionais de letalidade, causas e demografia.{caso_excepcional_txt}
         """
         story.append(Paragraph(metodologia_p, self.custom_styles["body"]))
 
@@ -388,31 +404,26 @@ class ReportGenerator:
         story.append(t_comp)
         story.append(Spacer(1, 4))
 
-        let_am = 0.0
-        pct_fat_am = 0.0
-        let_pn = 0.0
-        let_pd = 0.0
-        if tabela_oficial is not None and not tabela_oficial.empty and "fase_dia_oficial" in tabela_oficial.columns:
-            m_am = tabela_oficial["fase_dia_oficial"].astype(str).str.lower().str.contains("amanhecer")
-            if m_am.any():
-                let_am = float(tabela_oficial.loc[m_am, "mortos_por_100_acidentes"].iloc[0])
-                pct_fat_am = float(tabela_oficial.loc[m_am, "prop_acidentes_fatais_pct"].iloc[0])
-            m_pn = tabela_oficial["fase_dia_oficial"].astype(str).str.lower().str.contains("noite")
-            if m_pn.any():
-                let_pn = float(tabela_oficial.loc[m_pn, "mortos_por_100_acidentes"].iloc[0])
-            m_pd = tabela_oficial["fase_dia_oficial"].astype(str).str.lower().str.contains("dia")
-            if m_pd.any():
-                let_pd = float(tabela_oficial.loc[m_pd, "mortos_por_100_acidentes"].iloc[0])
+        # Interpretação científica centralizada a partir de day_night_comp
+        fases_dict = day_night_comp.get("fases_oficiais_dict", {})
+        let_am = fases_dict.get("amanhecer", {}).get("mortos_por_100", 0.0)
+        let_pn = fases_dict.get("plena_noite", {}).get("mortos_por_100", 0.0)
+        let_pd = fases_dict.get("pleno_dia", {}).get("mortos_por_100", 0.0)
+        let_an = fases_dict.get("anoitecer", {}).get("mortos_por_100", 0.0)
+        fase_top_nome = day_night_comp.get("fase_mais_letal_nome", "Amanhecer")
+        fase_top_val = day_night_comp.get("fase_mais_letal_valor", let_am)
+        texto_fases = day_night_comp.get("texto_interpretativo_fases", "")
 
-        amanhecer_disc = f"""
-        <b>Discussão Científica — Indicadores de Severidade no Amanhecer ({format_pt_br_number(let_am, 2)} óbitos/100 acidentes):</b><br/>
-        Os microdados revelam que o <b>Amanhecer apresenta taxa de {format_pt_br_number(let_am, 2)} óbitos/100 sinistros e {format_pt_br_number(pct_fat_am, 1)}% de acidentes fatais</b>, em comparação a {format_pt_br_number(let_pn, 2)} óbitos/100 na Plena Noite e {format_pt_br_number(let_pd, 2)} no Pleno Dia. A literatura de segurança viária identifica quatro fatores concorrentes:
-        1. <b>Nadir Circadiano (Fadiga Biológica):</b> Entre 04h e 06h da manhã ocorre o pico fisiológico de sonolência e redução de reflexos do condutor;
-        2. <b>Ofuscamento Horizontal (Glare Solar):</b> O sol nascente no horizonte incide em ângulo direto nos olhos dos motoristas com orientação leste;
-        3. <b>Penumbra Enganosa:</b> Transição de luminosidade que leva motoristas a desligarem faróis antes que haja iluminância natural suficiente para detecção de obstáculos;
-        4. <b>Velocidades Praticadas Mais Altas:</b> O menor volume de tráfego propicia velocidades de aproximação incompatíveis.
+        fases_callout = f"""
+        <b>Discussão Científica — Indicadores de Severidade por Fase do Dia (Foco Crítico: {fase_top_nome} com {format_pt_br_number(fase_top_val, 2)} óbitos/100 acidentes):</b><br/>
+        {texto_fases}<br/>
+        <b>Fatores Intervenientes Documentados na Literatura de Tráfego:</b><br/>
+        1. <b>Nadir Circadiano (Fadiga Biológica):</b> Entre 04h e 06h ocorre o vale circadiano de vigília, elevando a probabilidade de microssono e tempo de percepção retardado;<br/>
+        2. <b>Ofuscamento Horizontal (Glare Solar):</b> No amanhecer, o ângulo rasteiro do sol nascente reduz drasticamente o contraste óptico para veículos em sentido leste;<br/>
+        3. <b>Penumbra e Conicidade Visual:</b> Períodos crepusculares induzem desligamento prematuro de faróis antes de haver iluminância ambiental segura;<br/>
+        4. <b>Déficit de Contraste na Plena Noite:</b> Sem iluminação artificial contínua, a visibilidade fica restrita aos fachos dos faróis baixos (30 a 50m), incompatível com a distância de parada segura a 100 km/h.
         """
-        story.append(Paragraph(amanhecer_disc, self.custom_styles["callout"]))
+        story.append(Paragraph(fases_callout, self.custom_styles["callout"]))
 
         # =====================================================================
         # 6. CAUSAS DE ACIDENTES, REAÇÃO TARDIA E AUSÊNCIA DE REAÇÃO
@@ -474,12 +485,16 @@ class ReportGenerator:
             story.append(t_reacao)
             story.append(Spacer(1, 4))
 
+        evid_txt = vis_analysis.get("evidencias_texto", "")
+        hip_txt = vis_analysis.get("hipotese_texto", "")
+        lim_txt = vis_analysis.get("limitacoes_texto", "")
+
         vis_text = f"""
-        <b>Rigor Científico Obrigatório:</b><br/>
-        • <b>Evidência Observacional:</b> As causas 'Reação tardia' e 'Ausência de reação' representam mais de 52 mil sinistros na base, com letalidade noturna significativamente maior do que no período diurno (10,28 a 12,38 óbitos/100 acidentes à noite vs 5,80 a 6,71 de dia).<br/>
-        • <b>Mecanismo PIEV (Hipótese Interpretativa):</b> O alcance útil dos faróis baixos (30 a 50 metros) é inferior à Distância de Parada Segura (DPS) em velocidades de 80 a 110 km/h (80 a 140 metros), encurtando a distância visual disponível para percepção e reação.<br/>
-        • <b>Limitação Explícita:</b> A PRF não audita a presença física de iluminação artificial nos locais dos acidentes; logo, trata-se de associação estatística e fator de risco concorrente, sem comprovação de causalidade exclusiva.<br/>
-        • <b>Fundamentação Externa:</b> <i>FHWA Proven Safety Countermeasures: Lighting (U.S. DOT)</i> documenta redução de 28% a 42% em colisões noturnas com iluminação rodoviária adequada.
+        <b>Rigor Científico Obrigatório e Reconciliação Causa–Ocorrência:</b><br/>
+        • <b>{evid_txt}</b><br/>
+        • <b>{hip_txt}</b><br/>
+        • <b>{lim_txt}</b><br/>
+        • <b>Fundamentação Externa (Escopo FHWA):</b> A recomendação <i>FHWA Proven Safety Countermeasures: Lighting</i> estabelece fatores de modificação de acidentes (CMF) para trechos e interseções iluminadas (reduções esperadas de 28% a 42% em colisões noturnas). Adota-se 35% como premissa de simulação paramétrica sujeita à verificação em projetos-piloto.
         """
         story.append(Paragraph(vis_text, self.custom_styles["callout"]))
 
@@ -490,6 +505,7 @@ class ReportGenerator:
 
         p_df = pessoas_df if pessoas_df is not None and not pessoas_df.empty else pd.DataFrame()
         v_df = veiculos_df if veiculos_df is not None and not veiculos_df.empty else pd.DataFrame()
+        tbl_env = pd.DataFrame()  # initialise before conditional block — avoids UnboundLocalError when p_df is empty
 
         if not p_df.empty:
             res_env = compute_envolvimento_analysis(p_df)
@@ -582,13 +598,28 @@ class ReportGenerator:
                     self.custom_styles["body"]
                 ))
 
-        story.append(Paragraph(
-            "<b>Vulnerabilidade de Pedestres e Modos Ativos:</b> "
-            "A análise revela que pedestres apresentam a mais elevada taxa de fatalidade específica entre todas as classes de usuários, "
-            "com o risco dramaticamente amplificado em períodos noturnos devido à invisibilidade óptica na escuridão plena, "
-            "reforçando o papel protetivo crucial da iluminação fotovoltaica em travessias, pontos de ônibus e perímetros periurbanos.",
-            self.custom_styles["callout"]
-        ))
+        # Análise observacional de pedestres com quantificação real
+        pedestre_txt = "<b>Vulnerabilidade Observacional de Pedestres e Modos Ativos:</b> "
+        if not tbl_env.empty and "tipo_envolvido" in tbl_env.columns:
+            m_ped = tbl_env[tbl_env["tipo_envolvido"].astype(str).str.lower().str.contains("pedestre")]
+            if not m_ped.empty:
+                r_ped = m_ped.iloc[0]
+                ped_tot = int(r_ped["total_envolvidos"])
+                ped_mort = int(r_ped["mortos"])
+                ped_taxa = float(r_ped["taxa_mortalidade_pct"])
+                pedestre_txt += (
+                    f"Entre os {ped_tot:,} pedestres identificados na base, registraram-se {ped_mort:,} fatalidades "
+                    f"({format_pt_br_number(ped_taxa, 2)}% de letalidade específica, a maior entre as classes de usuários). "
+                    f"Trata-se de evidência observacional de elevada vulnerabilidade dos modos ativos em rodovias federais, influenciada por "
+                    f"fatores de risco concorrentes como travessias em nível, ausência de passarelas e velocidades elevadas, "
+                    f"sem atribuição de causalidade exclusiva à ausência de iluminação."
+                )
+            else:
+                pedestre_txt += "Pedestres apresentam a maior taxa específica de mortalidade observacional entre todas as classes de usuários."
+        else:
+            pedestre_txt += "Pedestres apresentam a maior taxa específica de mortalidade observacional entre todas as classes de usuários."
+
+        story.append(Paragraph(pedestre_txt, self.custom_styles["callout"]))
 
         # =====================================================================
         # 7. RANKING DE TRECHOS CRÍTICOS E FÓRMULA DE PONTUAÇÃO
@@ -669,7 +700,8 @@ class ReportGenerator:
         • <b>Banco de Baterias LiFePO4 (2.500 Wh nominais):</b> Com 80% DoD e 90% de rendimento MPPT/driver: <b>Capacidade Útil BOL = {b_eng['capacidade_util_bol_wh']:.1f} Wh</b> e <b>Capacidade Útil EOL (80% vida) = {b_eng['capacidade_util_eol_wh']:.1f} Wh</b>.<br/>
         • <b>Autonomia Efetiva com ZERO Sol:</b> <b>{b_eng['autonomia_zero_sol_bol_noites']:.2f} noites (BOL)</b> e <b>{b_eng['autonomia_zero_sol_eol_noites']:.2f} noites (EOL)</b>. Sustenta rigorosamente a meta mandatária de 3 noites consecutivas sem incidência solar.<br/>
         • <b>Geração Solar Diária (4,5 HSP, PR 80%):</b> <b>{b_eng['geracao_solar_sol_pleno_wh']:.1f} Wh/dia</b> (excedente de {b_eng['excedente_diario_sol_wh']:.1f} Wh/dia para recarga completa em {b_eng['dias_recarga_apos_3_noites']:.1f} dias de sol pleno).<br/>
-        • <b>Dias Nublados vs Zero Sol:</b> Em dias nublados (25% de irradiação), gera {b_eng['geracao_solar_dia_nublado_wh']:.1f} Wh/dia (déficit de {abs(b_eng['balanco_liquido_nublado_wh']):.1f} Wh/dia, suportando até 8 dias nublados consecutivos com bateria plena).<br/>
+        • <b>Dias Nublados vs Zero Sol:</b> Em dias nublados (25% de irradiação padrão), a geração é de <b>{b_eng['geracao_solar_dia_nublado_wh']:.1f} Wh/dia</b> (déficit diário de {abs(b_eng['balanco_liquido_nublado_wh']):.1f} Wh/dia). Com banco plenamente carregado, a autonomia estimada em dias nublados contínuos é de <b>{b_eng['capacidade_util_bol_wh'] / abs(b_eng['balanco_liquido_nublado_wh']):.1f} dias em início de vida (BOL)</b> e <b>{b_eng['capacidade_util_eol_wh'] / abs(b_eng['balanco_liquido_nublado_wh']):.1f} dias em fim de vida (EOL 80%)</b>.<br/>
+        • <b>Hipótese de Inclinação e Localização:</b> A inclinação referencial de 22° adotada na simulação constitui parâmetro de modelagem média nacional, devendo ser calibrada para a latitude específica de cada trecho rodoviário.<br/>
         <br/>
         <b>Segurança Luminotécnica e Validação Pendente (ABNT NBR 5101:2024):</b><br/>
         A potência de 40W é uma <b>hipótese preliminar de engenharia</b>. A conformidade com as classes viárias V1 a V5 da ABNT NBR 5101:2024 (luminância de pista <i>L<sub>m</sub></i> &ge; 1,0 cd/m², uniformidade <i>U<sub>0</sub></i> &ge; 0,35 e ofuscamento <i>TI</i> &le; 10%) requer validação computacional em software de simulação luminotécnica (DIALux EVO) considerando a largura da via e o espaçamento de {espacamento} m.
@@ -761,22 +793,34 @@ class ReportGenerator:
         pb_d_str = f"{row_d['Payback Simples (anos)'].iloc[0]:.2f} anos" if not row_d.empty else "N/A"
 
         fin_text = f"""
-        <b>Memória de Cálculo de Vidas Potencialmente Salvas ({format_pt_br_number(vidas_salvas, 1)} vidas/ano em {n_trechos_top} Trechos Críticos):</b><br/>
-        1. <b>Acúmulo Histórico:</b> Nos {n_trechos_top} trechos prioritários, ocorreram <b>{mortos_top} óbitos noturnos</b> no horizonte de {anos_base:.1f} anos analisados.<br/>
+        <b>Memória de Cálculo de Vidas Potencialmente Preservadas ({format_pt_br_number(vidas_salvas, 1)} vidas/ano em {n_trechos_top} Trechos Críticos):</b><br/>
+        1. <b>Acúmulo Histórico:</b> Nos {n_trechos_top} trechos prioritários selecionados, ocorreram <b>{mortos_top} óbitos noturnos</b> no horizonte de {anos_base:.1f} anos analisados.<br/>
         2. <b>Taxa Baseline Anualizada:</b> `{mortos_top} óbitos / {anos_base:.1f} anos = {mortos_top / anos_denom:.1f} óbitos noturnos por ano`.<br/>
-        3. <b>Fator de Redução CMF (FHWA):</b> 35% de redução esperada com iluminação viária &rarr; `{mortos_top / anos_denom:.1f} × 0,35 = {vidas_salvas:.1f} vidas salvas por ano`.<br/>
-        4. <b>Valoração IPEA/PRF:</b> Vidas salvas ({format_pt_br_currency(vidas_salvas * ECONOMIC_VALUES['valor_vida_estatistica'])}) + Graves evitados ({format_pt_br_currency(fin.get('economia_graves', 0.0))}) + Leves evitados ({format_pt_br_currency(fin.get('economia_leves', 0.0))}) = <b>Benefício Social Bruto de {format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
-        5. <b>Custos de Implantação e Retorno Socioeconômico Comparado:</b><br/>
+        3. <b>Fator de Redução CMF Simulado (FHWA):</b> 35% de redução hipotética de acidentes noturnos elegíveis &rarr; `{mortos_top / anos_denom:.1f} × 0,35 = {vidas_salvas:.1f} vidas potencialmente preservadas por ano no cenário adotado`.<br/>
+        4. <b>Rastreabilidade de Seleção Amostral:</b> O conjunto de trechos críticos é ranqueado dinamicamente para o período analisado. Diferenças nos totais anualizados entre janelas temporais refletem a composição dos segmentos prioritários de cada base.<br/>
+        5. <b>Valoração Paramétrica (IPEA / VSL):</b> Vidas preservadas ({format_pt_br_currency(vidas_salvas * ECONOMIC_VALUES['valor_vida_estatistica'])}) + Graves evitados ({format_pt_br_currency(fin.get('economia_graves', 0.0))}) + Leves evitados ({format_pt_br_currency(fin.get('economia_leves', 0.0))}) = <b>Benefício Social Bruto de {format_pt_br_currency(beneficio_anual)}/ano</b>.<br/>
+        6. <b>Custos de Implantação e Retorno Socioeconômico Comparado:</b><br/>
         • <b>Meta Histórica (Cenário A):</b> CAPEX {capex_a_str} | Payback Simples: {pb_a_str}.<br/>
         • <b>Conceitual Compacto 8m/40W (Cenário D - Base):</b> Custo/un {custo_d_str} | CAPEX {capex_d_str} | Payback Simples: {pb_d_str} | VPL Social 15 anos: {vpl_d_str}.<br/>
         <br/>
         <b>Plano Conceitual de Manutenção e Telemetria:</b><br/>
         Supervisão remota contínua (telemetria LoRaWAN/NB-IoT a 2W) monitorando tensão da bateria, corrente do painel e integridade do LED. Provisão de OPEX com manutenção preventiva (R$ 500/poste/ano) e reserva para troca de baterias a cada 5 anos (R$ 3.800/un).<br/>
-        <i>Aviso Metodológico Obrigatório: Os cálculos representam simulações socioeconômicas conceituais baseadas em parâmetros normativos; a valoração da vida estatística (VSL) é uma métrica de custo-benefício social e não constitui receita financeira. Não existem postes físicos instalados nesta etapa acadêmica do projeto.</i>
+        <i>Aviso Metodológico Obrigatório: Os cálculos representam simulações socioeconômicas conceituais sob taxa social de desconto de 8% a.a. e horizonte de 15 anos. A valoração da vida estatística (VSL) é uma métrica de custo-benefício social e não constitui receita financeira. Não existem postes físicos instalados nesta etapa acadêmica do projeto.</i>
         """
         story.append(Paragraph(fin_text, self.custom_styles["body"]))
 
-        # Tabela de Cenários de Sensibilidade
+        # Tabela de Cenários de Sensibilidade (Matriz Cenário de Equipamento x Efetividade)
+        cen_equip_id = fin.get("cenario_id", "cenario_d")
+        cen_nome_map = {
+            "cenario_d": "Cenário D — Compacto 8m/40W (Base)",
+            "cenario_a": "Cenário A — Meta Histórica 8m/60W",
+            "cenario_b": "Cenário B — Comercial 6m/40W",
+            "cenario_c": "Cenário C — Comercial 8m/80W",
+            "cenario_e": "Cenário E — 8m/80W + Bateria Reforçada",
+        }
+        cen_equip_nome = cen_nome_map.get(cen_equip_id, "Cenário D — Compacto 8m/40W (Base)")
+        capex_val = float(fin.get("investimento_total", 4000 * 22310.00))
+        story.append(Paragraph(f"<b>Matriz de Sensibilidade de Efetividade (Simulação sob {cen_equip_nome} — CAPEX {format_pt_br_currency(capex_val)}):</b>", self.custom_styles["body"]))
         cenarios = fin.get("cenarios", {})
         if cenarios:
             t_cen_data = [
@@ -822,7 +866,7 @@ class ReportGenerator:
         1. <b>Ausência de Censo Luminotécnico:</b> A PRF não audita a presença física de postes ou nível de iluminância (lux) no boletim de ocorrência;<br/>
         2. <b>Exposição ao Tráfego:</b> Os dados públicos da PRF não registram Volume Médio Diário Anual (VDMA) por quilômetro em toda a malha, impedindo o cálculo de taxa de risco por veículo-quilômetro percorrido;<br/>
         3. <b>Natureza Paramétrica das Finanças:</b> A economia social estimada baseia-se em custos estatísticos de hospitalizações e perda de vidas humanas (valoração IPEA), não correspondendo a faturamento ou caixa financeiro real.<br/>
-        <b>Conclusão:</b> A modelagem comprova a viabilidade técnica e a alta atratividade socioeconômica da intervenção com energia solar fotovoltaica. Recomenda-se a realização de projetos-piloto de campo nos primeiros 5 trechos priorizados antes da expansão em escala.
+        <b>Conclusão Condicional e Recomendações:</b> Os dados observacionais da PRF evidenciam que os sinistros noturnos e no amanhecer apresentam severidade e letalidade substancialmente superiores às do pleno dia. As simulações físico-econômicas indicam atratividade socioeconômica favorável sob as premissas de projeto adotadas (horizonte de 15 anos, taxa social de desconto de 8% a.a. e custos unitários do Cenário D). Contudo, a efetiva implantação em escala permanece condicionada a validações complementares indispensáveis: (i) realização de censo físico de iluminação artificial existente nos trechos; (ii) estudos computacionais fotométricos por trecho conforme ABNT NBR 5101:2024; (iii) ensaios geotécnicos e dimensionamento estrutural de fundação; (iv) cotações executivas de fornecedores e logística de instalação; e (v) mensuração empírica do VDMA por segmento. Recomenda-se a execução de projetos-piloto controlados nos primeiros trechos do ranking para aferição empírica do Fator de Modificação de Acidentes (CMF) antes de decisões definitivas de investimento.
         """
         story.append(Paragraph(disc_p, self.custom_styles["body"]))
 
@@ -870,8 +914,23 @@ class ReportGenerator:
         ax.set_xlabel("Ano / Mês" if tem_mes else "Ano", fontsize=7.5)
         ax.set_ylabel("Nº de Sinistros", fontsize=7.5)
         ax.tick_params(axis="both", which="major", labelsize=6.5)
-        if len(x_vals) > 8:
-            plt.xticks(rotation=45, ha="right")
+        if len(x_vals) > 36:
+            step = 6 if len(x_vals) <= 48 else 12
+            tick_idx = list(range(0, len(x_vals), step))
+            if (len(x_vals) - 1) not in tick_idx:
+                tick_idx.append(len(x_vals) - 1)
+            ax.set_xticks(tick_idx)
+            ax.set_xticklabels([x_vals[i] for i in tick_idx], rotation=30, ha="right", fontsize=6.5)
+        elif len(x_vals) > 12:
+            step = 3
+            tick_idx = list(range(0, len(x_vals), step))
+            if (len(x_vals) - 1) not in tick_idx:
+                tick_idx.append(len(x_vals) - 1)
+            ax.set_xticks(tick_idx)
+            ax.set_xticklabels([x_vals[i] for i in tick_idx], rotation=30, ha="right", fontsize=6.5)
+        elif len(x_vals) > 6:
+            ax.set_xticks(range(len(x_vals)))
+            ax.set_xticklabels(x_vals, rotation=30, ha="right", fontsize=6.5)
         ax.legend(fontsize=6.5, loc="upper right")
         plt.tight_layout()
 

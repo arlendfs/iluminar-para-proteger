@@ -16,6 +16,7 @@ from config import (
     APP_CONFIG,
     FINANCIAL_PARAMS,
     EFFECTIVENESS_PARAMS,
+    CENARIOS_ORCAMENTO,
     ECONOMIC_VALUES,
     DEFAULT_SPACING_M,
     DEFAULT_COMPRIMENTO_TRECHO_KM,
@@ -478,14 +479,26 @@ class AccidentAnalyzer:
         spacing_m: float = DEFAULT_SPACING_M,
         criterio_ranking: str = "iluminacao_solar",
         anos_base: Optional[float] = None,
+        cenario_id: str = "cenario_d",
+        custo_poste: Optional[float] = None,
+        taxa_reducao: Optional[float] = None,
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """
         Segmenta as rodovias em trechos contínuos de 'comprimento_km',
         classifica o Top N de acordo com o score de prioridade para iluminação solar,
-        e calcula a viabilidade econômica exclusivamente para os trechos contemplados.
+        e calcula a viabilidade econômica exclusivamente para os trechos contemplados,
+        utilizando rigorosamente o custo por poste e parâmetros do cenário selecionado.
         """
         if df.empty:
             return pd.DataFrame(), {}
+
+        # Determinar custo unitário do poste a partir do cenário ativo
+        if custo_poste is None or custo_poste <= 0:
+            c_info = CENARIOS_ORCAMENTO.get(cenario_id, CENARIOS_ORCAMENTO.get("cenario_d", {}))
+            custo_poste = float(c_info.get("custo_unitario_total", 22310.00))
+
+        if taxa_reducao is None or taxa_reducao <= 0:
+            taxa_reducao = EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"]
 
         # Determinar anos na base para cálculo de taxa anualizada
         if anos_base is None or anos_base <= 0:
@@ -506,23 +519,24 @@ class AccidentAnalyzer:
 
         top_df = rank_segments(segmentos, top_n=top_n, criterio=criterio_ranking)
 
-        # Avaliação econômica e financeira completa
+        # Avaliação econômica e financeira completa baseada no custo do cenário selecionado
         fin_eval = avaliar_viabilidade_economica(
             top_segments_df=top_df,
             n_trechos=len(top_df),
             comprimento_km=comprimento_km,
             espacamento_m=spacing_m,
+            custo_poste=custo_poste,
+            taxa_reducao=taxa_reducao,
             anos_base_dados=anos_base,
         )
 
-        # Adicionar métricas financeiras individuais por trecho para exibição na tabela
-        # Investimento por trecho: (comprimento_km * 1000 / spacing_m) * custo_poste
+        # Adicionar métricas financeiras individuais por trecho com base no cenário selecionado
         postes_trecho = int(np.ceil((comprimento_km * 1000.0) / spacing_m))
-        invest_trecho = postes_trecho * FINANCIAL_PARAMS["custo_poste_solar"]
+        invest_trecho = postes_trecho * custo_poste
         top_df["investimento_trecho"] = invest_trecho
 
         # Economia anual individual do trecho
-        taxa_red = EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"]
+        taxa_red = taxa_reducao
         top_df["vidas_salvas_ano_trecho"] = (top_df["mortos_noturno"] / anos_base) * taxa_red
         top_df["graves_evitados_ano_trecho"] = (top_df["feridos_graves_noturno"] / anos_base) * taxa_red
         top_df["leves_evitados_ano_trecho"] = (top_df["feridos_leves_noturno"] / anos_base) * taxa_red
@@ -559,6 +573,8 @@ class AccidentAnalyzer:
 
         agregados = {
             "top_df": top_df,
+            "cenario_id": cenario_id,
+            "custo_unitario_poste": custo_poste,
             "investimento_total": fin_eval["capex_total"],
             "economia_anual": fin_eval["beneficio_anual_bruto"],
             "economia_liquida_anual": fin_eval["beneficio_anual_liquido"],

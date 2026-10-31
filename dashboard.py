@@ -111,17 +111,21 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             for ano_inc, meses_inc in quality["anos_incompletos"]:
                 st.info(f"ℹ️ **Aviso Metodológico:** O ano de {ano_inc} está incompleto na base (dados até o mês {max(meses_inc)}). O sistema utiliza taxa anualizada ponderada.")
 
-        # Auditoria do registro excepcional BR-423 PE KM 127
-        st.markdown(
-            """
-            🚨 **Auditoria de Registro Excepcional — BR-423 (PE), KM 127:**  
-            Identificada a ocorrência de alta gravidade **ID 730910**, ocorrida em **17/10/2025 às 20h20 (Plena Noite)** no município de **Saloá/PE**.  
-            - **Tipo de Acidente:** Tombamento de Ônibus de passageiros.  
-            - **Causas Registradas:** *Ausência de reação do condutor* e *Velocidade Incompatível*.  
-            - **Verificação de Pessoas:** Rastreamento de **37 pessoas com identificadores distintos (`pesid`)**, confirmando **16 óbitos**, **19 feridos graves** e **2 feridos leves** (totalizando **21 feridos**).  
-            - **Conclusão:** O sinistro é verídico e documentado pela PRF, não se tratando de duplicidade ou erro de sistema.
-            """
-        )
+        # Auditoria do registro excepcional BR-423 PE KM 127 APENAS se presente na base ativa
+        if "id" in data.columns and 730910 in data["id"].values:
+            m_730910 = data[data["id"] == 730910].iloc[0]
+            p_730910 = analyzer.filtered_pessoas[analyzer.filtered_pessoas["id"] == 730910] if analyzer.filtered_pessoas is not None else pd.DataFrame()
+            n_pes = len(p_730910["pesid"].dropna().unique()) if not p_730910.empty and "pesid" in p_730910.columns else int(m_730910.get("total_vitimas", 0))
+            st.markdown(
+                f"""
+                🚨 **Auditoria de Registro Excepcional no Período Selecionado — BR-{m_730910.get('br', '423')} ({m_730910.get('uf', 'PE')}), KM {m_730910.get('km', 127):.0f}:**  
+                Identificada a ocorrência de alta gravidade **ID 730910**, ocorrida em **{m_730910.get('data_inversa', '17/10/2025')} às {m_730910.get('horario', '20h20')} ({m_730910.get('fase_dia_oficial', 'Plena Noite')})** no município de **Saloá/PE**.  
+                - **Tipo de Acidente:** {m_730910.get('tipo_acidente', 'Tombamento de Ônibus')}.  
+                - **Causas Registradas:** *Ausência de reação do condutor* e *Velocidade Incompatível*.  
+                - **Verificação de Pessoas:** Rastreamento de **{n_pes} pessoas com identificadores distintos (`pesid`)**, confirmando **{int(m_730910.get('mortos', 0))} óbitos**, **{int(m_730910.get('feridos_graves', 0))} feridos graves** e **{int(m_730910.get('feridos_leves', 0))} feridos leves** (totalizando **{int(m_730910.get('total_feridos', 0))} feridos**).  
+                - **Conclusão:** O sinistro é verídico e documentado pela PRF, não se tratando de duplicidade ou erro de sistema.
+                """
+            )
 
     # =========================================================================
     # 2. CARDS DE MÉTRICAS PRINCIPAIS
@@ -224,6 +228,8 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             )
             fig_bar_let.update_traces(hovertemplate="<b>%{x}</b><br>Óbitos/100 Ac.: %{y:.2f}")
             st.plotly_chart(fig_bar_let)
+            if day_night_comp.get("texto_interpretativo_fases"):
+                st.info(f"💡 **Interpretação Científica:** {day_night_comp.get('texto_interpretativo_fases')}")
 
     # Tabela detalhada de indicadores por período
     if tabela_oficial is not None and not tabela_oficial.empty:
@@ -751,6 +757,20 @@ def create_dashboard(analyzer: AccidentAnalyzer):
         help="Número de trechos mais críticos selecionados para intervenção solar"
     )
 
+    cenario_selecionado = st.sidebar.selectbox(
+        "Cenário de Equipamento Solar (CAPEX)",
+        options=["cenario_d", "cenario_a", "cenario_b", "cenario_c", "cenario_e"],
+        index=0,
+        format_func=lambda c: {
+            "cenario_d": "Cenário D — Conceitual Compacto 8m/40W (R$ 22.310 - Base)",
+            "cenario_a": "Cenário A — Meta Histórica 8m/60W (R$ 15.000)",
+            "cenario_b": "Cenário B — Comercial 6m/40W (R$ 17.018,85)",
+            "cenario_c": "Cenário C — Comercial 8m/80W (R$ 28.288,85)",
+            "cenario_e": "Cenário E — 8m/80W com Bateria Reforçada (R$ 34.038,85)",
+        }.get(c, c),
+        help="Define o conjunto de luminária, poste, painel e bateria para cálculo do CAPEX por trecho e projeto."
+    )
+
     criterio_ranking = st.sidebar.selectbox(
         "Critério de Ranqueamento",
         options=["iluminacao_solar", "geral"],
@@ -765,6 +785,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
             comprimento_km=comprimento_km,
             spacing_m=spacing_m,
             criterio_ranking=criterio_ranking,
+            cenario_id=cenario_selecionado,
         )
 
     if not top_df.empty and agregados:
@@ -863,7 +884,7 @@ def create_dashboard(analyzer: AccidentAnalyzer):
                 - **Módulo Fotovoltaico Compacto:** 240 Wp integrado ao topo a 22°.
                 - **Geração a Sol Pleno (4,5 HSP, PR 80%):** `{balanco_eng['geracao_solar_sol_pleno_wh']:.1f} Wh/dia` (excedente diário de `{balanco_eng['excedente_diario_sol_wh']:.1f} Wh/dia`).
                 - **Dias para Recuperação Completa:** `{balanco_eng['consumo_3_noites_wh']:.0f} Wh / {balanco_eng['excedente_diario_sol_wh']:.1f} Wh/dia = {balanco_eng['dias_recarga_apos_3_noites']:.1f} dias de sol pleno`.
-                - **Operação em Dias Nublados:** Gera `{balanco_eng['geracao_solar_dia_nublado_wh']:.1f} Wh/dia` (déficit de `{abs(balanco_eng['balanco_liquido_nublado_wh']):.1f} Wh/dia`, suportando até 8 dias nublados consecutivos).
+                - **Operação em Dias Nublados:** Gera `{balanco_eng['geracao_solar_dia_nublado_wh']:.1f} Wh/dia` (déficit diário de `{abs(balanco_eng['balanco_liquido_nublado_wh']):.1f} Wh/dia`, suportando até {balanco_eng['capacidade_util_bol_wh'] / abs(balanco_eng['balanco_liquido_nublado_wh']):.1f} dias nublados consecutivos em início de vida [BOL] e até {balanco_eng['capacidade_util_eol_wh'] / abs(balanco_eng['balanco_liquido_nublado_wh']):.1f} dias em fim de vida [EOL 80%]).
                 
                 *{balanco_eng['status_aviso']}*
                 """

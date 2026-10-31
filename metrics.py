@@ -112,6 +112,74 @@ def compute_day_vs_night_comparison(df: pd.DataFrame) -> Dict[str, Any]:
         if d_vit_100 > 0:
             razao_severidade = n_vit_100 / d_vit_100
 
+    # Mapeamento rigoroso e dinâmico das 4 fases oficiais da PRF
+    fases_oficiais_dict = {}
+    if metrics_official is not None and not metrics_official.empty and "fase_dia_oficial" in metrics_official.columns:
+        for _, row in metrics_official.iterrows():
+            s = str(row["fase_dia_oficial"]).strip().lower()
+            key = None
+            if "plena" in s and "noite" in s:
+                key = "plena_noite"
+            elif "pleno" in s and "dia" in s:
+                key = "pleno_dia"
+            elif "amanhecer" in s:
+                key = "amanhecer"
+            elif "anoitecer" in s:
+                key = "anoitecer"
+            
+            if key:
+                fases_oficiais_dict[key] = {
+                    "fase_oficial": str(row["fase_dia_oficial"]),
+                    "total_acidentes": int(row.get("total_acidentes", 0)),
+                    "total_mortos": int(row.get("total_mortos", 0)),
+                    "total_feridos": int(row.get("total_feridos", 0)),
+                    "acidentes_fatais": int(row.get("acidentes_fatais", 0)),
+                    "mortos_por_100": float(row.get("mortos_por_100_acidentes", 0.0)),
+                    "prop_fatais_pct": float(row.get("prop_acidentes_fatais_pct", 0.0)),
+                }
+
+    let_pn = fases_oficiais_dict.get("plena_noite", {}).get("mortos_por_100", 0.0)
+    let_pd = fases_oficiais_dict.get("pleno_dia", {}).get("mortos_por_100", 0.0)
+    let_am = fases_oficiais_dict.get("amanhecer", {}).get("mortos_por_100", 0.0)
+    let_an = fases_oficiais_dict.get("anoitecer", {}).get("mortos_por_100", 0.0)
+
+    # Identificar dinamicamente qual fase teve maior severidade/letalidade
+    taxas = [
+        ("Amanhecer", let_am, "amanhecer"),
+        ("Plena Noite", let_pn, "plena_noite"),
+        ("Anoitecer", let_an, "anoitecer"),
+        ("Pleno Dia", let_pd, "pleno_dia"),
+    ]
+    taxas_validas = [t for t in taxas if t[1] > 0]
+    taxas_ordenadas = sorted(taxas_validas, key=lambda x: x[1], reverse=True)
+    fase_mais_letal_nome = taxas_ordenadas[0][0] if taxas_ordenadas else "N/A"
+    fase_mais_letal_valor = taxas_ordenadas[0][1] if taxas_ordenadas else 0.0
+    fase_mais_letal_key = taxas_ordenadas[0][2] if taxas_ordenadas else "N/A"
+
+    diff_am_pn = abs(let_am - let_pn)
+    
+    # Texto interpretativo científico construído com dados estritamente dinâmicos
+    if let_am > let_pn:
+        destaque_fases = (
+            f"Os microdados revelam que o <b>Amanhecer registrou a maior taxa específica com "
+            f"{let_am:.2f} óbitos/100 sinistros</b> ({fases_oficiais_dict.get('amanhecer', {}).get('prop_fatais_pct', 0.0):.1f}% fatais), "
+            f"seguido pela <b>Plena Noite com {let_pn:.2f} óbitos/100</b>, "
+            f"contrastando com <b>{let_an:.2f} no Anoitecer</b> e <b>{let_pd:.2f} no Pleno Dia</b>. "
+            f"A diferença entre Amanhecer e Plena Noite ({diff_am_pn:.2f} óbitos/100) aponta condições críticas compartilhadas: "
+            f"no Amanhecer atuam o nadir circadiano (fadiga biológica entre 04h e 06h) e o ofuscamento horizontal pelo sol nascente; "
+            f"na Plena Noite atua a escuridão contínua com alcance restrito dos faróis."
+        )
+    else:
+        destaque_fases = (
+            f"Os microdados revelam que a <b>Plena Noite registrou a maior taxa específica com "
+            f"{let_pn:.2f} óbitos/100 sinistros</b> ({fases_oficiais_dict.get('plena_noite', {}).get('prop_fatais_pct', 0.0):.1f}% fatais), "
+            f"seguida pelo <b>Amanhecer com {let_am:.2f} óbitos/100</b>, "
+            f"contrastando com <b>{let_an:.2f} no Anoitecer</b> e <b>{let_pd:.2f} no Pleno Dia</b>. "
+            f"A proximidade entre Plena Noite e Amanhecer (diferença de apenas {diff_am_pn:.2f} óbitos/100) "
+            f"demonstra que ambos os períodos de iluminação natural reduzida ou transição apresentam gravidade severa "
+            f"quando comparados ao Pleno Dia ({let_pd:.2f} óbitos/100), exigindo atenção luminotécnica prioritária."
+        )
+
     return {
         "total_acidentes": total_acidentes,
         "total_mortos": total_mortos,
@@ -128,4 +196,10 @@ def compute_day_vs_night_comparison(df: pd.DataFrame) -> Dict[str, Any]:
         "razao_severidade": razao_severidade,
         "tabela_agrupada": metrics_by_group,
         "tabela_oficial": metrics_official,
+        "fases_oficiais_dict": fases_oficiais_dict,
+        "fase_mais_letal_nome": fase_mais_letal_nome,
+        "fase_mais_letal_valor": fase_mais_letal_valor,
+        "fase_mais_letal_key": fase_mais_letal_key,
+        "diferenca_letalidade_am_pn": diff_am_pn,
+        "texto_interpretativo_fases": destaque_fases,
     }
