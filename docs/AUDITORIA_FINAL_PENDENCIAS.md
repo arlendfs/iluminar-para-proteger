@@ -83,8 +83,8 @@ O arquivo de referência `relatorio_cientifico_iluminar_20261102_175932.pdf` nã
 ## Medição de pico após reconstrução e ajuste de categorias (05/11/2026)
 
 - A reconstrução de `013243a` partiu de 226,4 MiB de RSS. Para cinco anos, a carga registrou **1.049,8 MiB de pico** e 926,6 MiB após a execução; o PDF registrou **990,0 MiB de pico** e 9,83 s. Ambos os picos excedem o alvo estrito de 1 GB decimal (953,7 MiB), apesar de o PDF estar funcional.
-- Perfil de memória local: a tabela de causas carregava cerca de 107,9 MiB em `causa_acidente` e 85,7 MiB em `tipo_acidente`, com apenas 77 e 18 rótulos. `analyzer.py` alinha essas categorias entre os anos; `reaction_analysis.py` normaliza os rótulos diretamente nas categorias, evitando expandi-los para strings por registro durante o PDF. A consolidação de ocorrências também alinha `municipio`, `horario` e `km_original`.
-- AppTest local 2021–2025 com carga, finanças e PDF: pico de **895,7 MiB** após os ajustes, contra 1.019,6 MiB com as causas categorizadas mas ainda convertidas integralmente em strings. **120 testes passaram**; o PDF manteve 5 páginas e texto igual à versão anterior, exceto horário de emissão. Falta publicar e repetir a medição no Streamlit Cloud antes de aprovar o limite remoto.
+- Perfil de memória local: a tabela de causas carregava cerca de 107,9 MiB em `causa_acidente` e 85,7 MiB em `tipo_acidente`, com apenas 77 e 18 rótulos. A revisão `72614ab` alinhou categorias de ocorrências e causas e evitou expandir os rótulos de causa em strings durante o PDF. O AppTest local marcou **895,7 MiB** de pico, com 120 testes aprovados e PDF equivalente.
+- **Rejeitado no servidor:** na versão `72614ab`, com cinco anos e os mesmos indicadores, o pico da carga subiu de 1.049,8 para **2.272,3 MiB**; o RSS estabilizado subiu de 926,6 para **1.445,1 MiB**; o pico do PDF subiu de 990,0 para **1.381,4 MiB**. O PDF continuou íntegro (5 páginas, 2 gráficos, 9 links). A otimização categórica foi retirada, e o arquivo de dependências foi alterado para forçar reconstrução completa. Não considerar a melhora local como aceite de desempenho remoto.
 
 ## Histórico da rodada P01–P08 (02/11/2026)
 

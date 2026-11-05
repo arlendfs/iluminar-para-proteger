@@ -102,13 +102,6 @@ class AccidentAnalyzer:
                     frame[column] = frame[column].astype(dtype)
 
         # 1. Concatenação e desduplicação global de ocorrências por ID
-        align_small_categories(all_oc, (
-            "classificacao_acidente", "classificacao_acidente_original",
-            "tipo_acidente", "condicao_metereologica", "dia_semana",
-            "tracado_via", "km_status", "br", "uf",
-            "municipio", "horario", "km_original",
-            "fase_dia_oficial", "fase_dia_agrupada", "ano_mes",
-        ))
         ocorrencias = pd.concat(all_oc, ignore_index=True).drop_duplicates(subset=["id"])
         all_oc.clear()
         gc.collect()
@@ -137,7 +130,6 @@ class AccidentAnalyzer:
 
         # 4. Concatenação e desduplicação global de causas
         if all_caus:
-            align_small_categories(all_caus, ("causa_acidente", "tipo_acidente"))
             causas = pd.concat(all_caus, ignore_index=True).drop_duplicates()
             all_caus.clear()
         else:
