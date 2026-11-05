@@ -13,6 +13,8 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import json
+import hashlib
+from functools import lru_cache
 from config import (
     APP_CONFIG,
     FINANCIAL_PARAMS,
@@ -31,6 +33,27 @@ from data_loader import process_raw_dataframe
 from segmentation import create_road_segments, rank_segments
 from financial_model import avaliar_viabilidade_economica, dimensionar_postes, calcular_capex_opex
 from reaction_analysis import analyze_visibility_and_reaction
+
+
+@lru_cache(maxsize=64)
+def _source_sha256(path: str, size: int, mtime_ns: int) -> str:
+    with open(path, "rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()
+
+
+def _normalized_cache_matches_source(filepath: str, filename: str) -> tuple[bool, str]:
+    stat = os.stat(filepath)
+    digest = _source_sha256(filepath, stat.st_size, stat.st_mtime_ns)
+    sidecar = NORMALIZED_CACHE_DIR / f"{filename}.source.sha256"
+    if sidecar.exists():
+        return sidecar.read_text(encoding="ascii").strip() == digest, digest
+    manifest = NORMALIZED_CACHE_DIR / "source_sha256.json"
+    if manifest.exists():
+        try:
+            return json.loads(manifest.read_text(encoding="utf-8")).get(filename) == digest, digest
+        except (ValueError, OSError):
+            pass
+    return False, digest
 
 
 class AccidentAnalyzer:
@@ -293,6 +316,7 @@ class AccidentAnalyzer:
                 veic_c = NORMALIZED_CACHE_DIR / f"{filename}.veic.parquet"
                 caus_c = NORMALIZED_CACHE_DIR / f"{filename}.caus.parquet"
                 qual_c = NORMALIZED_CACHE_DIR / f"{filename}.qual.json"
+                source_matches, source_digest = _normalized_cache_matches_source(filepath, filename)
 
                 use_cache = (
                     oc_c.exists()
@@ -300,8 +324,7 @@ class AccidentAnalyzer:
                     and veic_c.exists()
                     and caus_c.exists()
                     and qual_c.exists()
-                    and os.path.exists(filepath)
-                    and oc_c.stat().st_mtime >= os.path.getmtime(filepath)
+                    and source_matches
                 )
 
                 if use_cache:
@@ -337,6 +360,9 @@ class AccidentAnalyzer:
                         caus.to_parquet(caus_c, index=False, compression="snappy")
                         with open(qual_c, "w", encoding="utf-8") as f_q:
                             json.dump(qual, f_q, ensure_ascii=False, indent=2, default=str)
+                        (NORMALIZED_CACHE_DIR / f"{filename}.source.sha256").write_text(
+                            source_digest, encoding="ascii"
+                        )
                     except Exception:
                         pass
 
