@@ -40,11 +40,18 @@ VEHICLE_ANALYSIS_COLUMNS = (
     "id", "id_veiculo", "tipo_veiculo", "uf", "br", "ano",
     "fase_dia_oficial", "fase_dia_agrupada",
 )
+CAUSE_ANALYSIS_COLUMNS = ("id", "causa_acidente")
 
 
 def _project_vehicle_analysis(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.drop(
         columns=[column for column in frame.columns if column not in VEHICLE_ANALYSIS_COLUMNS]
+    )
+
+
+def _project_cause_analysis(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.drop(
+        columns=[column for column in frame.columns if column not in CAUSE_ANALYSIS_COLUMNS]
     )
 
 
@@ -355,7 +362,7 @@ class AccidentAnalyzer:
                         if column in pq.read_schema(veic_c).names
                     ]
                     veic = pd.read_parquet(veic_c, columns=veic_columns)
-                    caus = pd.read_parquet(caus_c)
+                    caus = pd.read_parquet(caus_c, columns=list(CAUSE_ANALYSIS_COLUMNS))
                     with open(qual_c, "r", encoding="utf-8") as f_q:
                         qual = json.load(f_q)
                 else:
@@ -374,6 +381,7 @@ class AccidentAnalyzer:
                     # Processa o arquivo individualmente gerando tabelas compactadas
                     oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
                     veic = _project_vehicle_analysis(veic)
+                    caus = _project_cause_analysis(caus)
                     del df
                     gc.collect()
 
@@ -463,7 +471,7 @@ class AccidentAnalyzer:
                     oc = pd.read_parquet(cached_oc_p)
                     pes = pd.read_parquet(cached_pes_p)
                     veic = _project_vehicle_analysis(pd.read_parquet(cached_veic_p))
-                    caus = pd.read_parquet(cached_caus_p)
+                    caus = _project_cause_analysis(pd.read_parquet(cached_caus_p))
                     with open(cached_qual_p, "r", encoding="utf-8") as f_q:
                         qual = json.load(f_q)
                 else:
@@ -483,6 +491,7 @@ class AccidentAnalyzer:
 
                     oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
                     veic = _project_vehicle_analysis(veic)
+                    caus = _project_cause_analysis(caus)
                     del df
                     gc.collect()
 
