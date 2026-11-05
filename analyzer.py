@@ -11,6 +11,7 @@ import time
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 import numpy as np
+import pyarrow.parquet as pq
 import streamlit as st
 import json
 import hashlib
@@ -33,6 +34,18 @@ from data_loader import process_raw_dataframe
 from segmentation import create_road_segments, rank_segments
 from financial_model import avaliar_viabilidade_economica, dimensionar_postes, calcular_capex_opex
 from reaction_analysis import analyze_visibility_and_reaction
+
+
+VEHICLE_ANALYSIS_COLUMNS = (
+    "id", "id_veiculo", "tipo_veiculo", "uf", "br", "ano",
+    "fase_dia_oficial", "fase_dia_agrupada",
+)
+
+
+def _project_vehicle_analysis(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.drop(
+        columns=[column for column in frame.columns if column not in VEHICLE_ANALYSIS_COLUMNS]
+    )
 
 
 @lru_cache(maxsize=64)
@@ -337,7 +350,11 @@ class AccidentAnalyzer:
                 if use_cache:
                     oc = pd.read_parquet(oc_c)
                     pes = pd.read_parquet(pes_c)
-                    veic = pd.read_parquet(veic_c)
+                    veic_columns = [
+                        column for column in VEHICLE_ANALYSIS_COLUMNS
+                        if column in pq.read_schema(veic_c).names
+                    ]
+                    veic = pd.read_parquet(veic_c, columns=veic_columns)
                     caus = pd.read_parquet(caus_c)
                     with open(qual_c, "r", encoding="utf-8") as f_q:
                         qual = json.load(f_q)
@@ -356,6 +373,7 @@ class AccidentAnalyzer:
 
                     # Processa o arquivo individualmente gerando tabelas compactadas
                     oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
+                    veic = _project_vehicle_analysis(veic)
                     del df
                     gc.collect()
 
@@ -444,7 +462,7 @@ class AccidentAnalyzer:
                 ):
                     oc = pd.read_parquet(cached_oc_p)
                     pes = pd.read_parquet(cached_pes_p)
-                    veic = pd.read_parquet(cached_veic_p)
+                    veic = _project_vehicle_analysis(pd.read_parquet(cached_veic_p))
                     caus = pd.read_parquet(cached_caus_p)
                     with open(cached_qual_p, "r", encoding="utf-8") as f_q:
                         qual = json.load(f_q)
@@ -464,6 +482,7 @@ class AccidentAnalyzer:
                         continue
 
                     oc, pes, veic, caus, qual = process_raw_dataframe(df, source_name=filename, return_relational=True)
+                    veic = _project_vehicle_analysis(veic)
                     del df
                     gc.collect()
 
