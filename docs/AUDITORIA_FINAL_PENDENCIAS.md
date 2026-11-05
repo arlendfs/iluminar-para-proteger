@@ -73,10 +73,12 @@ O arquivo de referência `relatorio_cientifico_iluminar_20261102_175932.pdf` nã
 |---|---|---|
 | M09 | Commit `3e9e64a` enviado ao `main` via HTTPS; a aplicação pública processou cinco arquivos 2021–2025 e mostrou 342.626 ocorrências únicas e 2.702.004 linhas brutas | APROVADO |
 | M10 | PDF público baixado com 217.244 bytes, 5 páginas, 2 gráficos, 9 links e numeração correta em todas as páginas; geração exibiu 7,72 s | APROVADO |
-| M11 | Após a carga de cinco anos, RSS pontual de 1.272,2 MiB; após gerar PDF e atualizar a interface, 983,2 MiB. A segunda aba carregou o mesmo período, mas o contador da aplicação permaneceu em uma sessão; não há prova de pico nem de duas sessões ativas simultâneas | EM EXECUÇÃO |
+| M11 | Após a carga de cinco anos, RSS pontual de 1.272,2 MiB; após gerar PDF e atualizar a interface, 983,2 MiB. A segunda aba carregou o mesmo período, mas o contador da aplicação permaneceu em uma sessão; não há prova de duas sessões ativas simultâneas | EM EXECUÇÃO |
+| M12 | Na primeira carga após a publicação da instrumentação, o processo começou em 1.073,5 MiB, atingiu **2.888,9 MiB de pico** e estabilizou em 2.019,9 MiB. O cache local usava mtime no identificador, que pode mudar no deploy sem mudança do conteúdo; `local_file_digest` passa a usar SHA-256 do arquivo, com cache de digest por tamanho e mtime | EM EXECUÇÃO |
 
 - O painel administrativo do Streamlit Cloud exigiu autenticação indisponível nesta sessão. Para medir o pico no próprio servidor, foi acrescentado `RSSPeakSampler` à carga e ao PDF, com amostragem de 20 ms e exibição do resultado na interface. Essa instrumentação ainda precisa ser publicada e exercitada no servidor.
 - A função anterior `get_current_rss_mb()` dividia bytes por 1.048.576; os valores mostrados como MB eram, portanto, **MiB**. A interface passa a rotulá-los corretamente. O alvo de 1 GB decimal equivale a aproximadamente **953,7 MiB**.
+- O ensaio do M12 foi interrompido antes de gerar um novo PDF para não pressionar o limite de 3.072 MiB. O pico pós-atualização pode incluir referências de sessões e caches da versão anterior; a causa exata não foi isolada no servidor. O novo identificador de conteúdo evita invalidar dados idênticos apenas por mtime. A alteração de `requirements.txt` força uma reconstrução completa, conforme a [documentação do Streamlit Community Cloud](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app). Após o novo deploy, repetir a carga e o PDF com o monitor de pico.
 
 ## Histórico da rodada P01–P08 (02/11/2026)
 

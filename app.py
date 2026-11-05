@@ -7,6 +7,7 @@ controles de sidebar e delega renderização ao dashboard.
 import os
 import re
 import gc
+import hashlib
 import time
 import uuid
 import shutil
@@ -59,6 +60,16 @@ HEAVY_ANALYSIS_SEMAPHORE = threading.BoundedSemaphore(2)
 
 # Rastreamento de sessões ativas sem expor identidades de usuários
 ACTIVE_SESSIONS: Dict[str, float] = {}
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def local_file_digest(path: str, size_bytes: int, mtime: float) -> str:
+    """Identifica conteúdo sem transformar novos mtimes de deploy em novos dados."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @st.cache_resource(show_spinner=False, max_entries=1, ttl=1800)
@@ -306,7 +317,8 @@ def main():
     # Assinatura estrita da fonte para controle de cache e invalidação
     if active_source == "local":
         file_signature = f"local_{selected_folder}_" + "_".join(
-            sorted([f"{f}_{file_map[f]['size_bytes']}_{file_map[f]['mtime']}" for f in selected_local_files])
+            f"{name}_{file_map[name]['size_bytes']}_{local_file_digest(str(Path(folder_path_str) / name), file_map[name]['size_bytes'], file_map[name]['mtime'])}"
+            for name in sorted(selected_local_files)
         )
     elif active_source == "upload":
         file_signature = "upload_" + "_".join(
