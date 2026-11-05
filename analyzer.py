@@ -101,10 +101,21 @@ class AccidentAnalyzer:
                 for frame in frames:
                     frame[column] = frame[column].astype(dtype)
 
+        def deduplicate_if_needed(frame: pd.DataFrame, subset: Optional[list[str]] = None) -> pd.DataFrame:
+            # drop_duplicates copia todas as colunas mesmo quando os arquivos
+            # anuais já são disjuntos. A máscara temporária é muito menor.
+            duplicate_mask = frame.duplicated(subset=subset)
+            if not duplicate_mask.any():
+                return frame
+            result = frame.loc[~duplicate_mask].copy()
+            del duplicate_mask
+            return result
+
         # 1. Concatenação e desduplicação global de ocorrências por ID
-        ocorrencias = pd.concat(all_oc, ignore_index=True).drop_duplicates(subset=["id"])
+        ocorrencias = deduplicate_if_needed(pd.concat(all_oc, ignore_index=True), ["id"])
         all_oc.clear()
         gc.collect()
+        log_memory_checkpoint("Ocorrências consolidadas")
 
         # 2. Concatenação e desduplicação global de pessoas por (id, pesid)
         if all_pes:
@@ -113,28 +124,31 @@ class AccidentAnalyzer:
                 "tipo_veiculo", "uf", "br", "km_status", "fase_dia_oficial",
                 "fase_dia_agrupada", "condicao_metereologica", "tipo_acidente",
             ))
-            pessoas = pd.concat(all_pes, ignore_index=True).drop_duplicates(subset=["id", "pesid"])
+            pessoas = deduplicate_if_needed(pd.concat(all_pes, ignore_index=True), ["id", "pesid"])
             all_pes.clear()
         else:
             pessoas = pd.DataFrame()
         gc.collect()
+        log_memory_checkpoint("Pessoas consolidadas")
 
         # 3. Concatenação e desduplicação global de veículos por (id, id_veiculo)
         if all_veic:
             align_small_categories(all_veic, ("tipo_veiculo", "uf", "br", "fase_dia_oficial", "fase_dia_agrupada"))
-            veiculos = pd.concat(all_veic, ignore_index=True).drop_duplicates(subset=["id", "id_veiculo"])
+            veiculos = deduplicate_if_needed(pd.concat(all_veic, ignore_index=True), ["id", "id_veiculo"])
             all_veic.clear()
         else:
             veiculos = pd.DataFrame()
         gc.collect()
+        log_memory_checkpoint("Veículos consolidados")
 
         # 4. Concatenação e desduplicação global de causas
         if all_caus:
-            causas = pd.concat(all_caus, ignore_index=True).drop_duplicates()
+            causas = deduplicate_if_needed(pd.concat(all_caus, ignore_index=True))
             all_caus.clear()
         else:
             causas = pd.DataFrame()
         gc.collect()
+        log_memory_checkpoint("Causas consolidadas")
 
         # 5. Consolidação estatística do Resumo de Qualidade
         total_linhas_brutas = sum(q.get("registros_brutos", 0) for q in all_qual)
