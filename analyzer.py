@@ -135,9 +135,10 @@ class AccidentAnalyzer:
             return result
 
         # 1. Concatenação e desduplicação global de ocorrências por ID
-        ocorrencias = deduplicate_if_needed(pd.concat(all_oc, ignore_index=True), ["id"])
+        ocorrencias = pd.concat(all_oc, ignore_index=True)
         all_oc.clear()
         gc.collect()
+        ocorrencias = deduplicate_if_needed(ocorrencias, ["id"])
         log_memory_checkpoint("Ocorrências consolidadas")
 
         # 2. Concatenação e desduplicação global de pessoas por (id, pesid)
@@ -147,8 +148,10 @@ class AccidentAnalyzer:
                 "tipo_veiculo", "uf", "br", "km_status", "fase_dia_oficial",
                 "fase_dia_agrupada", "condicao_metereologica", "tipo_acidente",
             ))
-            pessoas = deduplicate_if_needed(pd.concat(all_pes, ignore_index=True), ["id", "pesid"])
+            pessoas = pd.concat(all_pes, ignore_index=True)
             all_pes.clear()
+            gc.collect()
+            pessoas = deduplicate_if_needed(pessoas, ["id", "pesid"])
         else:
             pessoas = pd.DataFrame()
         gc.collect()
@@ -157,8 +160,10 @@ class AccidentAnalyzer:
         # 3. Concatenação e desduplicação global de veículos por (id, id_veiculo)
         if all_veic:
             align_small_categories(all_veic, ("tipo_veiculo", "uf", "br", "fase_dia_oficial", "fase_dia_agrupada"))
-            veiculos = deduplicate_if_needed(pd.concat(all_veic, ignore_index=True), ["id", "id_veiculo"])
+            veiculos = pd.concat(all_veic, ignore_index=True)
             all_veic.clear()
+            gc.collect()
+            veiculos = deduplicate_if_needed(veiculos, ["id", "id_veiculo"])
         else:
             veiculos = pd.DataFrame()
         gc.collect()
@@ -166,8 +171,10 @@ class AccidentAnalyzer:
 
         # 4. Concatenação e desduplicação global de causas
         if all_caus:
-            causas = deduplicate_if_needed(pd.concat(all_caus, ignore_index=True))
+            causas = pd.concat(all_caus, ignore_index=True)
             all_caus.clear()
+            gc.collect()
+            causas = deduplicate_if_needed(causas)
         else:
             causas = pd.DataFrame()
         gc.collect()
