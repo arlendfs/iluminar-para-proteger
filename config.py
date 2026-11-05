@@ -5,6 +5,7 @@ Define constantes, parâmetros de cálculo, engenharia e configurações do sist
 
 import os
 import time
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -26,13 +27,53 @@ for directory in [DATA_DIR, TEMP_DIR, REPORTS_DIR, PARQUET_SAMPLES_DIR, NORMALIZ
 
 def get_current_rss_mb() -> float:
     """
-    Retorna o consumo de memória RSS atual do processo em megabytes (MB).
+    Retorna o consumo de memória RSS atual do processo em mebibytes (MiB).
     """
     try:
         import psutil
         return psutil.Process().memory_info().rss / (1024.0 * 1024.0)
     except Exception:
         return 0.0
+
+
+class RSSPeakSampler:
+    """Amostra o pico de RSS do processo durante uma operação custosa."""
+
+    def __init__(self, interval_s: float = 0.02):
+        self.interval_s = interval_s
+        self.peak_mib = 0.0
+        self._stop = threading.Event()
+        self._thread = None
+        self._process = None
+
+    def _sample(self) -> None:
+        try:
+            rss_mib = self._process.memory_info().rss / (1024.0 * 1024.0)
+            self.peak_mib = max(self.peak_mib, rss_mib)
+        except Exception:
+            pass
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval_s):
+            self._sample()
+
+    def __enter__(self):
+        try:
+            import psutil
+            self._process = psutil.Process()
+            self._sample()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+        except Exception:
+            self._process = None
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join()
+        if self._process is not None:
+            self._sample()
 
 
 def get_container_memory_info() -> Dict[str, Any]:

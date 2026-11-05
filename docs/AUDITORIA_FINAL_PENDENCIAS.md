@@ -62,10 +62,21 @@ O arquivo de referência `relatorio_cientifico_iluminar_20261102_175932.pdf` nã
 
 ## Verificação da implantação pública (05/11/2026)
 
-- URL informada pelo usuário: https://iluminar-para-proteger.streamlit.app/. A página abriu e despertou normalmente. A interface exibiu limite de contêiner de **3.072 MB** e RSS inicial de **228,4 MB**.
+- URL informada pelo usuário: https://iluminar-para-proteger.streamlit.app/. A página abriu e despertou normalmente. A interface exibiu limite de contêiner de **3.072 MiB** e RSS inicial de **228,4 MiB** (embora a versão anterior rotulasse esses valores como MB).
 - No código atualmente publicado, a pasta `/parquet_samples` ofereceu sete arquivos (2020–2026). A tentativa de retirar 2026 não persistiu na seleção; a carga efetiva processou **seis arquivos, 2021–2026**, confirmados pelo progresso `[1/6]` e pelo resumo de **391.338 ocorrências únicas** a partir de **3.110.897 registros brutos**. Essa observação não é equivalente ao ensaio local de cinco anos (2021–2025).
-- Após a carga, um novo processamento da interface exibiu RSS de **1.495,9 MB**. Uma segunda aba sem carga de dados exibiu **1.536,4 MB** e contador de apenas uma sessão ativa. O indicador é uma fotografia do RSS no início de cada execução da página, não um monitor de pico; o contador não comprovou duas sessões analíticas ativas.
-- As correções M01–M08 estão no checkout local e ainda não foram publicadas. Portanto, as leituras acima descrevem a versão atualmente implantada e **não validam** o limite de 1 GB nem o PDF da revisão local no servidor público. Faltam implantação da revisão e acesso aos logs ou métricas de pico para fechar esse aceite.
+- Após a carga, um novo processamento da interface exibiu RSS de **1.495,9 MiB**. Uma segunda aba sem carga de dados exibiu **1.536,4 MiB** e contador de apenas uma sessão ativa. O indicador é uma fotografia do RSS no início de cada execução da página, não um monitor de pico; o contador não comprovou duas sessões analíticas ativas.
+- Essas leituras foram feitas **antes da publicação** das correções M01–M08 em `3e9e64a`; servem somente como linha de base da versão anterior.
+
+## Publicação e aceite parcial no servidor (05/11/2026)
+
+| Item | Evidência | Status |
+|---|---|---|
+| M09 | Commit `3e9e64a` enviado ao `main` via HTTPS; a aplicação pública processou cinco arquivos 2021–2025 e mostrou 342.626 ocorrências únicas e 2.702.004 linhas brutas | APROVADO |
+| M10 | PDF público baixado com 217.244 bytes, 5 páginas, 2 gráficos, 9 links e numeração correta em todas as páginas; geração exibiu 7,72 s | APROVADO |
+| M11 | Após a carga de cinco anos, RSS pontual de 1.272,2 MiB; após gerar PDF e atualizar a interface, 983,2 MiB. A segunda aba carregou o mesmo período, mas o contador da aplicação permaneceu em uma sessão; não há prova de pico nem de duas sessões ativas simultâneas | EM EXECUÇÃO |
+
+- O painel administrativo do Streamlit Cloud exigiu autenticação indisponível nesta sessão. Para medir o pico no próprio servidor, foi acrescentado `RSSPeakSampler` à carga e ao PDF, com amostragem de 20 ms e exibição do resultado na interface. Essa instrumentação ainda precisa ser publicada e exercitada no servidor.
+- A função anterior `get_current_rss_mb()` dividia bytes por 1.048.576; os valores mostrados como MB eram, portanto, **MiB**. A interface passa a rotulá-los corretamente. O alvo de 1 GB decimal equivale a aproximadamente **953,7 MiB**.
 
 ## Histórico da rodada P01–P08 (02/11/2026)
 

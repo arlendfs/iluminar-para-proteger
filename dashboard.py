@@ -37,6 +37,7 @@ from config import (
     LUMINOTECNICA_PARAMETROS,
     TELEMETRIA_CONFIG,
     CAUSAS_VISIBILIDADE_REACAO,
+    RSSPeakSampler,
 )
 from analyzer import AccidentAnalyzer
 from metrics import compute_period_metrics, compute_day_vs_night_comparison
@@ -1673,18 +1674,22 @@ def render_relatorio_pdf(analyzer: AccidentAnalyzer) -> None:
     st.caption("A geração é independente dos módulos visuais; só calcula a segmentação necessária após o clique.")
     if st.button("Gerar relatório PDF", type="primary", key="generate_lazy_pdf"):
         started = time.perf_counter()
-        with st.spinner("Gerando relatório e suas agregações necessárias..."):
-            # Matplotlib usa estado global; PDFs simultâneos podem perder gráficos.
-            with PDF_GENERATION_LOCK:
-                top, summary = _financial_results(analyzer)
-                result = ReportGenerator().generate_accident_analysis_report(
-                    filtered_data=analyzer.filtered_data, top_segments=top,
-                    financial_summary=summary, quality_summary=analyzer.quality_summary,
-                    pessoas_df=analyzer.filtered_pessoas, veiculos_df=analyzer.filtered_veiculos,
-                    causas_df=analyzer.filtered_causas,
-                )
-        st.session_state["generated_pdf"] = (result.getvalue(), "relatorio_cientifico_iluminar_" + datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S") + ".pdf")
+        with RSSPeakSampler() as pdf_peak:
+            with st.spinner("Gerando relatório e suas agregações necessárias..."):
+                # Matplotlib usa estado global; PDFs simultâneos podem perder gráficos.
+                with PDF_GENERATION_LOCK:
+                    top, summary = _financial_results(analyzer)
+                    result = ReportGenerator().generate_accident_analysis_report(
+                        filtered_data=analyzer.filtered_data, top_segments=top,
+                        financial_summary=summary, quality_summary=analyzer.quality_summary,
+                        pessoas_df=analyzer.filtered_pessoas, veiculos_df=analyzer.filtered_veiculos,
+                        causas_df=analyzer.filtered_causas,
+                    )
+                    st.session_state["generated_pdf"] = (result.getvalue(), "relatorio_cientifico_iluminar_" + datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S") + ".pdf")
+        st.session_state["peak_pdf_rss_mib"] = pdf_peak.peak_mib
         _time_module("PDF", started)
+    if st.session_state.get("peak_pdf_rss_mib") is not None:
+        st.caption(f"Pico RSS amostrado durante a última geração: {st.session_state['peak_pdf_rss_mib']:.1f} MiB (intervalo de 20 ms).")
     if "generated_pdf" in st.session_state:
         pdf_bytes, pdf_name = st.session_state["generated_pdf"]
         st.download_button("Baixar PDF", pdf_bytes, pdf_name, "application/pdf")
