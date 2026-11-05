@@ -86,6 +86,17 @@ O arquivo de referência `relatorio_cientifico_iluminar_20261102_175932.pdf` nã
 - Perfil de memória local: a tabela de causas carregava cerca de 107,9 MiB em `causa_acidente` e 85,7 MiB em `tipo_acidente`, com apenas 77 e 18 rótulos. A revisão `72614ab` alinhou categorias de ocorrências e causas e evitou expandir os rótulos de causa em strings durante o PDF. O AppTest local marcou **895,7 MiB** de pico, com 120 testes aprovados e PDF equivalente.
 - **Rejeitado no servidor:** na versão `72614ab`, com cinco anos e os mesmos indicadores, o pico da carga subiu de 1.049,8 para **2.272,3 MiB**; o RSS estabilizado subiu de 926,6 para **1.445,1 MiB**; o pico do PDF subiu de 990,0 para **1.381,4 MiB**. O PDF continuou íntegro (5 páginas, 2 gráficos, 9 links). A otimização categórica foi retirada, e o arquivo de dependências foi alterado para forçar reconstrução completa. Não considerar a melhora local como aceite de desempenho remoto.
 
+## Revisão estável publicada e próximo requisito (05/11/2026)
+
+| Item | Evidência | Status |
+|---|---|---|
+| M13 | Commit `1d28ce0` retirou apenas a compactação categórica de `72614ab`, que causou regressão remota; `python -m pytest -q` passou com 120 testes | APROVADO |
+| M14 | Após reconstrução, RSS inicial 221,3 MiB; carga 2021–2025 concluída com 342.626 ocorrências e pico de **1.052,8 MiB**, próximo dos 1.049,8 MiB da revisão estável anterior. O PDF foi gerado na implantação em 9,01 s e baixado íntegro: 217.244 bytes, 5 páginas, 2 gráficos, 9 links e paginação completa | APROVADO |
+| M15 | O alvo estrito de 1 GB decimal (953,7 MiB) continua acima do pico de carga observado. Uma recarga após atualização do servidor marcou 1.536,2 MiB na carga e 1.279,2 MiB no PDF, mostrando que sessões/caches transitórios ainda afetam a memória. Duas análises simultâneas no servidor não foram comprovadas pelo contador da interface | PENDENTE |
+
+- Os picos são amostrados a cada 20 ms no processo Streamlit; representam as operações observadas, não garantia de máximo absoluto. O segundo ensaio partiu de processo já aquecido e não é comparável ao primeiro como carga fria.
+- O PDF de `1d28ce0` foi baixado como `relatorio_cientifico_iluminar_20261105_185748.pdf` e validado por `pypdf`. O próximo requisito é isolar e reduzir o pico de consolidação no ambiente Linux publicado sem comprometer os resultados científicos; a validação de sessões realmente simultâneas continua pendente.
+
 ## Histórico da rodada P01–P08 (02/11/2026)
 
 Referência solicitada: `relatorio_cientifico_iluminar_20261031_171250.pdf` (não localizado no checkout). A comparação foi feita contra o relatório disponível de 31/10/2026 e a validação daquela rodada usou `reports/relatorio_cientifico_iluminar_20261102_174058.pdf` (6 páginas). Os resultados abaixo são históricos; o aceite atual está na seção C01–C12 acima.
