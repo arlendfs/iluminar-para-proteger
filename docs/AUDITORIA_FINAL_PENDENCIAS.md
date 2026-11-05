@@ -80,6 +80,12 @@ O arquivo de referência `relatorio_cientifico_iluminar_20261102_175932.pdf` nã
 - A função anterior `get_current_rss_mb()` dividia bytes por 1.048.576; os valores mostrados como MB eram, portanto, **MiB**. A interface passa a rotulá-los corretamente. O alvo de 1 GB decimal equivale a aproximadamente **953,7 MiB**.
 - O ensaio do M12 foi interrompido antes de gerar um novo PDF para não pressionar o limite de 3.072 MiB. O pico pós-atualização pode incluir referências de sessões e caches da versão anterior; a causa exata não foi isolada no servidor. O novo identificador de conteúdo evita invalidar dados idênticos apenas por mtime. A alteração de `requirements.txt` força uma reconstrução completa, conforme a [documentação do Streamlit Community Cloud](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app). Após o novo deploy, repetir a carga e o PDF com o monitor de pico.
 
+## Medição de pico após reconstrução e ajuste de categorias (05/11/2026)
+
+- A reconstrução de `013243a` partiu de 226,4 MiB de RSS. Para cinco anos, a carga registrou **1.049,8 MiB de pico** e 926,6 MiB após a execução; o PDF registrou **990,0 MiB de pico** e 9,83 s. Ambos os picos excedem o alvo estrito de 1 GB decimal (953,7 MiB), apesar de o PDF estar funcional.
+- Perfil de memória local: a tabela de causas carregava cerca de 107,9 MiB em `causa_acidente` e 85,7 MiB em `tipo_acidente`, com apenas 77 e 18 rótulos. `analyzer.py` alinha essas categorias entre os anos; `reaction_analysis.py` normaliza os rótulos diretamente nas categorias, evitando expandi-los para strings por registro durante o PDF. A consolidação de ocorrências também alinha `municipio`, `horario` e `km_original`.
+- AppTest local 2021–2025 com carga, finanças e PDF: pico de **895,7 MiB** após os ajustes, contra 1.019,6 MiB com as causas categorizadas mas ainda convertidas integralmente em strings. **120 testes passaram**; o PDF manteve 5 páginas e texto igual à versão anterior, exceto horário de emissão. Falta publicar e repetir a medição no Streamlit Cloud antes de aprovar o limite remoto.
+
 ## Histórico da rodada P01–P08 (02/11/2026)
 
 Referência solicitada: `relatorio_cientifico_iluminar_20261031_171250.pdf` (não localizado no checkout). A comparação foi feita contra o relatório disponível de 31/10/2026 e a validação daquela rodada usou `reports/relatorio_cientifico_iluminar_20261102_174058.pdf` (6 páginas). Os resultados abaixo são históricos; o aceite atual está na seção C01–C12 acima.

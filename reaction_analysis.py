@@ -95,7 +95,15 @@ def analyze_visibility_and_reaction(
         }
 
     # Limpeza e padronização dos nomes das causas
-    merged["causa_normalizada"] = merged["causa_acidente"].astype(str).str.strip()
+    cause_labels = merged["causa_acidente"]
+    if isinstance(cause_labels.dtype, pd.CategoricalDtype):
+        normalized_categories = cause_labels.cat.categories.map(lambda label: str(label).strip())
+        if normalized_categories.is_unique:
+            merged["causa_normalizada"] = cause_labels.cat.rename_categories(normalized_categories)
+        else:
+            merged["causa_normalizada"] = cause_labels.astype(str).str.strip()
+    else:
+        merged["causa_normalizada"] = cause_labels.astype(str).str.strip()
     
     # Período agrupado
     col_periodo = "fase_dia_agrupada" if "fase_dia_agrupada" in merged.columns else "fase_dia"
