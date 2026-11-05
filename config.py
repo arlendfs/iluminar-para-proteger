@@ -486,8 +486,8 @@ COLOR_PALETTE = {
 PDF_CONFIG = {
     "page_size": "A4",
     "margins": {
-        "top": 36,
-        "bottom": 36,
+        "top": 44,
+        "bottom": 44,
         "left": 40,
         "right": 40,
     },
@@ -542,14 +542,14 @@ REFERENCES = [
         "descricao": "Estudo de custos de acidentes; não comprova os parâmetros específicos nem sua atualização neste modelo.",
     },
     {
-        "titulo": "Diretrizes Básicas para Elaboração de Estudos e Projetos Rodoviários - Escopos Básicos e Instruções de Serviço (IPR-726)",
+        "titulo": "Diretrizes Básicas para Elaboração de Estudos e Projetos Rodoviários - Escopos Básicos e Instruções de Serviço (IPR-726, 3ª edição)",
         "instituicao": "Departamento Nacional de Infraestrutura de Transportes (DNIT / Instituto de Pesquisas Rodoviárias)",
         "ano": 2006,
         "url": "https://www.gov.br/dnit/pt-br/assuntos/planejamento-e-pesquisa/ipr/coletanea-de-manuais/publicacao-ipr-726-diretrizes-basicas-para-elaboracao-de-estudos-e-projetos-rodoviarios-escopos-basicos-e-instrucoes-de-servico",
         "descricao": "Diretrizes gerais de estudos e projetos rodoviários.",
     },
     {
-        "titulo": "ABNT NBR 5101:2024 — Iluminação Pública e Rodoviária: Procedimento",
+        "titulo": "ABNT NBR 5101:2024 — Iluminação viária — Procedimentos (4ª edição, versão corrigida 2)",
         "instituicao": "Associação Brasileira de Normas Técnicas (ABNT)",
         "ano": 2024,
         "url": "https://www.abntcatalogo.com.br/norma.aspx?ID=524810",

@@ -58,6 +58,17 @@ HEAVY_ANALYSIS_SEMAPHORE = threading.BoundedSemaphore(2)
 # Rastreamento de sessões ativas sem expor identidades de usuários
 ACTIVE_SESSIONS: Dict[str, float] = {}
 
+
+@st.cache_resource(show_spinner=False, max_entries=1, ttl=1800)
+def load_shared_local_data(folder_path: str, filenames: tuple[str, ...], signature: str):
+    """Compartilha tabelas locais idênticas entre sessões do mesmo processo."""
+    worker = AccidentAnalyzer()
+    worker.load_local_files(folder_path, list(filenames))
+    return (
+        worker.data, worker.pessoas_data, worker.veiculos_data,
+        worker.causas_data, worker.quality_summary,
+    )
+
 warnings.filterwarnings("ignore")
 
 # Configuração da página
@@ -430,7 +441,12 @@ def main():
                 with st.spinner("🔄 Processando arquivos incrementalmente e auditando dados com desduplicação..."):
                     t_load_start = time.time()
                     if active_source == "local":
-                        analyzer.data = analyzer.load_local_files(folder_path_str, selected_local_files)
+                        (
+                            analyzer.data, analyzer.pessoas_data, analyzer.veiculos_data,
+                            analyzer.causas_data, analyzer.quality_summary,
+                        ) = load_shared_local_data(
+                            folder_path_str, tuple(sorted(selected_local_files)), file_signature
+                        )
                     else:
                         analyzer.data = analyzer.load_data(uploaded_files, session_id=st.session_state["session_id"])
                     log_memory_checkpoint("Carga incremental e auditoria concluída", start_time=t_load_start)

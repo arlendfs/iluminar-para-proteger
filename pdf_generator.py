@@ -50,7 +50,7 @@ from config import (
 )
 from financial_model import calcular_balanco_energetico_detalhado, calcular_orcamento_cenarios
 from metrics import compute_period_metrics, compute_day_vs_night_comparison
-from reaction_analysis import analyze_visibility_and_reaction
+from reaction_analysis import analyze_visibility_and_reaction, REPORT_CAUSE_LABELS
 from demographic_analysis import (
     compute_envolvimento_analysis,
     compute_sexo_analysis,
@@ -92,47 +92,6 @@ def format_pt_br_number(val: float, decimals: int = 2) -> str:
     fmt = f"{{:,.{decimals}f}}"
     s = fmt.format(val)
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-class NumberedCanvas(canvas.Canvas):
-    """
-    Canvas com paginação de duas passagens: 'Página X de Y'.
-    Gera cabeçalho e rodapé padronizados em todas as páginas.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_page_states = []
-
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
-
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_header_footer(num_pages)
-            super().showPage()
-        super().save()
-
-    def draw_header_footer(self, page_count):
-        self.saveState()
-        self.setFont("Helvetica", 8)
-        self.setStrokeColor(colors.HexColor("#cccccc"))
-        self.setFillColor(colors.HexColor("#555555"))
-
-        # Cabeçalho (a partir da página 2)
-        if self._pageNumber > 1:
-            self.drawString(40, 805, "Iluminar para Proteger — Relatório Técnico e Científico de Segurança Viária")
-            self.line(40, 800, 555, 800)
-
-        # Rodapé
-        self.line(40, 45, 555, 45)
-        self.drawString(40, 32, "Projeto de Extensão em Ciência de Dados — UNINTER | Fontes: PRF / IPEA / FHWA")
-        page_str = f"Página {self._pageNumber} de {page_count}"
-        self.drawRightString(555, 32, page_str)
-        self.restoreState()
 
 
 class ReportGenerator:
@@ -188,6 +147,11 @@ class ReportGenerator:
             spaceAfter=4,
         )
 
+        reference_style = ParagraphStyle(
+            "Reference_Custom", parent=body_style, fontSize=7.2, leading=9,
+            spaceAfter=2,
+        )
+
         callout_style = ParagraphStyle(
             "Callout_Custom",
             parent=self.styles["Normal"],
@@ -238,6 +202,7 @@ class ReportGenerator:
             "subtitle": subtitle_style,
             "h1": h1_style,
             "body": body_style,
+            "reference": reference_style,
             "callout": callout_style,
             "th": table_header_style,
             "td": table_cell_style,
@@ -259,18 +224,17 @@ class ReportGenerator:
         """
         # Valores ausentes são uma categoria de qualidade, nunca a string
         # técnica "nan" nas tabelas entregues ao público.
-        def _public_missing(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+        def _public_missing(df: Optional[pd.DataFrame], columns: tuple[str, ...]) -> Optional[pd.DataFrame]:
             if df is None:
                 return None
-            clean = df.copy()
-            for col in clean.select_dtypes(include=["object", "string"]).columns:
-                clean[col] = clean[col].replace(r"^\\s*(nan|none|null|n/a)\\s*$", "Não informado", regex=True).fillna("Não informado")
+            clean = df.copy(deep=False)
+            for col in columns:
+                if col in clean.columns:
+                    clean[col] = clean[col].astype(object).replace(r"(?i)^\s*(nan|none|null|n/a|<na>)\s*$", "Não informado", regex=True).fillna("Não informado")
             return clean
 
-        filtered_data = _public_missing(filtered_data)
-        causas_df = _public_missing(causas_df)
-        pessoas_df = _public_missing(pessoas_df)
-        veiculos_df = _public_missing(veiculos_df)
+        pessoas_df = _public_missing(pessoas_df, ("tipo_envolvido", "tipo_veiculo", "faixa_etaria"))
+        veiculos_df = _public_missing(veiculos_df, ("tipo_veiculo",))
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer,
@@ -295,10 +259,19 @@ class ReportGenerator:
         qual = quality_summary or {}
         data_min = qual.get("data_minima", "01/01/2021")
         data_max = qual.get("data_maxima", "31/12/2025")
+        if "data_inversa" in filtered_data.columns:
+            datas_recorte = pd.to_datetime(filtered_data["data_inversa"], format="%Y-%m-%d", errors="coerce")
+            if datas_recorte.isna().any():
+                datas_recorte = datas_recorte.fillna(pd.to_datetime(filtered_data["data_inversa"], errors="coerce", dayfirst=True))
+            datas_recorte = datas_recorte.dropna()
+            if not datas_recorte.empty:
+                data_min = datas_recorte.min().strftime("%Y-%m-%d")
+                data_max = datas_recorte.max().strftime("%Y-%m-%d")
         
         # Alerta metodológico apenas se houver anos incompletos efetivamente presentes
         alerta_anos_inc = ""
-        anos_inc = qual.get("anos_incompletos", [])
+        anos_ativos = set(pd.to_numeric(filtered_data.get("ano", pd.Series(dtype=int)), errors="coerce").dropna().astype(int))
+        anos_inc = [(a, m) for a, m in qual.get("anos_incompletos", []) if a in anos_ativos]
         if anos_inc:
             textos_inc = []
             for a, m in anos_inc:
@@ -374,10 +347,10 @@ class ReportGenerator:
                 r_730910 = m_730910.iloc[0]
                 p_730910 = pessoas_df[pessoas_df["id"] == 730910] if pessoas_df is not None and "id" in pessoas_df.columns else pd.DataFrame()
                 n_pes = len(p_730910["pesid"].dropna().unique()) if not p_730910.empty and "pesid" in p_730910.columns else int(r_730910.get("total_vitimas", 0))
-                caso_excepcional_txt = f"<br/><b>Caso Excepcional Auditado no Período:</b> Investigada a ocorrência ID 730910 na BR-{r_730910.get('br', '423')} ({r_730910.get('uf', 'PE')}), KM {r_730910.get('km', 127):.0f}, ocorrida em {r_730910.get('data_inversa', '17/10/2025')} ({r_730910.get('fase_dia_oficial', 'Plena Noite')}). Confirmou-se sinistro de alta gravidade com <b>{format_pt_br_int(n_pes)} pessoas distintas rastreadas</b> ({format_pt_br_int(int(r_730910.get('mortos', 0)))} óbitos e {format_pt_br_int(int(r_730910.get('total_feridos', 0)))} feridos), atestando a autenticidade dos microdados oficiais da PRF."
+                caso_excepcional_txt = f"<br/><b>Caso Excepcional Auditado no Período:</b> A ocorrência ID 730910 na BR-{r_730910.get('br', '423')} ({r_730910.get('uf', 'PE')}), KM {r_730910.get('km', 127):.0f}, de {r_730910.get('data_inversa', '17/10/2025')} ({r_730910.get('fase_dia_oficial', 'Plena Noite')}), foi reconciliada com <b>{format_pt_br_int(n_pes)} pessoas distintas</b> ({format_pt_br_int(int(r_730910.get('mortos', 0)))} óbitos e {format_pt_br_int(int(r_730910.get('total_feridos', 0)))} feridos). A conferência demonstra consistência interna entre identificadores, envolvidos e desfechos, sem validar independentemente a origem dos registros."
 
         metodologia_p = f"""
-        <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>), veículo e causa registrada. Para assegurar total rigor estatístico, as ocorrências foram desduplicadas pela chave primária <code>id</code>, as vítimas agregadas por pessoas únicas (<code>pesid</code>) e os veículos por <code>id_veiculo</code>, consolidando <b>{format_pt_br_int(desdobramentos_consolidados)} desdobramentos de ocupantes, veículos e causas</b> a partir de <b>{format_pt_br_int(linhas_brutas)} linhas brutas</b> (total de <b>{format_pt_br_int(pessoas_unicas)} pessoas únicas</b> identificadas).<br/>
+        <b>Dicionário e Granularidade:</b> Os microdados abertos da PRF ('todas_causas_tipos') multiplicam linhas para cada envolvido (<code>pesid</code>), veículo e causa registrada. As ocorrências foram desduplicadas pela chave <code>id</code>, as vítimas agregadas por pessoas únicas (<code>pesid</code>) e os veículos por <code>id_veiculo</code>, consolidando <b>{format_pt_br_int(desdobramentos_consolidados)} desdobramentos de ocupantes, veículos e causas</b> a partir de <b>{format_pt_br_int(linhas_brutas)} linhas brutas</b> (total de <b>{format_pt_br_int(pessoas_unicas)} pessoas únicas</b> identificadas).<br/>
         <b>Auditoria Metodológica dos Registros sem Marco Quilométrico:</b><br/>
         - Linhas brutas lidas: <b>{format_pt_br_int(linhas_brutas)}</b> | Ocorrências únicas totais identificadas: <b>{format_pt_br_int(qual.get('ocorrencias_unicas', total_ocorrencias))}</b>.<br/>
         - Linhas brutas com KM ausente nos arquivos carregados: <b>{format_pt_br_int(km_ausente)}</b> (não é contagem de ocorrências e pode não refletir filtros posteriores).<br/>
@@ -453,8 +426,7 @@ class ReportGenerator:
 
         fases_callout = f"""
         <b>Discussão Científica — Indicadores de Severidade por Fase do Dia (Foco Crítico: {fase_top_nome} com {format_pt_br_number(fase_top_val, 2)} óbitos/100 acidentes):</b><br/>
-        {texto_fases}<br/>
-        <b>Hipóteses e limitações:</b> Mudanças de luminosidade, orientação da via e atenção dos condutores podem contribuir para diferenças observadas. Os microdados não identificam a contribuição individual desses fatores, nem comprovam ofuscamento, fadiga ou ausência de iluminação. A distância de parada depende de velocidade, reação, aderência, declividade e frenagem; o alcance dos faróis varia conforme veículo e condições.
+        {texto_fases}
         """
         story.append(KeepTogether([Paragraph(fases_callout, self.custom_styles["callout"])]))
 
@@ -465,7 +437,8 @@ class ReportGenerator:
 
         vis_analysis = analyze_visibility_and_reaction(
             filtered_data,
-            causas_df if causas_df is not None else pd.DataFrame()
+            causas_df if causas_df is not None else pd.DataFrame(),
+            include_details=False,
         )
         causas_fases_df = vis_analysis.get("causas_fases_df", pd.DataFrame())
 
@@ -477,14 +450,7 @@ class ReportGenerator:
 
         # Tabela das causas específicas de reação e visibilidade
         if not causas_fases_df.empty:
-            target_causes = [
-                "Reação tardia ou ineficiente do condutor",
-                "Ausência de reação do condutor",
-                "Condutor Dormindo",
-                "Ultrapassagem Indevida",
-                "Velocidade Incompatível",
-                "Ingestão de Álcool pelo condutor",
-            ]
+            target_causes = REPORT_CAUSE_LABELS
             t_reacao_data = [
                 [
                     Paragraph("Causa Auditada", self.custom_styles["th"]),
@@ -530,6 +496,7 @@ class ReportGenerator:
         • <b>Fundamentação Externa (Escopo FHWA):</b> <i>Proven Safety Countermeasures: Lighting</i> apresenta resultados para tipos e locais específicos de acidentes noturnos. O cenário de 35% é uma hipótese independente, não uma estimativa comprovada de redução de óbitos em rodovias brasileiras.
         """
         story.append(KeepTogether([Paragraph(vis_text, self.custom_styles["callout"])]))
+        del vis_analysis
 
         # =====================================================================
         # 6. PERFIL DEMOGRÁFICO DOS ENVOLVIDOS, FROTA VEICULAR E TIPOLOGIA
@@ -586,8 +553,8 @@ class ReportGenerator:
             if not tbl_faixa.empty:
                 story.append(Paragraph(
                     f"<b>Distribuição por Faixa Etária e Rigor dos Dados Etários:</b> "
-                    f"<i>(Idades Válidas: {format_pt_br_int(qual_idade.get('idades_validas', 0))} [{qual_idade.get('perc_idades_validas', 0.0):.1f}%] | "
-                    f"Inconsistentes/Ausentes: {format_pt_br_int(qual_idade.get('idades_inconsistentes_ou_ausentes', 0))} [{qual_idade.get('perc_inconsistentes', 0.0):.1f}%] | "
+                    f"<i>(Idades Válidas: {format_pt_br_int(qual_idade.get('idades_validas', 0))} [{format_pt_br_number(qual_idade.get('perc_idades_validas', 0.0), 1)}%] | "
+                    f"Inconsistentes/Ausentes: {format_pt_br_int(qual_idade.get('idades_inconsistentes_ou_ausentes', 0))} [{format_pt_br_number(qual_idade.get('perc_inconsistentes', 0.0), 1)}%] | "
                     f"Idades > 110 anos isoladas: {format_pt_br_int(qual_idade.get('idades_superiores_110_anos', 0))})</i>",
                     self.custom_styles["body"]
                 ))
@@ -630,6 +597,10 @@ class ReportGenerator:
                     f"<b>Frota Veicular Predominante:</b> As categorias com maior envolvimento em acidentes são: {v_summary_str}.",
                     self.custom_styles["body"]
                 ))
+                story.append(Paragraph(
+                    "<i>Granularidade: a frota conta veículos distintos por ocorrência e id_veiculo; os óbitos contam somente pessoas vinculadas ao tipo de veículo registrado. Assim, 72.864 semirreboques e 1 óbito vinculado não representam letalidade dos acidentes com semirreboques nem mortes dos ocupantes do conjunto trator-semirreboque. Há registros de pessoas com tipo de envolvimento não informado.</i>",
+                    self.custom_styles["body"]
+                ))
 
         # Análise observacional de pedestres com quantificação real
         pedestre_txt = "<b>Vulnerabilidade Observacional de Pedestres e Modos Ativos:</b> "
@@ -653,6 +624,10 @@ class ReportGenerator:
             pedestre_txt += "Pedestres apresentam a maior taxa específica de mortalidade observacional entre todas as classes de usuários."
 
         story.append(KeepTogether([Paragraph(pedestre_txt, self.custom_styles["callout"])]))
+        # A partir daqui o PDF contém apenas os agregados já convertidos em
+        # elementos ReportLab; liberar as visões de pessoas e veículos antes
+        # de montar o documento e carregar o renderizador final.
+        del pessoas_df, veiculos_df, p_df, v_df
 
         # =====================================================================
         # 7. RANKING DE TRECHOS CRÍTICOS E FÓRMULA DE PONTUAÇÃO
@@ -662,7 +637,8 @@ class ReportGenerator:
         formula_desc = """
         <b>Fórmula de Priorização para Iluminação Solar:</b><br/>
         Os trechos são segmentados em intervalos regulares contínuos de 2,0 km (ex: KM 144,0 a 146,0). O score prioriza a gravidade e a recorrência no período <b>noturno</b>:<br/>
-        <code>Score_Solar = (5 × Mortos_not + 3 × FeridosGraves_not + 1 × FeridosLeves_not + 2 × Acidentes_not) × (1 + %Noturno / 100)</code>
+        <code>Score_Solar = (5 × Mortos_not + 3 × FeridosGraves_not + 1 × FeridosLeves_not + 2 × Acidentes_not) × (1 + %Noturno / 100)</code><br/>
+        Esta classificação é exploratória: os pesos são heurísticos, sem calibração empírica, e a prioridade muda com as premissas escolhidas. O score mede concentração histórica de sinistros; não comprova ausência de iluminação nem efeito causal de postes solares.
         """
         story.append(Paragraph(formula_desc, self.custom_styles["body"]))
 
@@ -673,10 +649,10 @@ class ReportGenerator:
                     Paragraph("Trecho (BR - UF - Extensão)", self.custom_styles["th"]),
                     Paragraph("Ac. Not.", self.custom_styles["th"]),
                     Paragraph("Óbitos", self.custom_styles["th"]),
-                    Paragraph("Graves", self.custom_styles["th"]),
+                    Paragraph("Feridos Graves", self.custom_styles["th"]),
                     Paragraph("Score", self.custom_styles["th"]),
                     Paragraph("CAPEX (R$)", self.custom_styles["th"]),
-                    Paragraph("Benefício/Ano", self.custom_styles["th"]),
+                    Paragraph("Benefício<br/>bruto/ano", self.custom_styles["th"]),
                 ]
             ]
             custo_un_trecho = float(fin.get("custo_unitario_poste", FINANCIAL_PARAMS["custo_poste_solar"]))
@@ -696,7 +672,7 @@ class ReportGenerator:
                     Paragraph(format_pt_br_currency(float(r.get("economia_anual_trecho", 0.0))), self.custom_styles["td"]),
                 ])
 
-            t_seg = Table(t_trecho_data, colWidths=[0.8*cm, 5.0*cm, 1.4*cm, 1.2*cm, 1.2*cm, 1.6*cm, 2.2*cm, 2.2*cm])
+            t_seg = Table(t_trecho_data, colWidths=[0.8*cm, 4.6*cm, 1.4*cm, 1.4*cm, 1.4*cm, 1.6*cm, 2.2*cm, 2.2*cm], repeatRows=1)
             t_seg.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
@@ -749,11 +725,11 @@ class ReportGenerator:
         <br/>
         <b>Balanço Energético Auditado e Autonomia com ZERO Geração Solar:</b><br/>
         • <b>Consumo Noturno Dimerizado (12h):</b> 4h pico a 100% (160 Wh) + 4h normal a 80% (128 Wh) + 4h repouso a 60% (96 Wh) = <b>384 Wh/noite</b>.<br/>
-        • <b>Telemetria e Supervisão 24h:</b> 2 W contínuos &rarr; <b>48 Wh/dia</b>. Consumo Total: <b>{b_eng['consumo_total_diario_wh']:.0f} Wh por dia/noite</b>.<br/>
-        • <b>Banco de Baterias LiFePO4 (2.500 Wh nominais):</b> Com 80% DoD e 90% de rendimento MPPT/driver: <b>Capacidade Útil BOL = {b_eng['capacidade_util_bol_wh']:.1f} Wh</b> e <b>Capacidade Útil EOL (80% vida) = {b_eng['capacidade_util_eol_wh']:.1f} Wh</b>.<br/>
-        • <b>Autonomia Efetiva com ZERO Sol:</b> <b>{b_eng['autonomia_zero_sol_bol_noites']:.2f} noites (BOL)</b> e <b>{b_eng['autonomia_zero_sol_eol_noites']:.2f} noites (EOL)</b>. Sustenta rigorosamente a meta mandatária de 3 noites consecutivas sem incidência solar.<br/>
-        • <b>Geração Solar Diária (4,5 HSP, PR 80%):</b> <b>{b_eng['geracao_solar_sol_pleno_wh']:.1f} Wh/dia</b> (excedente de {b_eng['excedente_diario_sol_wh']:.1f} Wh/dia para recarga completa em {b_eng['dias_recarga_apos_3_noites']:.1f} dias de sol pleno).<br/>
-        • <b>Dias Nublados vs Zero Sol:</b> Em dias nublados (25% de irradiação padrão), a geração é de <b>{b_eng['geracao_solar_dia_nublado_wh']:.1f} Wh/dia</b> (déficit diário de {abs(b_eng['balanco_liquido_nublado_wh']):.1f} Wh/dia). Com banco plenamente carregado, a autonomia estimada em dias nublados contínuos é de <b>{b_eng['capacidade_util_bol_wh'] / abs(b_eng['balanco_liquido_nublado_wh']):.1f} dias em início de vida (BOL)</b> e <b>{b_eng['capacidade_util_eol_wh'] / abs(b_eng['balanco_liquido_nublado_wh']):.1f} dias em fim de vida (EOL 80%)</b>.<br/>
+        • <b>Telemetria e Supervisão 24h:</b> 2 W contínuos &rarr; <b>48 Wh/dia</b>. Consumo Total: <b>{format_pt_br_number(b_eng['consumo_total_diario_wh'], 0)} Wh por dia/noite</b>.<br/>
+        • <b>Banco de Baterias LiFePO4 (2.500 Wh nominais):</b> Com 80% DoD e 90% de rendimento MPPT/driver: <b>Capacidade Útil BOL = {format_pt_br_number(b_eng['capacidade_util_bol_wh'], 1)} Wh</b> e <b>Capacidade Útil EOL (80% vida) = {format_pt_br_number(b_eng['capacidade_util_eol_wh'], 1)} Wh</b>.<br/>
+        • <b>Autonomia Efetiva com ZERO Sol:</b> <b>{format_pt_br_number(b_eng['autonomia_zero_sol_bol_noites'], 2)} noites (BOL)</b> e <b>{format_pt_br_number(b_eng['autonomia_zero_sol_eol_noites'], 2)} noites (EOL)</b>. Sustenta rigorosamente a meta mandatária de 3 noites consecutivas sem incidência solar.<br/>
+        • <b>Geração Solar Diária (4,5 HSP, PR 80%):</b> <b>{format_pt_br_number(b_eng['geracao_solar_sol_pleno_wh'], 1)} Wh/dia</b> (excedente de {format_pt_br_number(b_eng['excedente_diario_sol_wh'], 1)} Wh/dia para recarga completa em {format_pt_br_number(b_eng['dias_recarga_apos_3_noites'], 1)} dias de sol pleno).<br/>
+        • <b>Dias Nublados vs Zero Sol:</b> Em dias nublados (25% de irradiação padrão), a geração é de <b>{format_pt_br_number(b_eng['geracao_solar_dia_nublado_wh'], 1)} Wh/dia</b> (déficit diário de {format_pt_br_number(abs(b_eng['balanco_liquido_nublado_wh']), 1)} Wh/dia). Com banco plenamente carregado, a autonomia estimada em dias nublados contínuos é de <b>{format_pt_br_number(b_eng['capacidade_util_bol_wh'] / abs(b_eng['balanco_liquido_nublado_wh']), 1)} dias em início de vida (BOL)</b> e <b>{format_pt_br_number(b_eng['capacidade_util_eol_wh'] / abs(b_eng['balanco_liquido_nublado_wh']), 1)} dias em fim de vida (EOL 80%)</b>.<br/>
         • <b>Hipótese de Inclinação e Localização:</b> A inclinação referencial de 22° adotada na simulação constitui parâmetro de modelagem média nacional, devendo ser calibrada para a latitude específica de cada trecho rodoviário.<br/>
         <br/>
         <b>Segurança Luminotécnica e Validação Pendente (ABNT NBR 5101:2024):</b><br/>
@@ -783,23 +759,23 @@ class ReportGenerator:
                 Paragraph("Classificação", self.custom_styles["th"]),
                 Paragraph("Poste / LED", self.custom_styles["th"]),
                 Paragraph("Custo/Poste", self.custom_styles["th"]),
-                Paragraph("CAPEX (R$ milhões)", self.custom_styles["th"]),
-                Paragraph("VPL 15a (R$ milhões)", self.custom_styles["th"]),
+                Paragraph("CAPEX<br/>(R$ mi)", self.custom_styles["th"]),
+                Paragraph("VPL Social<br/>(R$ mi)", self.custom_styles["th"]),
                 Paragraph("TIR (% a.a.)", self.custom_styles["th"]),
-                Paragraph("Payback", self.custom_styles["th"]),
+                Paragraph("Payback<br/>Simples", self.custom_styles["th"]),
             ]
         ]
         for _, row_c in comp_df.iterrows():
             tir_c_str = f"{format_pt_br_number(row_c['TIR (% a.a.)'], 1)}%" if pd.notna(row_c['TIR (% a.a.)']) else "N/A"
             pb_c_val = row_c['Payback Simples (anos)']
-            pb_c_str = f"{format_pt_br_number(pb_c_val, 2)} a" if pb_c_val < 100 else "> 15 a"
+            pb_c_str = f"{format_pt_br_number(pb_c_val, 2)} ano" if pb_c_val < 1 else f"{format_pt_br_number(pb_c_val, 2)} anos" if pb_c_val < 100 else "> 15 anos"
             t_cen_multi_data.append([
                 Paragraph(str(row_c["Cenário"]), self.custom_styles["td_left"]),
-                Paragraph(str(row_c["Tipo"]), self.custom_styles["td"]),
+                Paragraph({"estimativa historica": "Estimativa Histórica", "pesquisado comercial": "Pesquisa Comercial", "hipotese conceitual": "Hipótese Conceitual", "hipotese composta": "Hipótese Composta"}.get(str(row_c["Tipo"]).casefold(), str(row_c["Tipo"])), self.custom_styles["td"]),
                 Paragraph(f"{row_c['Altura']} / {row_c['LED']}", self.custom_styles["td"]),
                 Paragraph(format_pt_br_currency(row_c["Custo Unitário (R$)"]), self.custom_styles["td"]),
-                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['CAPEX Total (R$ M)'], 2)} milhões", self.custom_styles["td"]),
-                Paragraph(f"R$&nbsp;{format_pt_br_number(row_c['VPL 15 Anos (R$ M)'], 2)} milhões", self.custom_styles["td"]),
+                Paragraph(format_pt_br_number(row_c['CAPEX Total (R$ M)'], 2), self.custom_styles["td"]),
+                Paragraph(format_pt_br_number(row_c['VPL 15 Anos (R$ M)'], 2), self.custom_styles["td"]),
                 Paragraph(tir_c_str, self.custom_styles["td"]),
                 Paragraph(pb_c_str, self.custom_styles["td"]),
             ])
@@ -813,6 +789,7 @@ class ReportGenerator:
             ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ]))
         story.append(t_cen_multi)
+        story.append(Paragraph("CAPEX e VPL social em R$ milhões; VPL calculado para horizonte de 15 anos.", self.custom_styles["reference"]))
         story.append(Spacer(1, 4))
 
         fin = financial_summary or {}
@@ -914,7 +891,7 @@ class ReportGenerator:
         # =====================================================================
         story.append(Paragraph("10. DISCUSSÃO CIENTÍFICA, LIMITAÇÕES E CONCLUSÕES", self.custom_styles["h1"]))
         disc_p = """
-        <b>Discussão Teórica:</b> A segurança viária é comprovadamente multifatorial. A iluminação rodoviária atua diretamente na extensão do cone visual para além da distância de parada segura (DPS), restaurando o contraste óptico e permitindo a identificação precoce de obstáculos, pedestres e animais na pista. Todavia, fatores comportamentais como alcoolemia, sonolência circadiana e excesso de velocidade interagem sinergicamente.<br/>
+        <b>Discussão Teórica:</b> A segurança viária é multifatorial. A iluminação rodoviária adequadamente projetada pode ampliar as condições de visibilidade noturna e favorecer o reconhecimento de obstáculos, usuários e características da via. Sua efetividade depende das condições geométricas, ambientais e operacionais, além do dimensionamento luminotécnico específico. Alcoolemia, fadiga e velocidade também influenciam os desfechos.<br/>
         <b>Limitações Metodológicas Reconhecidas:</b><br/>
         1. <b>Ausência de Censo Luminotécnico:</b> A PRF não audita a presença física de postes ou nível de iluminância (lux) no boletim de ocorrência;<br/>
         2. <b>Exposição ao Tráfego:</b> Os dados públicos da PRF não registram Volume Médio Diário Anual (VDMA) por quilômetro em toda a malha, impedindo o cálculo de taxa de risco por veículo-quilômetro percorrido;<br/>
@@ -923,14 +900,38 @@ class ReportGenerator:
         """
         story.append(KeepTogether([Paragraph(disc_p, self.custom_styles["body"])]))
 
-        story.append(Paragraph("11. REFERÊNCIAS BIBLIOGRÁFICAS E BASES OFICIAIS", self.custom_styles["h1"]))
+        reference_block = [Paragraph("11. REFERÊNCIAS BIBLIOGRÁFICAS E BASES OFICIAIS", self.custom_styles["h1"])]
         for ref in REFERENCES:
-            ref_str = f"• <b>{ref['titulo']}</b>. {ref['instituicao']}, 2026. Disponível em: &lt;{ref['url']}&gt;. Acesso em: 29 out. 2026."
-            story.append(Paragraph(ref_str, self.custom_styles["body"]))
+            ref_str = f"• <b>{ref['titulo']}</b>. {ref['instituicao']}, {ref['ano']}. <link href=\"{ref['url']}\" color=\"#1769aa\">Acesso à fonte</link>. Consultado em: 29 out. 2026."
+            reference_block.append(Paragraph(ref_str, self.custom_styles["reference"]))
+        story.append(KeepTogether(reference_block))
 
-        doc.build(story, canvasmaker=NumberedCanvas)
-        buffer.seek(0)
-        return buffer
+        doc.build(story)
+        # Carimba sobre cada página com uma biblioteca PDF leve. A mesclagem
+        # preserva o conteúdo e os links, inclusive quando tabelas usam recorte.
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter(clone_from=PdfReader(buffer))
+        total_pages = len(writer.pages)
+        _, page_height = A4
+        for page_num, page in enumerate(writer.pages, start=1):
+            stamp_buffer = io.BytesIO()
+            stamp_canvas = canvas.Canvas(stamp_buffer, pagesize=A4)
+            stamp_canvas.setFont("Helvetica", 8)
+            stamp_canvas.setFillColor(colors.HexColor("#555555"))
+            stamp_canvas.setStrokeColor(colors.HexColor("#cccccc"))
+            if page_num > 1:
+                stamp_canvas.drawString(55, page_height - 20, "Iluminar para Proteger — Relatório Técnico e Científico de Segurança Viária")
+                stamp_canvas.line(55, page_height - 30, 540, page_height - 30)
+            stamp_canvas.line(55, 30, 540, 30)
+            stamp_canvas.drawString(55, 18, "Projeto de Extensão em Ciência de Dados — UNINTER | Fontes: PRF / IPEA / FHWA")
+            stamp_canvas.drawRightString(540, 18, f"Página {page_num} de {total_pages}")
+            stamp_canvas.save()
+            stamp_buffer.seek(0)
+            page.merge_page(PdfReader(stamp_buffer).pages[0], over=True)
+        final_pdf = io.BytesIO()
+        writer.write(final_pdf)
+        final_pdf.seek(0)
+        return final_pdf
 
     def _generate_temporal_chart(self, df: pd.DataFrame) -> Optional[Image]:
         """
@@ -1002,7 +1003,8 @@ class ReportGenerator:
             return None
 
         causas_u = causas_df[["id", "causa_acidente"]].dropna().drop_duplicates()
-        merged = ocorrencias_df.merge(causas_u, on="id", how="inner")
+        periodo_col = "fase_dia_agrupada" if "fase_dia_agrupada" in ocorrencias_df.columns else "fase_dia"
+        merged = ocorrencias_df[["id", periodo_col]].merge(causas_u, on="id", how="inner")
         if merged.empty:
             return None
 

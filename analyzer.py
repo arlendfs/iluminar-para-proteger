@@ -88,6 +88,19 @@ class AccidentAnalyzer:
         t0 = time.time()
         log_memory_checkpoint("Iniciando consolidação relacional global")
 
+        def align_small_categories(frames: List[pd.DataFrame], columns: tuple[str, ...]) -> None:
+            # Categorias anuais com vocabulários diferentes viram object no
+            # concat. Alinhar antes da união evita criar a coluna extensa.
+            for column in columns:
+                if not all(column in frame.columns for frame in frames):
+                    continue
+                labels = list(dict.fromkeys(
+                    value for frame in frames for value in frame[column].dropna().unique()
+                ))
+                dtype = pd.CategoricalDtype(categories=labels)
+                for frame in frames:
+                    frame[column] = frame[column].astype(dtype)
+
         # 1. Concatenação e desduplicação global de ocorrências por ID
         ocorrencias = pd.concat(all_oc, ignore_index=True).drop_duplicates(subset=["id"])
         all_oc.clear()
@@ -95,6 +108,11 @@ class AccidentAnalyzer:
 
         # 2. Concatenação e desduplicação global de pessoas por (id, pesid)
         if all_pes:
+            align_small_categories(all_pes, (
+                "tipo_envolvido", "estado_fisico", "sexo", "faixa_etaria",
+                "tipo_veiculo", "uf", "br", "km_status", "fase_dia_oficial",
+                "fase_dia_agrupada", "condicao_metereologica", "tipo_acidente",
+            ))
             pessoas = pd.concat(all_pes, ignore_index=True).drop_duplicates(subset=["id", "pesid"])
             all_pes.clear()
         else:
@@ -103,6 +121,7 @@ class AccidentAnalyzer:
 
         # 3. Concatenação e desduplicação global de veículos por (id, id_veiculo)
         if all_veic:
+            align_small_categories(all_veic, ("tipo_veiculo", "uf", "br", "fase_dia_oficial", "fase_dia_agrupada"))
             veiculos = pd.concat(all_veic, ignore_index=True).drop_duplicates(subset=["id", "id_veiculo"])
             all_veic.clear()
         else:
@@ -312,6 +331,9 @@ class AccidentAnalyzer:
                 all_veic.append(veic)
                 all_caus.append(caus)
                 all_qual.append(qual)
+                # As listas são liberadas etapa a etapa na consolidação; não
+                # manter uma segunda referência ao último ano em variáveis locais.
+                oc = pes = veic = caus = None
 
                 log_memory_checkpoint(f"Concluído arquivo {filename}", start_time=t_file)
 
@@ -403,6 +425,7 @@ class AccidentAnalyzer:
                 all_veic.append(veic)
                 all_caus.append(caus)
                 all_qual.append(qual)
+                oc = pes = veic = caus = None
                 log_memory_checkpoint(f"Concluído upload {filename}", start_time=t_file)
 
             except Exception as e:

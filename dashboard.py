@@ -8,6 +8,7 @@ segmentação de trechos, mapa, viabilidade econômica e protótipo 3D.
 import os
 import gc
 import time
+import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any
@@ -51,6 +52,8 @@ from financial_model import calcular_orcamento_cenarios, calcular_balanco_energe
 from pathlib import Path
 from folium.plugins import MarkerCluster
 from pdf_generator import ReportGenerator, format_pt_br_currency, format_pt_br_number
+
+PDF_GENERATION_LOCK = threading.Lock()
 
 def format_pt_br_currency(val: float) -> str:
     """Formata valor em Real brasileiro: R$ 1.234.567,89"""
@@ -455,6 +458,8 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
             cruz_env = res_env.get("cruzamento_fase_dia", pd.DataFrame())
 
             if not tbl_env.empty:
+                tbl_env = tbl_env.copy()
+                tbl_env["tipo_envolvido"] = _public_label_series(tbl_env["tipo_envolvido"])
                 col_e1, col_e2 = st.columns([3, 2])
                 with col_e1:
                     fig_env = px.bar(
@@ -1345,12 +1350,19 @@ PRESENTATION_LABELS = {
 PLOTLY_CONFIG = {"displayModeBar": True, "displaylogo": False, "responsive": True}
 
 
+def _public_label_series(values: pd.Series) -> pd.Series:
+    """Normaliza apenas rótulos exibidos, preservando linhas e indicadores."""
+    return values.astype(object).replace(
+        r"(?i)^\s*(nan|none|null|n/a|<na>)\s*$", "Não informado", regex=True
+    ).fillna("Não informado")
+
+
 def present_dataframe(frame: pd.DataFrame, **kwargs: Any) -> None:
     """Mostra cópia rotulada, sem alterar estruturas usadas pelos cálculos."""
     public = frame.copy()
     text_columns = public.select_dtypes(include=["object", "string", "category"]).columns
     for column in text_columns:
-        public[column] = public[column].astype(object).replace({"Nan": "Não Informado", "nan": "Não Informado", "NaN": "Não Informado"}).fillna("Não Informado")
+        public[column] = _public_label_series(public[column])
     public = public.rename(columns=PRESENTATION_LABELS)
     st.dataframe(public, hide_index=True, use_container_width=True, **kwargs)
 
@@ -1662,13 +1674,15 @@ def render_relatorio_pdf(analyzer: AccidentAnalyzer) -> None:
     if st.button("Gerar relatório PDF", type="primary", key="generate_lazy_pdf"):
         started = time.perf_counter()
         with st.spinner("Gerando relatório e suas agregações necessárias..."):
-            top, summary = _financial_results(analyzer)
-            result = ReportGenerator().generate_accident_analysis_report(
-                filtered_data=analyzer.filtered_data, top_segments=top,
-                financial_summary=summary, quality_summary=analyzer.quality_summary,
-                pessoas_df=analyzer.filtered_pessoas, veiculos_df=analyzer.filtered_veiculos,
-                causas_df=analyzer.filtered_causas,
-            )
+            # Matplotlib usa estado global; PDFs simultâneos podem perder gráficos.
+            with PDF_GENERATION_LOCK:
+                top, summary = _financial_results(analyzer)
+                result = ReportGenerator().generate_accident_analysis_report(
+                    filtered_data=analyzer.filtered_data, top_segments=top,
+                    financial_summary=summary, quality_summary=analyzer.quality_summary,
+                    pessoas_df=analyzer.filtered_pessoas, veiculos_df=analyzer.filtered_veiculos,
+                    causas_df=analyzer.filtered_causas,
+                )
         st.session_state["generated_pdf"] = (result.getvalue(), "relatorio_cientifico_iluminar_" + datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S") + ".pdf")
         _time_module("PDF", started)
     if "generated_pdf" in st.session_state:
@@ -1775,8 +1789,9 @@ def render_perfil_vitimas(analyzer: AccidentAnalyzer) -> None:
     if choice == "Envolvimento" and not pessoas.empty:
         res = compute_envolvimento_analysis(pessoas); tbl = res.get("resumo_envolvimento", pd.DataFrame())
         if not tbl.empty:
+            tbl = tbl.copy()
+            tbl["tipo_envolvido"] = _public_label_series(tbl["tipo_envolvido"])
             vitimas_plot = tbl[["tipo_envolvido", "mortos", "feridos_graves", "feridos_leves"]].copy()
-            vitimas_plot["tipo_envolvido"] = vitimas_plot["tipo_envolvido"].astype(str).replace({"nan": "Não informado", "Nan": "Não informado"})
             vitimas_plot = vitimas_plot.melt(id_vars="tipo_envolvido", var_name="gravidade", value_name="quantidade")
             vitimas_plot["gravidade"] = vitimas_plot["gravidade"].map({"mortos": "Óbitos", "feridos_graves": "Feridos graves", "feridos_leves": "Feridos leves"})
             a,b=st.columns(2); a.plotly_chart(px.bar(vitimas_plot,x="tipo_envolvido",y="quantidade",color="gravidade",barmode="stack",title="Distribuição de Vítimas por Tipo de Envolvimento",labels={"quantidade":"Pessoas", "gravidade":"Gravidade", "tipo_envolvido":"Envolvimento"})); b.plotly_chart(px.bar(tbl,x="tipo_envolvido",y="taxa_mortalidade_pct",title="Taxa de mortalidade por envolvimento",labels={"taxa_mortalidade_pct":"Mortalidade (%)","tipo_envolvido":"Envolvimento"}))

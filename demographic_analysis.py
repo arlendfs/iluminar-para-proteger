@@ -29,7 +29,7 @@ def compute_envolvimento_analysis(
             "cruzamento_fase_dia": pd.DataFrame(),
         }
 
-    df = pessoas_df.copy()
+    df = pessoas_df.copy(deep=False)
     col_env = "tipo_envolvido" if "tipo_envolvido" in df.columns else "tipo_envolvido_limpo"
     if col_env not in df.columns:
         df[col_env] = "Não informado"
@@ -99,7 +99,7 @@ def compute_sexo_analysis(
             "cruzamento_fase_dia": pd.DataFrame(),
         }
 
-    df = pessoas_df.copy()
+    df = pessoas_df.copy(deep=False)
     col_sexo = "sexo" if "sexo" in df.columns else "sexo_limpo"
     if col_sexo not in df.columns:
         df[col_sexo] = "Não informado"
@@ -161,7 +161,7 @@ def compute_faixa_etaria_analysis(
             "metricas_qualidade_idade": {},
         }
 
-    df = pessoas_df.copy()
+    df = pessoas_df.copy(deep=False)
     if "faixa_etaria" not in df.columns:
         df["faixa_etaria"] = "Não informada / Inconsistente"
     if "idade_valida_flag" not in df.columns:
@@ -194,7 +194,9 @@ def compute_faixa_etaria_analysis(
     resumo = resumo.sort_values("ordem").drop(columns=["ordem"])
 
     # 2. Estatísticas de idade por gravidade (apenas idades válidas de 0 a 110 anos)
-    validos = df[df["idade_valida_flag"] == True].copy()
+    age_col = "idade_limpa" if "idade_limpa" in df.columns else "idade"
+    validos = df.loc[df["idade_valida_flag"] == True,
+                     [age_col, "mortos", "feridos_graves", "feridos_leves", "ilesos"]].copy()
     col_idade_num = "idade_limpa" if "idade_limpa" in validos.columns else "idade"
     validos[col_idade_num] = pd.to_numeric(validos[col_idade_num], errors="coerce")
 
@@ -296,8 +298,13 @@ def compute_veiculo_analysis(
     )
 
     if pessoas_df is not None and not pessoas_df.empty and "id_veiculo" in pessoas_df.columns:
-        p_com_veic = pessoas_df.dropna(subset=["id_veiculo"]).copy()
-        if "tipo_veiculo" in p_com_veic.columns:
+        if "tipo_veiculo" in pessoas_df.columns:
+            # A agregação precisa apenas destas colunas. Copiar toda a tabela de
+            # pessoas (incluindo texto e geografia) eleva muito o pico de RAM.
+            p_com_veic = pessoas_df.loc[
+                pessoas_df["id_veiculo"].notna(),
+                ["tipo_veiculo", "pesid", "mortos", "feridos_graves", "feridos_leves"],
+            ]
             vitimas_veic = (
                 p_com_veic.groupby("tipo_veiculo", observed=True)
                 .agg(

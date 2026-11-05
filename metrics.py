@@ -29,8 +29,12 @@ def compute_period_metrics(df: pd.DataFrame, period_col: str = "fase_dia_oficial
     if df.empty or period_col not in df.columns:
         return pd.DataFrame()
 
-    df_calc = df.copy()
-    for col in ["mortos", "feridos_graves", "feridos_leves", "total_feridos", "total_vitimas", "acidente_fatal"]:
+    metric_cols = ["mortos", "feridos_graves", "feridos_leves", "total_feridos", "total_vitimas", "acidente_fatal"]
+    # O agrupamento não usa as demais colunas da ocorrência. Evita copiar
+    # descrições, coordenadas e identificadores auxiliares de toda a base.
+    required = ["id", period_col, *(col for col in metric_cols if col in df.columns)]
+    df_calc = df[required].copy(deep=False)
+    for col in metric_cols:
         if col not in df_calc.columns:
             df_calc[col] = 0
 
@@ -172,8 +176,8 @@ def compute_day_vs_night_comparison(df: pd.DataFrame) -> Dict[str, Any]:
             f"seguido pela **Plena Noite com {_fmt_pt(let_pn, 2)} óbitos/100 acidentes**, "
             f"contrastando com **{_fmt_pt(let_an, 2)} no Anoitecer** e **{_fmt_pt(let_pd, 2)} no Pleno Dia**. "
             f"A diferença observada entre Amanhecer e Plena Noite foi de {_fmt_pt(diff_am_pn, 2)} óbitos/100 acidentes. "
-            "Mudanças na luminosidade, orientação da via e atenção dos condutores são hipóteses possíveis, "
-            "mas os microdados não permitem isolar esses mecanismos nem demonstrar causalidade."
+            "Transição de luminosidade, geometria da via, atenção e fadiga são hipóteses possíveis, "
+            "mas os microdados não permitem isolar sua contribuição nem demonstrar causalidade da ausência de iluminação."
         )
     else:
         destaque_fases = (
@@ -183,7 +187,8 @@ def compute_day_vs_night_comparison(df: pd.DataFrame) -> Dict[str, Any]:
             f"contrastando com **{_fmt_pt(let_an, 2)} no Anoitecer** e **{_fmt_pt(let_pd, 2)} no Pleno Dia**. "
             f"A proximidade entre Plena Noite e Amanhecer (diferença de apenas {_fmt_pt(diff_am_pn, 2)} óbitos/100 acidentes) "
             f"descreve a gravidade observada nesses períodos em comparação ao Pleno Dia ({_fmt_pt(let_pd, 2)} óbitos/100 acidentes). "
-            "A diferença não identifica a presença de iluminação nem estabelece sua contribuição causal."
+            "Transição de luminosidade, geometria da via, atenção e fadiga são hipóteses possíveis; "
+            "os microdados não permitem isolar sua contribuição nem demonstrar causalidade da ausência de iluminação."
         )
 
     return {

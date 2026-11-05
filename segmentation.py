@@ -29,7 +29,14 @@ def create_road_segments(
 
     # Filtrar apenas registros com localização viária consistente (BR, UF e KM válidos)
     mask_com_km = ocorrencias_df["km"].notna() & ocorrencias_df["uf"].notna() & (ocorrencias_df["br"] != "N/A")
-    valid_df = ocorrencias_df[mask_com_km].copy()
+    segment_columns = [
+        "id", "br", "uf", "km", "latitude", "longitude", "mortos",
+        "feridos_graves", "feridos_leves", "total_feridos", "total_vitimas",
+        "acidente_fatal", "fase_dia_agrupada", "fase_dia", "fase_dia_oficial",
+    ]
+    valid_df = ocorrencias_df.loc[
+        mask_com_km, [col for col in segment_columns if col in ocorrencias_df.columns]
+    ].copy()
     sem_km_count = int((~mask_com_km).sum())
 
     if valid_df.empty:

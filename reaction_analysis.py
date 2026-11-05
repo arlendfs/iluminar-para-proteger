@@ -10,6 +10,16 @@ import numpy as np
 from config import CAUSAS_VISIBILIDADE_REACAO
 
 
+REPORT_CAUSE_LABELS = (
+    "Reação tardia ou ineficiente do condutor",
+    "Ausência de reação do condutor",
+    "Condutor Dormindo",
+    "Ultrapassagem Indevida",
+    "Velocidade Incompatível",
+    "Ingestão de Álcool pelo condutor",
+)
+
+
 def filter_reaction_causes(causes_df: pd.DataFrame, custom_causes: Optional[List[str]] = None) -> pd.DataFrame:
     """
     Filtra a tabela de causas para aquelas relacionadas à percepção,
@@ -34,7 +44,8 @@ def re_escape(text: str) -> str:
 def analyze_visibility_and_reaction(
     ocorrencias_df: pd.DataFrame,
     causas_df: pd.DataFrame,
-    selected_causes: Optional[List[str]] = None
+    selected_causes: Optional[List[str]] = None,
+    include_details: bool = True,
 ) -> Dict[str, Any]:
     """
     Realiza a análise integrada de causas de visibilidade e reação:
@@ -46,15 +57,35 @@ def analyze_visibility_and_reaction(
     if ocorrencias_df.empty:
         return {}
 
+    # As agregações abaixo usam apenas estas medidas. Evita materializar
+    # todas as colunas descritivas/geográficas em cada junção causa–ocorrência.
+    phase_column = "fase_dia_agrupada" if "fase_dia_agrupada" in ocorrencias_df.columns else "fase_dia"
+    needed = [
+        "id", "mortos", "total_feridos", "acidente_fatal",
+        phase_column, "fase_dia_oficial", "condicao_metereologica", "tipo_pista",
+    ]
+    if causas_df.empty:
+        needed.append("causa_acidente")
+    occurrence_columns = [col for col in needed if col in ocorrencias_df.columns]
+    occurrence_view = ocorrencias_df[occurrence_columns]
+
     # Se a tabela de causas estiver vazia mas ocorrencias tiver causa_acidente, usar da ocorrencia
     if causas_df.empty and "causa_acidente" in ocorrencias_df.columns:
-        merged = ocorrencias_df.copy()
+        merged = occurrence_view.copy()
     elif not causas_df.empty and "id" in causas_df.columns:
         # Garantir chave única (id, causa_acidente) para não duplicar vítimas da ocorrência
-        causas_unicas = causas_df[["id", "causa_acidente"]].dropna().drop_duplicates()
-        merged = ocorrencias_df.merge(causas_unicas, on="id", how="inner")
+        if include_details:
+            causas_relevantes = causas_df[["id", "causa_acidente"]]
+        else:
+            # O PDF mostra somente estas seis causas; filtrar antes da junção
+            # evita multiplicar todas as ocorrências por causas não exibidas.
+            report_pattern = "|".join(re_escape(label) for label in REPORT_CAUSE_LABELS)
+            mask_relevantes = causas_df["causa_acidente"].str.contains(report_pattern, case=False, na=False)
+            causas_relevantes = causas_df.loc[mask_relevantes, ["id", "causa_acidente"]]
+        causas_unicas = causas_relevantes.dropna().drop_duplicates()
+        merged = occurrence_view.drop(columns=["causa_acidente"], errors="ignore").merge(causas_unicas, on="id", how="inner")
     else:
-        merged = ocorrencias_df.copy()
+        merged = occurrence_view.copy()
 
     if "causa_acidente" not in merged.columns or merged["causa_acidente"].dropna().empty:
         return {
@@ -69,85 +100,94 @@ def analyze_visibility_and_reaction(
     # Período agrupado
     col_periodo = "fase_dia_agrupada" if "fase_dia_agrupada" in merged.columns else "fase_dia"
 
-    # 1. Ranking Geral de Causas com métricas de gravidade
-    ranking_causas = (
-        merged.groupby("causa_normalizada", observed=True)
-        .agg(
-            total_ocorrencias=("id", "nunique"),
-            total_mortos=("mortos", "sum"),
-            total_feridos=("total_feridos", "sum"),
-            acidentes_fatais=("acidente_fatal", "sum"),
+    if include_details:
+        # 1. Ranking Geral de Causas com métricas de gravidade
+        ranking_causas = (
+            merged.groupby("causa_normalizada", observed=True)
+            .agg(
+                total_ocorrencias=("id", "nunique"),
+                total_mortos=("mortos", "sum"),
+                total_feridos=("total_feridos", "sum"),
+                acidentes_fatais=("acidente_fatal", "sum"),
+            )
+            .reset_index()
         )
-        .reset_index()
-    )
-    ranking_causas["total_ocorrencias"] = pd.to_numeric(ranking_causas["total_ocorrencias"], errors="coerce").fillna(0)
-    ranking_causas["acidentes_fatais"] = pd.to_numeric(ranking_causas["acidentes_fatais"], errors="coerce").fillna(0)
-    ranking_causas["total_mortos"] = pd.to_numeric(ranking_causas["total_mortos"], errors="coerce").fillna(0)
-    ranking_causas["letalidade_pct"] = (
-        ranking_causas["acidentes_fatais"] / ranking_causas["total_ocorrencias"].replace(0, np.nan) * 100
-    ).fillna(0)
-    ranking_causas["obitos_por_100"] = (
-        ranking_causas["total_mortos"] / ranking_causas["total_ocorrencias"].replace(0, np.nan) * 100
-    ).fillna(0)
-    ranking_causas = ranking_causas.sort_values("total_ocorrencias", ascending=False)
+        ranking_causas["total_ocorrencias"] = pd.to_numeric(ranking_causas["total_ocorrencias"], errors="coerce").fillna(0)
+        ranking_causas["acidentes_fatais"] = pd.to_numeric(ranking_causas["acidentes_fatais"], errors="coerce").fillna(0)
+        ranking_causas["total_mortos"] = pd.to_numeric(ranking_causas["total_mortos"], errors="coerce").fillna(0)
+        ranking_causas["letalidade_pct"] = (
+            ranking_causas["acidentes_fatais"] / ranking_causas["total_ocorrencias"].replace(0, np.nan) * 100
+        ).fillna(0)
+        ranking_causas["obitos_por_100"] = (
+            ranking_causas["total_mortos"] / ranking_causas["total_ocorrencias"].replace(0, np.nan) * 100
+        ).fillna(0)
+        ranking_causas = ranking_causas.sort_values("total_ocorrencias", ascending=False)
 
-    # 2. Distribuição das Causas por Período (Dia vs Noite)
-    causas_periodo = (
-        merged.groupby(["causa_normalizada", col_periodo], observed=True)
-        .agg(
-            n_acidentes=("id", "nunique"),
-            mortos=("mortos", "sum"),
-            acidentes_fatais=("acidente_fatal", "sum"),
+        # 2. Distribuição das Causas por Período (Dia vs Noite)
+        causas_periodo = (
+            merged.groupby(["causa_normalizada", col_periodo], observed=True)
+            .agg(
+                n_acidentes=("id", "nunique"),
+                mortos=("mortos", "sum"),
+                acidentes_fatais=("acidente_fatal", "sum"),
+            )
+            .reset_index()
         )
-        .reset_index()
-    )
 
-    # Calcular participação percentual de cada causa dentro do período respectivo
-    totais_por_periodo = merged.groupby(col_periodo, observed=True)["id"].nunique()
-    map_totais = {str(k): float(v) for k, v in totais_por_periodo.to_dict().items()}
-    causas_periodo["total_periodo"] = pd.to_numeric(
-        causas_periodo[col_periodo].astype(str).map(map_totais), errors="coerce"
-    ).fillna(0)
-    causas_periodo["n_acidentes"] = pd.to_numeric(causas_periodo["n_acidentes"], errors="coerce").fillna(0)
-    causas_periodo["participacao_no_periodo_pct"] = (
-        causas_periodo["n_acidentes"] / causas_periodo["total_periodo"].replace(0, np.nan) * 100
-    ).fillna(0)
+        # Calcular participação percentual de cada causa dentro do período respectivo
+        totais_por_periodo = merged.groupby(col_periodo, observed=True)["id"].nunique()
+        map_totais = {str(k): float(v) for k, v in totais_por_periodo.to_dict().items()}
+        causas_periodo["total_periodo"] = pd.to_numeric(
+            causas_periodo[col_periodo].astype(str).map(map_totais), errors="coerce"
+        ).fillna(0)
+        causas_periodo["n_acidentes"] = pd.to_numeric(causas_periodo["n_acidentes"], errors="coerce").fillna(0)
+        causas_periodo["participacao_no_periodo_pct"] = (
+            causas_periodo["n_acidentes"] / causas_periodo["total_periodo"].replace(0, np.nan) * 100
+        ).fillna(0)
 
-    # Tabela dinâmica (pivot) para comparar Diurno vs Noturno lado a lado
-    pivot_causas = causas_periodo.pivot_table(
-        index="causa_normalizada",
-        columns=col_periodo,
-        values=["n_acidentes", "participacao_no_periodo_pct", "mortos"],
-        fill_value=0,
-        observed=True,
-    )
-    # Aplanar colunas multiindex
-    pivot_causas.columns = [f"{col}_{val}".lower() for col, val in pivot_causas.columns]
-    pivot_causas = pivot_causas.reset_index()
+        # Tabela dinâmica (pivot) para comparar Diurno vs Noturno lado a lado
+        pivot_causas = causas_periodo.pivot_table(
+            index="causa_normalizada",
+            columns=col_periodo,
+            values=["n_acidentes", "participacao_no_periodo_pct", "mortos"],
+            fill_value=0,
+            observed=True,
+        )
+        # Aplanar colunas multiindex
+        pivot_causas.columns = [f"{col}_{val}".lower() for col, val in pivot_causas.columns]
+        pivot_causas = pivot_causas.reset_index()
 
-    # Identificar quais são do grupo de Visibilidade e Tempo de Reação
-    pattern_reacao = "|".join([re_escape(c) for c in (selected_causes or CAUSAS_VISIBILIDADE_REACAO)])
-    pivot_causas["is_reacao_visibilidade"] = pivot_causas["causa_normalizada"].str.contains(pattern_reacao, case=False, na=False)
+        # Identificar quais são do grupo de Visibilidade e Tempo de Reação
+        pattern_reacao = "|".join([re_escape(c) for c in (selected_causes or CAUSAS_VISIBILIDADE_REACAO)])
+        pivot_causas["is_reacao_visibilidade"] = pivot_causas["causa_normalizada"].str.contains(pattern_reacao, case=False, na=False)
 
-    # Estratificação das causas de reação por Meteorologia
-    reacao_df = merged[merged["causa_normalizada"].str.contains(pattern_reacao, case=False, na=False)]
+        # Estratificação das causas de reação por Meteorologia
+        reacao_df = merged[merged["causa_normalizada"].str.contains(pattern_reacao, case=False, na=False)]
     
-    meteo_strat = pd.DataFrame()
-    if "condicao_metereologica" in reacao_df.columns:
-        meteo_strat = (
-            reacao_df.groupby(["condicao_metereologica", col_periodo], observed=True)
-            .agg(n_acidentes=("id", "nunique"), mortos=("mortos", "sum"))
-            .reset_index()
-        )
+        meteo_strat = pd.DataFrame()
+        if "condicao_metereologica" in reacao_df.columns:
+            meteo_strat = (
+                reacao_df.groupby(["condicao_metereologica", col_periodo], observed=True)
+                .agg(n_acidentes=("id", "nunique"), mortos=("mortos", "sum"))
+                .reset_index()
+            )
 
-    # Estratificação por Tipo de Pista
-    pista_strat = pd.DataFrame()
-    if "tipo_pista" in reacao_df.columns:
-        pista_strat = (
-            reacao_df.groupby(["tipo_pista", col_periodo], observed=True)
-            .agg(n_acidentes=("id", "nunique"), mortos=("mortos", "sum"))
-            .reset_index()
-        )
+        # Estratificação por Tipo de Pista
+        pista_strat = pd.DataFrame()
+        if "tipo_pista" in reacao_df.columns:
+            pista_strat = (
+                reacao_df.groupby(["tipo_pista", col_periodo], observed=True)
+                .agg(n_acidentes=("id", "nunique"), mortos=("mortos", "sum"))
+                .reset_index()
+            )
+
+    else:
+        ranking_causas = pd.DataFrame()
+        causas_periodo = pd.DataFrame()
+        pivot_causas = pd.DataFrame()
+        reacao_df = pd.DataFrame()
+        meteo_strat = pd.DataFrame()
+        pista_strat = pd.DataFrame()
 
     # Tabela detalhada das principais causas por fase oficial da PRF
     col_fase_oficial = "fase_dia_oficial" if "fase_dia_oficial" in merged.columns else col_periodo
@@ -180,19 +220,25 @@ def analyze_visibility_and_reaction(
     ids_reacao_uniao = ids_rt.union(ids_ar)
     ids_reacao_intersecao = ids_rt.intersection(ids_ar)
 
-    df_u_reacao = ocorrencias_df[ocorrencias_df["id"].isin(ids_reacao_uniao)] if not ocorrencias_df.empty else pd.DataFrame()
-    mortos_reacao = int(df_u_reacao["mortos"].sum()) if not df_u_reacao.empty and "mortos" in df_u_reacao.columns else 0
-    feridos_reacao = int(df_u_reacao["total_feridos"].sum()) if not df_u_reacao.empty and "total_feridos" in df_u_reacao.columns else 0
+    mask_uniao = ocorrencias_df["id"].isin(ids_reacao_uniao)
+    mortos_reacao = int(ocorrencias_df.loc[mask_uniao, "mortos"].sum()) if "mortos" in ocorrencias_df.columns else 0
+    feridos_reacao = int(ocorrencias_df.loc[mask_uniao, "total_feridos"].sum()) if "total_feridos" in ocorrencias_df.columns else 0
 
     col_fase_of = "fase_dia_oficial" if "fase_dia_oficial" in ocorrencias_df.columns else col_periodo
+    phase_labels = {}
+    if col_fase_of in ocorrencias_df.columns:
+        labels = ocorrencias_df[col_fase_of].dropna().unique()
+        phase_labels = {
+            term: [label for label in labels if term in str(label).casefold()]
+            for term in ("plena noite", "pleno dia")
+        }
 
     def get_let_fase(ids_set, fase_busca):
-        sub = ocorrencias_df[ocorrencias_df["id"].isin(ids_set)]
-        if sub.empty or col_fase_of not in sub.columns:
+        if not ids_set or col_fase_of not in ocorrencias_df.columns:
             return 0.0, 0
-        m = sub[sub[col_fase_of].astype(str).str.lower().str.contains(fase_busca)]
-        n = len(m)
-        mort = m["mortos"].sum() if "mortos" in m.columns else 0
+        mask = ocorrencias_df["id"].isin(ids_set) & ocorrencias_df[col_fase_of].isin(phase_labels[fase_busca])
+        n = int(mask.sum())
+        mort = ocorrencias_df.loc[mask, "mortos"].sum() if "mortos" in ocorrencias_df.columns else 0
         return ((mort / n * 100) if n > 0 else 0.0), n
 
     let_rt_pn, n_rt_pn = get_let_fase(ids_rt, "plena noite")
@@ -215,24 +261,29 @@ def analyze_visibility_and_reaction(
     }
 
     # Textos de fundamentação e rigor científico rigorosamente dinâmicos
+    def pt_num(value, decimals=0):
+        return f"{value:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
     evidencias_texto = (
         f"EVIDÊNCIA OBSERVACIONAL AUDITADA: As ocorrências com registro de 'Reação tardia ou ineficiente' "
-        f"({len(ids_rt):,} associações) e 'Ausência de reação' ({len(ids_ar):,} associações) somam "
-        f"{len(ids_rt) + len(ids_ar):,} apontamentos de causa. Após expurgo de sobreposições "
-        f"({len(ids_reacao_intersecao):,} acidentes com ambas as causas registradas conjuntamente), "
-        f"identificam-se {len(ids_reacao_uniao):,} sinistros únicos, resultando em {mortos_reacao:,} óbitos "
-        f"e {feridos_reacao:,} feridos. A taxa de mortalidade em Plena Noite atinge {let_rt_pn:.2f} óbitos/100 para reação tardia "
-        f"e {let_ar_pn:.2f} óbitos/100 para ausência de reação, contrastando com {let_rt_pd:.2f} e {let_ar_pd:.2f} em Pleno Dia."
+        f"({pt_num(len(ids_rt))} associações) e 'Ausência de reação' ({pt_num(len(ids_ar))} associações) somam "
+        f"{pt_num(len(ids_rt) + len(ids_ar))} apontamentos de causa. Após expurgo de sobreposições "
+        f"({pt_num(len(ids_reacao_intersecao))} acidentes com ambas as causas registradas conjuntamente), "
+        f"identificam-se {pt_num(len(ids_reacao_uniao))} sinistros únicos, resultando em {pt_num(mortos_reacao)} óbitos "
+        f"e {pt_num(feridos_reacao)} feridos. A taxa de mortalidade em Plena Noite atinge {pt_num(let_rt_pn, 2)} óbitos/100 para reação tardia "
+        f"e {pt_num(let_ar_pn, 2)} óbitos/100 para ausência de reação, contrastando com {pt_num(let_rt_pd, 2)} e {pt_num(let_ar_pd, 2)} em Pleno Dia."
     )
     hipotese_texto = (
-        "HIPÓTESE INTERPRETATIVA (MECANISMO PIEV): O alcance útil dos faróis baixos (30 a 50 metros) é inferior "
-        "à Distância de Parada Segura (DPS) em velocidades regulamentares de 80 a 110 km/h (80 a 140 metros). "
-        "Essa limitação geométrica pode comprimir o tempo disponível para Percepção, Identificação, Emoção e Volição "
-        "(mecanismo PIEV), atuando como hipótese explicativa para o retardo ou impossibilidade de frenagem."
+        "HIPÓTESE INTERPRETATIVA (MECANISMO PIEV): A identificação de um risco depende da visibilidade disponível "
+        "e do processo de Percepção, Identificação, Emoção e Volição (PIEV). A distância de parada depende da velocidade, "
+        "do tempo de percepção e reação, do atrito, da declividade, da condição da pista e da eficiência de frenagem. "
+        "O alcance dos faróis também varia com a óptica, o alinhamento, o veículo e o ambiente. Os dados analisados "
+        "não medem essas condições nem permitem atribuir os sinistros à iluminação isoladamente."
     )
     limitacoes_texto = (
-        "LIMITAÇÃO METODOLÓGICA EXPLÍCITA: A base pública da PRF não audita a presença nem os níveis de luminância "
-        "artificial (lux) nos trechos. Fatores concorrentes (como alcoolemia, fadiga e distração) coexistem nas "
+        "LIMITAÇÃO METODOLÓGICA EXPLÍCITA: A base pública da PRF não apresenta medições diretas de iluminância "
+        "artificial (lux), luminância da superfície viária (cd/m²) ou inventário completo da iluminação existente nos locais "
+        "dos acidentes. Fatores concorrentes (como alcoolemia, fadiga e distração) coexistem nas "
         "ocorrências. Portanto, correlações estatísticas não configuram causalidade isolada ou exclusiva da falta de iluminação."
     )
 

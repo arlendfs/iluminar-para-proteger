@@ -130,4 +130,34 @@ def test_analyze_visibility_and_reaction_with_categorical_columns():
     assert pd.api.types.is_numeric_dtype(res["causas_fases_df"]["mortos_por_100"])
 
 
+def test_report_summary_matches_full_analysis_for_displayed_causes():
+    occurrences = pd.DataFrame({
+        "id": [1, 2, 3],
+        "fase_dia_oficial": ["Plena Noite", "Pleno Dia", "Plena Noite"],
+        "fase_dia_agrupada": ["Noturno", "Diurno", "Noturno"],
+        "mortos": [1, 0, 0],
+        "total_feridos": [0, 1, 0],
+        "acidente_fatal": [1, 0, 0],
+    })
+    causes = pd.DataFrame({
+        "id": [1, 2, 3, 3],
+        "causa_acidente": [
+            "Reação tardia ou ineficiente do condutor",
+            "Ausência de reação do condutor",
+            "Condutor Dormindo",
+            "Defeito mecânico no veículo",
+        ],
+    })
+    full = analyze_visibility_and_reaction(occurrences, causes)
+    report = analyze_visibility_and_reaction(occurrences, causes, include_details=False)
+
+    expected = full["causas_fases_df"].query("causa_normalizada != 'Defeito mecânico no veículo'")
+    pd.testing.assert_frame_equal(
+        report["causas_fases_df"].sort_values(["causa_normalizada", "fase_dia_oficial"]).reset_index(drop=True),
+        expected.sort_values(["causa_normalizada", "fase_dia_oficial"]).reset_index(drop=True),
+    )
+    assert report["resumo_reacao_dinamico"] == full["resumo_reacao_dinamico"]
+    assert report["ranking_causas"].empty
+
+
 
