@@ -337,6 +337,8 @@ def main():
         st.session_state.pop("data_processed_once", None)
         st.session_state.pop("peak_load_rss_mib", None)
         st.session_state.pop("peak_pdf_rss_mib", None)
+        st.session_state.pop("peak_pdf_stages_mib", None)
+        st.session_state.pop("load_stage_peaks_mib", None)
         st.session_state.pop("applied_filters", None)
         gc.collect()
 
@@ -362,6 +364,8 @@ def main():
             "data_processed_once",
             "peak_load_rss_mib",
             "peak_pdf_rss_mib",
+            "peak_pdf_stages_mib",
+            "load_stage_peaks_mib",
         ]:
             st.session_state.pop(k, None)
         st.session_state["uploader_key"] = st.session_state.get("uploader_key", 0) + 1
@@ -381,6 +385,10 @@ def main():
         st.sidebar.caption(f"🖥️ Limite do Contêiner: **{c_info['limit_mb']:.0f} MiB**")
     if st.session_state.get("peak_load_rss_mib") is not None:
         st.sidebar.caption(f"📈 Pico RSS na última carga: **{st.session_state['peak_load_rss_mib']:.1f} MiB**")
+    if st.query_params.get("diagnostics") == "1" and st.session_state.get("load_stage_peaks_mib"):
+        with st.sidebar.expander("Picos RSS por etapa da carga"):
+            for stage, peak_mib in st.session_state["load_stage_peaks_mib"].items():
+                st.caption(f"{stage}: {peak_mib:.1f} MiB")
     st.sidebar.caption(f"👥 Sessões ativas estimadas: **{active_sessions_count}**")
 
     # =========================================================================
@@ -472,7 +480,12 @@ def main():
                             analyzer.data = analyzer.load_data(uploaded_files, session_id=st.session_state["session_id"])
                         log_memory_checkpoint("Carga incremental e auditoria concluída", start_time=t_load_start)
                 st.session_state["peak_load_rss_mib"] = load_peak.peak_mib
+                st.session_state["load_stage_peaks_mib"] = load_peak.stage_peaks_mib.copy()
                 st.sidebar.caption(f"📈 Pico RSS na carga: **{load_peak.peak_mib:.1f} MiB**")
+                if st.query_params.get("diagnostics") == "1":
+                    with st.sidebar.expander("Picos RSS por etapa da carga"):
+                        for stage, peak_mib in load_peak.stage_peaks_mib.items():
+                            st.caption(f"{stage}: {peak_mib:.1f} MiB")
             except MemoryError:
                 st.error("❌ Memória insuficiente para processar a seleção de dados. Por favor, reduza a quantidade de arquivos/anos selecionados.")
                 analyzer.clear()

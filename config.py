@@ -6,6 +6,7 @@ Define constantes, parâmetros de cálculo, engenharia e configurações do sist
 import os
 import time
 import threading
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -36,12 +37,18 @@ def get_current_rss_mb() -> float:
         return 0.0
 
 
+_ACTIVE_RSS_SAMPLER = ContextVar("active_rss_sampler", default=None)
+
+
 class RSSPeakSampler:
     """Amostra o pico de RSS do processo durante uma operação custosa."""
 
     def __init__(self, interval_s: float = 0.02):
         self.interval_s = interval_s
         self.peak_mib = 0.0
+        self.stage_peaks_mib = {}
+        self.stage = "Início"
+        self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
         self._process = None
@@ -49,15 +56,26 @@ class RSSPeakSampler:
     def _sample(self) -> None:
         try:
             rss_mib = self._process.memory_info().rss / (1024.0 * 1024.0)
-            self.peak_mib = max(self.peak_mib, rss_mib)
+            with self._lock:
+                self.peak_mib = max(self.peak_mib, rss_mib)
+                self.stage_peaks_mib[self.stage] = max(
+                    self.stage_peaks_mib.get(self.stage, 0.0), rss_mib
+                )
         except Exception:
             pass
+
+    def set_stage(self, stage: str) -> None:
+        self._sample()
+        with self._lock:
+            self.stage = stage
+        self._sample()
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval_s):
             self._sample()
 
     def __enter__(self):
+        self._token = _ACTIVE_RSS_SAMPLER.set(self)
         try:
             import psutil
             self._process = psutil.Process()
@@ -74,6 +92,7 @@ class RSSPeakSampler:
             self._thread.join()
         if self._process is not None:
             self._sample()
+        _ACTIVE_RSS_SAMPLER.reset(self._token)
 
 
 def get_container_memory_info() -> Dict[str, Any]:
@@ -142,13 +161,16 @@ def log_memory_checkpoint(stage: str, start_time: Optional[float] = None) -> flo
     Registra consumo de memória e tempo de execução sem expor dados pessoais ou internos ao público.
     """
     rss = get_current_rss_mb()
+    active_sampler = _ACTIVE_RSS_SAMPLER.get()
+    if active_sampler is not None:
+        active_sampler.set_stage(stage)
     c_info = get_container_memory_info()
-    c_limit = f" | Contêiner: {c_info['container_usage_mb']:.1f}/{c_info['container_limit_mb']:.0f} MB" if c_info.get("container_limit_mb") else ""
+    c_limit = f" | Contêiner: {c_info['container_usage_mb']:.1f}/{c_info['container_limit_mb']:.0f} MiB" if c_info.get("container_limit_mb") else ""
     if start_time is not None:
         elapsed = time.time() - start_time
-        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | Duração: {elapsed:.2f}s | RSS: {rss:.1f} MB{c_limit}")
+        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | Duração: {elapsed:.2f}s | RSS: {rss:.1f} MiB{c_limit}")
     else:
-        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | RSS: {rss:.1f} MB{c_limit}")
+        print(f"[DIAGNÓSTICO MEMÓRIA] {stage} | RSS: {rss:.1f} MiB{c_limit}")
     return rss
 
 APP_CONFIG = {

@@ -1678,18 +1678,26 @@ def render_relatorio_pdf(analyzer: AccidentAnalyzer) -> None:
             with st.spinner("Gerando relatório e suas agregações necessárias..."):
                 # Matplotlib usa estado global; PDFs simultâneos podem perder gráficos.
                 with PDF_GENERATION_LOCK:
+                    pdf_peak.set_stage("Finanças e segmentação")
                     top, summary = _financial_results(analyzer)
+                    pdf_peak.set_stage("Renderização do PDF")
                     result = ReportGenerator().generate_accident_analysis_report(
                         filtered_data=analyzer.filtered_data, top_segments=top,
                         financial_summary=summary, quality_summary=analyzer.quality_summary,
                         pessoas_df=analyzer.filtered_pessoas, veiculos_df=analyzer.filtered_veiculos,
                         causas_df=analyzer.filtered_causas,
                     )
+                    pdf_peak.set_stage("Finalização do PDF")
                     st.session_state["generated_pdf"] = (result.getvalue(), "relatorio_cientifico_iluminar_" + datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S") + ".pdf")
         st.session_state["peak_pdf_rss_mib"] = pdf_peak.peak_mib
+        st.session_state["peak_pdf_stages_mib"] = pdf_peak.stage_peaks_mib.copy()
         _time_module("PDF", started)
     if st.session_state.get("peak_pdf_rss_mib") is not None:
         st.caption(f"Pico RSS amostrado durante a última geração: {st.session_state['peak_pdf_rss_mib']:.1f} MiB (intervalo de 20 ms).")
+        if st.query_params.get("diagnostics") == "1":
+            with st.expander("Picos RSS por etapa do PDF"):
+                for stage, peak_mib in st.session_state.get("peak_pdf_stages_mib", {}).items():
+                    st.caption(f"{stage}: {peak_mib:.1f} MiB")
     if "generated_pdf" in st.session_state:
         pdf_bytes, pdf_name = st.session_state["generated_pdf"]
         st.download_button("Baixar PDF", pdf_bytes, pdf_name, "application/pdf")
