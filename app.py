@@ -55,11 +55,10 @@ except ImportError:
         lambda: {"container_limit_mb": None, "limit_mb": None, "detected_environment": "fallback"}
     )
 
-# Controle global de concorrência para processamento intensivo (máximo 2 análises pesadas simultâneas)
-HEAVY_ANALYSIS_SEMAPHORE = threading.BoundedSemaphore(2)
-
-# Rastreamento de sessões ativas sem expor identidades de usuários
-ACTIVE_SESSIONS: Dict[str, float] = {}
+@st.cache_resource(show_spinner=False)
+def runtime_controls():
+    """Controles compartilhados entre reruns e sessões do mesmo processo."""
+    return threading.BoundedSemaphore(2), {}, threading.Lock()
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -182,12 +181,14 @@ def main():
     if "uploader_key" not in st.session_state:
         st.session_state["uploader_key"] = 0
 
+    heavy_analysis_semaphore, active_sessions, sessions_lock = runtime_controls()
     now = time.time()
-    ACTIVE_SESSIONS[st.session_state["session_id"]] = now
-    for sid in list(ACTIVE_SESSIONS.keys()):
-        if now - ACTIVE_SESSIONS[sid] > 1800:
-            ACTIVE_SESSIONS.pop(sid, None)
-    active_sessions_count = len(ACTIVE_SESSIONS)
+    with sessions_lock:
+        active_sessions[st.session_state["session_id"]] = now
+        for sid in list(active_sessions):
+            if now - active_sessions[sid] > 1800:
+                active_sessions.pop(sid, None)
+        active_sessions_count = len(active_sessions)
 
     st.markdown('<h1 class="main-header">🌟 Iluminar para Proteger</h1>', unsafe_allow_html=True)
     st.markdown(
@@ -461,7 +462,7 @@ def main():
             analyzer.causas_data = st.session_state.get("cached_analyzer_causas")
             analyzer.quality_summary = st.session_state.get("cached_analyzer_quality", {})
         else:
-            acquired = HEAVY_ANALYSIS_SEMAPHORE.acquire(blocking=False)
+            acquired = heavy_analysis_semaphore.acquire(blocking=False)
             if not acquired:
                 st.sidebar.error("⚠️ O servidor atingiu o limite de análises concorrentes (máximo de 2 simultâneas). Por favor, aguarde alguns instantes e tente novamente.")
                 st.stop()
@@ -497,7 +498,7 @@ def main():
                 gc.collect()
                 st.stop()
             finally:
-                HEAVY_ANALYSIS_SEMAPHORE.release()
+                heavy_analysis_semaphore.release()
 
             if analyzer.data is not None and not analyzer.data.empty:
                 st.session_state["cached_analyzer_data"] = analyzer.data
