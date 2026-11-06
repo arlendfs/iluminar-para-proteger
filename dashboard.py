@@ -24,6 +24,10 @@ import branca.element
 
 from config import (
     COLOR_PALETTE,
+    PHASE_COLORS,
+    SEVERITY_COLORS,
+    SEX_COLORS,
+    FINANCIAL_CHART_COLORS,
     APP_CONFIG,
     FINANCIAL_PARAMS,
     EFFECTIVENESS_PARAMS,
@@ -205,12 +209,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                 values="n_acidentes",
                 title="Distribuição de Ocorrências por Fase do Dia (PRF)",
                 color="fase_dia_oficial",
-                color_discrete_map={
-                    "Pleno dia": COLOR_PALETTE["diurno"],
-                    "Plena Noite": COLOR_PALETTE["noturno"],
-                    "Amanhecer": COLOR_PALETTE["amanhecer"],
-                    "Anoitecer": COLOR_PALETTE["anoitecer"],
-                },
+                color_discrete_map=PHASE_COLORS,
                 hole=0.4,
             )
             fig_fases.update_traces(textinfo="percent+label", hovertemplate="<b>%{label}</b><br>Acidentes: %{value:,}<br>Part.: %{percent:.1%}")
@@ -225,12 +224,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                 color="fase_dia_oficial",
                 title="Taxa de Mortalidade: Óbitos por 100 Acidentes por Período",
                 labels={"fase_dia_oficial": "Fase do Dia", "mortos_por_100_acidentes": "Óbitos / 100 Acidentes"},
-                color_discrete_map={
-                    "Pleno dia": COLOR_PALETTE["diurno"],
-                    "Plena Noite": COLOR_PALETTE["noturno"],
-                    "Amanhecer": COLOR_PALETTE["amanhecer"],
-                    "Anoitecer": COLOR_PALETTE["anoitecer"],
-                },
+                color_discrete_map=PHASE_COLORS,
             )
             fig_bar_let.update_traces(hovertemplate="<b>%{x}</b><br>Óbitos/100 Ac.: %{y:.2f}")
             st.plotly_chart(fig_bar_let)
@@ -333,7 +327,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                     barmode="group",
                     title="Causas de Visibilidade/Reação por Condição Meteorológica",
                     labels={"condicao_metereologica": "Meteorologia", "n_acidentes": "Acidentes"},
-                    color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"]},
+                    color_discrete_map=PHASE_COLORS,
                 )
                 fig_meteo.update_layout(xaxis_tickangle=-25)
                 st.plotly_chart(fig_meteo)
@@ -348,7 +342,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                     barmode="group",
                     title="Causas de Visibilidade/Reação por Tipo de Pista",
                     labels={"tipo_pista": "Tipo de Pista", "n_acidentes": "Acidentes"},
-                    color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"]},
+                    color_discrete_map=PHASE_COLORS,
                 )
                 st.plotly_chart(fig_pista)
 
@@ -378,7 +372,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
             markers=True,
             title=f"Evolução Mensal de Acidentes ({anos_presentes[0]})",
             labels={"ano_mes": "Mês", "n_acidentes": "Acidentes", "fase_dia_agrupada": "Período"},
-            color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"], "Crepúsculo": COLOR_PALETTE["warning"]},
+            color_discrete_map=PHASE_COLORS,
         )
         st.plotly_chart(fig_temp)
 
@@ -398,7 +392,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                 markers=True,
                 title=f"Evolução Anual ({anos_presentes[0]} - {anos_presentes[-1]})",
                 labels={"ano": "Ano", "n_acidentes": "Acidentes", "fase_dia_agrupada": "Período"},
-                color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"], "Crepúsculo": COLOR_PALETTE["warning"]},
+                color_discrete_map=PHASE_COLORS,
             )
             fig_ano.update_layout(xaxis_type="category")
             st.plotly_chart(fig_ano)
@@ -418,7 +412,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                     markers=True,
                     title="Evolução Mensal Histórica",
                     labels={"ano_mes": "Ano-Mês", "n_acidentes": "Acidentes"},
-                    color_discrete_map={"Noturno": COLOR_PALETTE["noturno"], "Diurno": COLOR_PALETTE["diurno"], "Crepúsculo": COLOR_PALETTE["warning"]},
+                    color_discrete_map=PHASE_COLORS,
                 )
                 fig_mes.update_layout(xaxis_tickangle=-45)
                 n_meses_unicos = tendencia_mes["ano_mes"].nunique()
@@ -469,11 +463,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                         y=["mortos", "feridos_graves", "feridos_leves"],
                         title="Vítimas por Tipo de Envolvimento",
                         labels={"value": "Pessoas", "tipo_envolvido": "Envolvimento", "variable": "Gravidade"},
-                        color_discrete_map={
-                            "mortos": COLOR_PALETTE["danger"],
-                            "feridos_graves": COLOR_PALETTE["warning"],
-                            "feridos_leves": COLOR_PALETTE["info"],
-                        },
+                        color_discrete_map=SEVERITY_COLORS,
                         barmode="stack",
                     )
                     st.plotly_chart(fig_env)
@@ -485,7 +475,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                         y="taxa_mortalidade_pct",
                         title="Taxa de Mortalidade por Envolvimento (%)",
                         labels={"taxa_mortalidade_pct": "Mortalidade (%)", "tipo_envolvido": "Envolvimento"},
-                        color="tipo_envolvido",
+                        color_discrete_sequence=[COLOR_PALETTE["taxa"]],
                     )
                     st.plotly_chart(fig_taxa_env)
 
@@ -518,12 +508,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                         barmode="group",
                         title="Óbitos por Tipo de Envolvimento e Fase do Dia",
                         labels={"mortos": "Óbitos", "tipo_envolvido": "Envolvimento", "fase_dia_oficial": "Fase do Dia"},
-                        color_discrete_map={
-                            "Pleno dia": COLOR_PALETTE["diurno"],
-                            "Plena Noite": COLOR_PALETTE["noturno"],
-                            "Amanhecer": COLOR_PALETTE["amanhecer"],
-                            "Anoitecer": COLOR_PALETTE["anoitecer"],
-                        },
+                        color_discrete_map=PHASE_COLORS,
                     )
                     st.plotly_chart(fig_cruz_env)
         else:
@@ -550,7 +535,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                         y="total_pessoas",
                         title="Distribuição de Pessoas Envolvidas por Faixa Etária",
                         labels={"faixa_etaria": "Faixa Etária", "total_pessoas": "Pessoas"},
-                        color="faixa_etaria",
+                        color_discrete_sequence=[COLOR_PALETTE["contagem"]],
                     )
                     fig_faixa.update_layout(showlegend=False, xaxis_tickangle=-25)
                     st.plotly_chart(fig_faixa)
@@ -562,10 +547,9 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                         y="mortos",
                         title="Óbitos por Faixa Etária",
                         labels={"faixa_etaria": "Faixa Etária", "mortos": "Óbitos"},
-                        color="mortos",
-                        color_continuous_scale="Reds",
+                        color_discrete_sequence=[COLOR_PALETTE["obitos"]],
                     )
-                    fig_obitos_faixa.update_layout(coloraxis_showscale=False, xaxis_tickangle=-25)
+                    fig_obitos_faixa.update_layout(xaxis_tickangle=-25)
                     st.plotly_chart(fig_obitos_faixa)
 
                 st.markdown("##### 📊 Estatísticas Descritivas de Idade por Nível de Severidade")
@@ -592,6 +576,8 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                         values="total_pessoas",
                         title="Distribuição de Envolvidos por Sexo",
                         hole=0.4,
+                        color="sexo",
+                        color_discrete_map=SEX_COLORS,
                     )
                     st.plotly_chart(fig_sexo_p)
 
@@ -603,6 +589,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                         title="Taxa de Mortalidade por Sexo (%)",
                         labels={"taxa_mortalidade_pct": "Mortalidade (%)", "sexo": "Sexo"},
                         color="sexo",
+                        color_discrete_map=SEX_COLORS,
                     )
                     st.plotly_chart(fig_sexo_m)
 
@@ -638,10 +625,9 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                     y="total_veiculos",
                     title="Top 10 Tipos de Veículos Envolvidos em Sinistros",
                     labels={"total_veiculos": "Veículos", "tipo_veiculo": "Tipo de Veículo"},
-                    color="total_veiculos",
-                    color_continuous_scale="Blues",
+                    color_discrete_sequence=[COLOR_PALETTE["contagem"]],
                 )
-                fig_v.update_layout(coloraxis_showscale=False, xaxis_tickangle=-30)
+                fig_v.update_layout(xaxis_tickangle=-30)
                 st.plotly_chart(fig_v)
 
                 st.dataframe(
@@ -676,10 +662,9 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                     y="mortos",
                     title="Top 10 Tipos de Acidentes por Número de Óbitos",
                     labels={"mortos": "Óbitos", "tipo_acidente": "Tipo de Acidente"},
-                    color="mortos",
-                    color_continuous_scale="Reds",
+                    color_discrete_sequence=[COLOR_PALETTE["obitos"]],
                 )
-                fig_tipo_acid.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
+                fig_tipo_acid.update_layout(xaxis_tickangle=-35)
                 st.plotly_chart(fig_tipo_acid)
 
             with col_t2:
@@ -689,10 +674,9 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                     y="obitos_por_100_acidentes",
                     title="Óbitos por 100 Acidentes por Tipologia",
                     labels={"obitos_por_100_acidentes": "Óbitos / 100 Ac.", "tipo_acidente": "Tipo de Acidente"},
-                    color="obitos_por_100_acidentes",
-                    color_continuous_scale="Oranges",
+                    color_discrete_sequence=[COLOR_PALETTE["taxa"]],
                 )
-                fig_tipo_taxa.update_layout(coloraxis_showscale=False, xaxis_tickangle=-35)
+                fig_tipo_taxa.update_layout(xaxis_tickangle=-35)
                 st.plotly_chart(fig_tipo_taxa)
 
             st.dataframe(
@@ -726,12 +710,7 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                     barmode="group",
                     title="Óbitos por Tipologia de Sinistro nas Fases do Dia (Top Tipos)",
                     labels={"mortos": "Óbitos", "tipo_acidente": "Tipo de Acidente", "fase_dia_oficial": "Fase do Dia"},
-                    color_discrete_map={
-                        "Pleno dia": COLOR_PALETTE["diurno"],
-                        "Plena Noite": COLOR_PALETTE["noturno"],
-                        "Amanhecer": COLOR_PALETTE["amanhecer"],
-                        "Anoitecer": COLOR_PALETTE["anoitecer"],
-                    },
+                    color_discrete_map=PHASE_COLORS,
                 )
                 fig_cruz_t.update_layout(xaxis_tickangle=-25)
                 st.plotly_chart(fig_cruz_t)
@@ -964,13 +943,13 @@ def render_legacy_full_dashboard(analyzer: AccidentAnalyzer):
                 x=comp_df["Cenário"],
                 y=comp_df["CAPEX Total (R$ M)"],
                 name="CAPEX Inicial (R$ Milhões)",
-                marker_color="#ef4444",
+                marker_color=COLOR_PALETTE["capex"],
             ))
             fig_cen.add_trace(go.Bar(
                 x=comp_df["Cenário"],
                 y=comp_df["VPL 15 Anos (R$ M)"],
-                name="VPL Social Líquido (R$ Milhões)",
-                marker_color="#10b981",
+                name="VPL Social Líquido Estimado (R$ Milhões)",
+                marker_color=COLOR_PALETTE["beneficio_social"],
             ))
             fig_cen.update_layout(
                 title="Comparativo Financeiro: Investimento Inicial (CAPEX) vs Retorno Social Líquido (VPL)",
@@ -1372,6 +1351,21 @@ def present_plot(fig: Any) -> None:
     st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 
+def financial_comparison_chart(scenarios: pd.DataFrame) -> go.Figure:
+    """Distingue custo de VPL social estimado somente na apresentação."""
+    fig = px.bar(
+        scenarios, x="Cenário", y=["CAPEX Total (R$ M)", "VPL 15 Anos (R$ M)"],
+        barmode="group", title="Comparativo Financeiro: Investimento Inicial (CAPEX) vs VPL Social Líquido",
+        labels={"value": "R$ milhões", "variable": "Indicador"},
+        color_discrete_map=FINANCIAL_CHART_COLORS,
+    )
+    fig.for_each_trace(
+        lambda trace: trace.update(name="VPL social estimado (R$ M)")
+        if trace.name == "VPL 15 Anos (R$ M)" else None
+    )
+    return fig
+
+
 def _temporal_measure(frame: pd.DataFrame, group_cols: list[str], metric: str) -> pd.DataFrame:
     aggregated = frame.groupby(group_cols, observed=True).agg(
         acidentes=("id", "nunique"), obitos=("mortos", "sum"), feridos=("total_feridos", "sum"),
@@ -1410,7 +1404,7 @@ def _render_evolucao_temporal_full(analyzer: AccidentAnalyzer) -> None:
         if comparison == "Participação percentual": series["valor"] = series["valor"] / series.groupby("ano")["valor"].transform("sum").replace(0, np.nan) * 100
         elif comparison == "Variação entre períodos": series["valor"] = series.sort_values("ano").groupby(phase_col)["valor"].pct_change() * 100
         labels = {"ano": "Ano", phase_col: "Período do Dia", "valor": "Percentual (%)" if comparison != "Totais absolutos" else metric}
-        fig = px.line(series, x="ano", y="valor", color=phase_col, markers=True, title="Evolução Anual dos Acidentes por Período", labels=labels, color_discrete_map={"Diurno": COLOR_PALETTE["diurno"], "Noturno": COLOR_PALETTE["noturno"], "Crepúsculo": COLOR_PALETTE["warning"]})
+        fig = px.line(series, x="ano", y="valor", color=phase_col, markers=True, title="Evolução Anual dos Acidentes por Período", labels=labels, color_discrete_map=PHASE_COLORS)
         fig.update_xaxes(dtick=1, tickformat="d")
         present_plot(fig)
         annual = _temporal_measure(data, ["ano"], "Acidentes")
@@ -1425,7 +1419,7 @@ def _render_evolucao_temporal_full(analyzer: AccidentAnalyzer) -> None:
         split = st.checkbox("Separar por fase do dia", value=True, key="monthly_split")
         cols = ["ano_mes"] + (["fase_dia_oficial"] if split else [])
         series = _temporal_measure(monthly, cols, metric)
-        fig = px.line(series, x="ano_mes", y="valor", color="fase_dia_oficial" if split else None, markers=True, title="Evolução Mensal Detalhada", labels={"ano_mes": "Ano/Mês", "valor": metric, "fase_dia_oficial": "Fase Oficial do Dia"}, hover_data={"acidentes": True, "obitos": True, "feridos": True})
+        fig = px.line(series, x="ano_mes", y="valor", color="fase_dia_oficial" if split else None, markers=True, title="Evolução Mensal Detalhada", labels={"ano_mes": "Ano/Mês", "valor": metric, "fase_dia_oficial": "Fase Oficial do Dia"}, hover_data={"acidentes": True, "obitos": True, "feridos": True}, color_discrete_map=PHASE_COLORS)
         fig.update_xaxes(tickangle=-45); present_plot(fig)
         if st.checkbox("Comparar sazonalidade por mês", key="seasonality") and "mes" in monthly:
             seasonal = _temporal_measure(monthly, ["ano", "mes"], metric)
@@ -1472,7 +1466,7 @@ def _render_trechos_financas_full(analyzer: AccidentAnalyzer) -> None:
     rank_metric = st.selectbox("Métrica do gráfico de priorização", ["Acidentes noturnos", "Óbitos noturnos", "Feridos graves", "Pontuação de prioridade"], key="ranking_metric")
     metric_col = {"Acidentes noturnos":"n_acidentes_noturnos", "Óbitos noturnos":"mortos_noturno", "Feridos graves":"feridos_graves_noturno", "Pontuação de prioridade":"score_prioridade"}[rank_metric]
     shown = top.head(int(count)).copy(); shown["Trecho"] = shown.get("trecho", shown.get("trecho_id", "Não Informado"))
-    present_plot(px.bar(shown.sort_values(metric_col), x=metric_col, y="Trecho", orientation="h", title=f"Top {count} trechos por {rank_metric}", labels={metric_col: rank_metric, "Trecho": "Trecho rodoviário"}))
+    present_plot(px.bar(shown.sort_values(metric_col), x=metric_col, y="Trecho", orientation="h", title=f"Top {count} trechos por {rank_metric}", labels={metric_col: rank_metric, "Trecho": "Trecho rodoviário"}, color_discrete_sequence=[COLOR_PALETTE["contagem"]]))
     public_cols = [x for x in ["ranking", "br", "uf", "km_inicio", "km_fim", "n_acidentes_noturnos", "mortos_noturno", "feridos_graves_noturno", "score_prioridade", "investimento_trecho"] if x in shown]
     present_dataframe(shown[public_cols], height=420)
     with st.expander("Dados técnicos completos e exportação", expanded=False):
@@ -1481,20 +1475,20 @@ def _render_trechos_financas_full(analyzer: AccidentAnalyzer) -> None:
     st.markdown("#### 3. Acidentes noturnos versus diurnos nos trechos priorizados")
     night = int(top.get("n_acidentes_noturnos", pd.Series(dtype=int)).sum()); total = int(top.get("n_acidentes_total", pd.Series(dtype=int)).sum()); day = max(total-night, 0)
     comparison = pd.DataFrame({"Período":["Noturno", "Diurno"], "Acidentes":[night, day], "Óbitos":[top.get("mortos_noturno", pd.Series(dtype=float)).sum(), max(top.get("mortos", pd.Series(dtype=float)).sum()-top.get("mortos_noturno", pd.Series(dtype=float)).sum(), 0)]})
-    left, right = st.columns(2); left.plotly_chart(px.bar(comparison, x="Período", y="Acidentes", color="Período", title="Ocorrências nos trechos priorizados"), use_container_width=True, config=PLOTLY_CONFIG); right.plotly_chart(px.bar(comparison, x="Período", y="Óbitos", color="Período", title="Óbitos nos trechos priorizados"), use_container_width=True, config=PLOTLY_CONFIG)
+    left, right = st.columns(2); left.plotly_chart(px.bar(comparison, x="Período", y="Acidentes", color="Período", title="Ocorrências nos trechos priorizados", color_discrete_map=PHASE_COLORS), use_container_width=True, config=PLOTLY_CONFIG); right.plotly_chart(px.bar(comparison, x="Período", y="Óbitos", color="Período", title="Óbitos nos trechos priorizados", color_discrete_map=PHASE_COLORS), use_container_width=True, config=PLOTLY_CONFIG)
     st.caption("Esta comparação refere-se somente aos segmentos priorizados; não representa o total nacional mostrado na Visão Geral.")
     st.markdown("#### 4. Análises estatísticas avançadas")
     state_metric = st.selectbox("Métrica por estado", ["Acidentes", "Óbitos", "Feridos", "Total de vítimas", "Acidentes fatais", "Óbitos por 100 acidentes"], key="state_metric")
     states = data.groupby("uf", observed=True).agg(Acidentes=("id", "nunique"), Óbitos=("mortos", "sum"), Feridos=("total_feridos", "sum"), **{"Acidentes fatais":("acidente_fatal", "sum")}).reset_index(); states["Total de vítimas"] = states["Óbitos"] + states["Feridos"]; states["Óbitos por 100 acidentes"] = states["Óbitos"] / states["Acidentes"].replace(0, np.nan) * 100
     causes = analyzer.filtered_causas if analyzer.filtered_causas is not None else pd.DataFrame()
     left, right = st.columns(2)
-    with left: present_plot(px.bar(states.nlargest(10, state_metric).sort_values(state_metric), x=state_metric, y="uf", orientation="h", title=f"Top 10 estados — {state_metric}", labels={"uf":"UF"}))
+    with left: present_plot(px.bar(states.nlargest(10, state_metric).sort_values(state_metric), x=state_metric, y="uf", orientation="h", title=f"Top 10 estados — {state_metric}", labels={"uf":"UF"}, color_discrete_sequence=[COLOR_PALETTE["taxa"] if "por 100" in state_metric else COLOR_PALETTE["contagem"]]))
     with right:
         if not causes.empty and {"id", "causa_acidente"}.issubset(causes):
             merged = causes[["id", "causa_acidente"]].drop_duplicates().merge(data[["id", "mortos", "total_feridos", "fase_dia_agrupada"]], on="id", how="inner")
             cause_metric = st.selectbox("Métrica das causas", ["Ocorrências associadas", "Óbitos associados", "Feridos associados"], key="cause_metric")
             cg = merged.groupby("causa_acidente", observed=True).agg(**{"Ocorrências associadas":("id","nunique"), "Óbitos associados":("mortos","sum"), "Feridos associados":("total_feridos","sum")}).reset_index()
-            present_plot(px.bar(cg.nlargest(10,cause_metric).sort_values(cause_metric),x=cause_metric,y="causa_acidente",orientation="h",title="Top 10 causas registradas",labels={"causa_acidente":"Causa do acidente"}))
+            present_plot(px.bar(cg.nlargest(10,cause_metric).sort_values(cause_metric),x=cause_metric,y="causa_acidente",orientation="h",title="Top 10 causas registradas",labels={"causa_acidente":"Causa do acidente"},color_discrete_sequence=[COLOR_PALETTE["obitos"] if cause_metric == "Óbitos associados" else COLOR_PALETTE["contagem"]]))
             st.caption("Causas podem coexistir na mesma ocorrência; barras não devem ser somadas como categorias exclusivas.")
     st.markdown("#### 5. Memória de cálculo e engenharia solar")
     deaths = float(top.get("mortos_noturno", pd.Series(dtype=float)).sum()); years = summary.get("anos_base", 1) or 1
@@ -1506,7 +1500,7 @@ def _render_trechos_financas_full(analyzer: AccidentAnalyzer) -> None:
     multi = calcular_orcamento_cenarios(top, len(top), params["length"], params["spacing"], years, EFFECTIVENESS_PARAMS["reducao_acidentes_noturnos"], FINANCIAL_PARAMS["taxa_desconto_anual"], FINANCIAL_PARAMS["vida_util_anos"]); scenarios = multi.get("comparativo_df", pd.DataFrame())
     if not scenarios.empty:
         present_dataframe(scenarios)
-        present_plot(px.bar(scenarios, x="Cenário", y=["CAPEX Total (R$ M)", "VPL 15 Anos (R$ M)"], barmode="group", title="Comparativo Financeiro: Investimento Inicial (CAPEX) vs VPL Social Líquido", labels={"value":"R$ milhões", "variable":"Indicador"}))
+        present_plot(financial_comparison_chart(scenarios))
     sensitivity = summary.get("cenarios", {})
     if sensitivity:
         sensitivity_table = pd.DataFrame([{"Cenário": row["nome"], "Redução hipotética": f"{row['taxa_reducao']:.0%}", "Óbitos potencialmente evitáveis/ano": row["vidas_salvas_ano"], "VPL social": format_pt_br_currency(row["vpl"]), "Payback simples": f"{row['payback_simples']:.2f} anos"} for row in sensitivity.values()])
@@ -1757,9 +1751,8 @@ def render_visao_geral(analyzer: AccidentAnalyzer) -> None:
     c.metric("Razão de letalidade", f"{comp.get('razao_letalidade_obitos', 0):.2f}x")
     if not tabela.empty:
         left, right = st.columns(2)
-        colors = {"Pleno dia": COLOR_PALETTE["diurno"], "Plena Noite": COLOR_PALETTE["noturno"], "Amanhecer": COLOR_PALETTE["amanhecer"], "Anoitecer": COLOR_PALETTE["anoitecer"]}
-        with left: st.plotly_chart(px.pie(tabela, names="fase_dia_oficial", values="n_acidentes", hole=.4, title="Distribuição de ocorrências por fase", color="fase_dia_oficial", color_discrete_map=colors))
-        with right: st.plotly_chart(px.bar(tabela, x="fase_dia_oficial", y="mortos_por_100_acidentes", color="fase_dia_oficial", title="Óbitos por 100 acidentes", color_discrete_map=colors))
+        with left: st.plotly_chart(px.pie(tabela, names="fase_dia_oficial", values="n_acidentes", hole=.4, title="Distribuição de ocorrências por fase", color="fase_dia_oficial", color_discrete_map=PHASE_COLORS))
+        with right: st.plotly_chart(px.bar(tabela, x="fase_dia_oficial", y="mortos_por_100_acidentes", color="fase_dia_oficial", title="Óbitos por 100 acidentes", color_discrete_map=PHASE_COLORS))
         present_dataframe(tabela)
         st.info(comp.get("texto_interpretativo_fases", "Comparação descritiva; não representa risco por viagem."))
     _time_module("Visão geral", started)
@@ -1786,9 +1779,9 @@ def render_analise_cientifica(analyzer: AccidentAnalyzer) -> None:
     st.markdown("#### Estratificação ambiental e geometria da via")
     left, right = st.columns(2)
     if not meteo.empty:
-        with left: st.plotly_chart(px.bar(meteo, x="condicao_metereologica", y="n_acidentes", color="fase_dia_agrupada", barmode="group", title="Causas por condição meteorológica", labels={"condicao_metereologica":"Meteorologia", "n_acidentes":"Ocorrências"}))
+        with left: st.plotly_chart(px.bar(meteo, x="condicao_metereologica", y="n_acidentes", color="fase_dia_agrupada", barmode="group", title="Causas por condição meteorológica", labels={"condicao_metereologica":"Meteorologia", "n_acidentes":"Ocorrências"}, color_discrete_map=PHASE_COLORS))
     if not pista.empty:
-        with right: st.plotly_chart(px.bar(pista, x="tipo_pista", y="n_acidentes", color="fase_dia_agrupada", barmode="group", title="Causas por tipo de pista", labels={"tipo_pista":"Tipo de pista", "n_acidentes":"Ocorrências"}))
+        with right: st.plotly_chart(px.bar(pista, x="tipo_pista", y="n_acidentes", color="fase_dia_agrupada", barmode="group", title="Causas por tipo de pista", labels={"tipo_pista":"Tipo de pista", "n_acidentes":"Ocorrências"}, color_discrete_map=PHASE_COLORS))
     if not reacao.empty:
         st.markdown("#### Estatísticas detalhadas de causas, gravidade e período")
         present_dataframe(reacao)
@@ -1807,21 +1800,21 @@ def render_perfil_vitimas(analyzer: AccidentAnalyzer) -> None:
             vitimas_plot = tbl[["tipo_envolvido", "mortos", "feridos_graves", "feridos_leves"]].copy()
             vitimas_plot = vitimas_plot.melt(id_vars="tipo_envolvido", var_name="gravidade", value_name="quantidade")
             vitimas_plot["gravidade"] = vitimas_plot["gravidade"].map({"mortos": "Óbitos", "feridos_graves": "Feridos graves", "feridos_leves": "Feridos leves"})
-            a,b=st.columns(2); a.plotly_chart(px.bar(vitimas_plot,x="tipo_envolvido",y="quantidade",color="gravidade",barmode="stack",title="Distribuição de Vítimas por Tipo de Envolvimento",labels={"quantidade":"Pessoas", "gravidade":"Gravidade", "tipo_envolvido":"Envolvimento"})); b.plotly_chart(px.bar(tbl,x="tipo_envolvido",y="taxa_mortalidade_pct",title="Taxa de mortalidade por envolvimento",labels={"taxa_mortalidade_pct":"Mortalidade (%)","tipo_envolvido":"Envolvimento"}))
+            a,b=st.columns(2); a.plotly_chart(px.bar(vitimas_plot,x="tipo_envolvido",y="quantidade",color="gravidade",barmode="stack",title="Distribuição de Vítimas por Tipo de Envolvimento",labels={"quantidade":"Pessoas", "gravidade":"Gravidade", "tipo_envolvido":"Envolvimento"},color_discrete_map=SEVERITY_COLORS)); b.plotly_chart(px.bar(tbl,x="tipo_envolvido",y="taxa_mortalidade_pct",title="Taxa de mortalidade por envolvimento",labels={"taxa_mortalidade_pct":"Mortalidade (%)","tipo_envolvido":"Envolvimento"},color_discrete_sequence=[COLOR_PALETTE["taxa"]]))
             present_dataframe(tbl)
     elif choice == "Faixa etária" and not pessoas.empty:
         res=compute_faixa_etaria_analysis(pessoas); tbl=res.get("resumo_faixa_etaria",pd.DataFrame()); q=res.get("metricas_qualidade_idade",{})
         c=st.columns(3); c[0].metric("Idades válidas",f"{q.get('idades_validas',0):,}"); c[1].metric("Não informadas/inconsistentes",f"{q.get('idades_inconsistentes_ou_ausentes',0):,}"); c[2].metric("Acima de 110 anos",f"{q.get('idades_superiores_110_anos',0):,}")
-        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.bar(tbl,x="faixa_etaria",y="total_pessoas",title="Pessoas por faixa etária",labels={"faixa_etaria":"Faixa etária","total_pessoas":"Pessoas"})); b.plotly_chart(px.bar(tbl,x="faixa_etaria",y="mortos",title="Óbitos por faixa etária",labels={"faixa_etaria":"Faixa etária","mortos":"Óbitos"})); present_dataframe(tbl)
+        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.bar(tbl,x="faixa_etaria",y="total_pessoas",title="Pessoas por faixa etária",labels={"faixa_etaria":"Faixa etária","total_pessoas":"Pessoas"},color_discrete_sequence=[COLOR_PALETTE["contagem"]])); b.plotly_chart(px.bar(tbl,x="faixa_etaria",y="mortos",title="Óbitos por faixa etária",labels={"faixa_etaria":"Faixa etária","mortos":"Óbitos"},color_discrete_sequence=[COLOR_PALETTE["obitos"]])); present_dataframe(tbl)
     elif choice == "Sexo" and not pessoas.empty:
         tbl=compute_sexo_analysis(pessoas).get("resumo_sexo",pd.DataFrame())
-        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.pie(tbl,names="sexo",values="total_pessoas",hole=.4,title="Envolvidos por sexo",labels={"total_pessoas":"Pessoas"})); b.plotly_chart(px.bar(tbl,x="sexo",y="taxa_mortalidade_pct",title="Mortalidade por sexo",labels={"taxa_mortalidade_pct":"Percentual de mortalidade"})); present_dataframe(tbl)
+        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.pie(tbl,names="sexo",values="total_pessoas",hole=.4,title="Envolvidos por sexo",labels={"total_pessoas":"Pessoas"},color="sexo",color_discrete_map=SEX_COLORS)); b.plotly_chart(px.bar(tbl,x="sexo",y="taxa_mortalidade_pct",title="Mortalidade por sexo",labels={"taxa_mortalidade_pct":"Percentual de mortalidade"},color="sexo",color_discrete_map=SEX_COLORS)); present_dataframe(tbl)
     elif choice == "Frota" and not veiculos.empty:
         tbl=compute_veiculo_analysis(veiculos,pessoas)
-        if not tbl.empty: st.plotly_chart(px.bar(tbl.head(10),x="tipo_veiculo",y="total_veiculos",title="Top 10 veículos envolvidos",labels={"tipo_veiculo":"Tipo de veículo","total_veiculos":"Veículos"})); present_dataframe(tbl)
+        if not tbl.empty: st.plotly_chart(px.bar(tbl.head(10),x="tipo_veiculo",y="total_veiculos",title="Top 10 veículos envolvidos",labels={"tipo_veiculo":"Tipo de veículo","total_veiculos":"Veículos"},color_discrete_sequence=[COLOR_PALETTE["contagem"]])); present_dataframe(tbl)
     else:
         res=compute_tipo_acidente_analysis(data); tbl=res.get("resumo_tipo_acidente",pd.DataFrame())
-        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.bar(tbl.head(10),x="tipo_acidente",y="mortos",title="Tipos de acidente por óbitos",labels={"tipo_acidente":"Tipo de acidente","mortos":"Óbitos"})); b.plotly_chart(px.bar(tbl.head(10),x="tipo_acidente",y="obitos_por_100_acidentes",title="Óbitos por 100 acidentes",labels={"tipo_acidente":"Tipo de acidente","obitos_por_100_acidentes":"Óbitos por 100 acidentes"})); present_dataframe(tbl)
+        if not tbl.empty: a,b=st.columns(2); a.plotly_chart(px.bar(tbl.head(10),x="tipo_acidente",y="mortos",title="Tipos de acidente por óbitos",labels={"tipo_acidente":"Tipo de acidente","mortos":"Óbitos"},color_discrete_sequence=[COLOR_PALETTE["obitos"]])); b.plotly_chart(px.bar(tbl.head(10),x="tipo_acidente",y="obitos_por_100_acidentes",title="Óbitos por 100 acidentes",labels={"tipo_acidente":"Tipo de acidente","obitos_por_100_acidentes":"Óbitos por 100 acidentes"},color_discrete_sequence=[COLOR_PALETTE["taxa"]])); present_dataframe(tbl)
     _time_module("Perfil de vítimas", started)
 
 

@@ -14,6 +14,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as path_effects
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import (
@@ -47,6 +48,7 @@ from config import (
     REFERENCES,
     PDF_CONFIG,
     DEFAULT_SPACING_M,
+    PHASE_COLORS,
 )
 from financial_model import calcular_balanco_energetico_detalhado, calcular_orcamento_cenarios
 from metrics import compute_period_metrics, compute_day_vs_night_comparison
@@ -954,15 +956,20 @@ class ReportGenerator:
         grouped = df.groupby([col_x, col_periodo], observed=True).size().unstack(fill_value=0)
 
         x_vals = [str(x) for x in grouped.index]
-        for col_name, color, label in [
-            ("Noturno", "#1f77b4", "Noturno"),
-            ("noturno", "#1f77b4", "Noturno"),
-            ("Diurno", "#ff7f0e", "Diurno"),
-            ("diurno", "#ff7f0e", "Diurno"),
-            ("Crepúsculo", "#9467bd", "Crepúsculo"),
+        for col_name, color, label, line_style, marker in [
+            ("Noturno", PHASE_COLORS["Noturno"], "Noturno", "-", "o"),
+            ("noturno", PHASE_COLORS["Noturno"], "Noturno", "-", "o"),
+            ("Diurno", PHASE_COLORS["Diurno"], "Diurno", "--", "s"),
+            ("diurno", PHASE_COLORS["Diurno"], "Diurno", "--", "s"),
+            ("Crepúsculo", PHASE_COLORS["Crepúsculo"], "Crepúsculo", "-.", "^"),
         ]:
             if col_name in grouped.columns:
-                ax.plot(x_vals, grouped[col_name], marker="o", color=color, label=label, linewidth=1.5, markersize=3.5)
+                line, = ax.plot(x_vals, grouped[col_name], marker=marker, color=color, label=label,
+                                linestyle=line_style, linewidth=1.8, markersize=3.5)
+                line.set_path_effects([
+                    path_effects.Stroke(linewidth=2.7, foreground="#334155"),
+                    path_effects.Normal(),
+                ])
 
         ax.set_title("Evolução Temporal dos Sinistros: Período Noturno vs Diurno vs Crepúsculo", fontsize=8.5, fontweight="bold", pad=5)
         ax.set_xlabel("Ano / Mês" if tem_mes else "Ano", fontsize=7.5)
@@ -1044,8 +1051,10 @@ class ReportGenerator:
         x = np.arange(len(df_plot))
         width = 0.35
 
-        ax.bar(x - width/2, df_plot["Noturno"], width, label="Noturno", color="#1f77b4")
-        ax.bar(x + width/2, df_plot["Diurno"], width, label="Diurno", color="#ff7f0e")
+        ax.bar(x - width/2, df_plot["Noturno"], width, label="Noturno",
+               color=PHASE_COLORS["Noturno"], edgecolor="#334155", linewidth=0.6)
+        ax.bar(x + width/2, df_plot["Diurno"], width, label="Diurno",
+               color=PHASE_COLORS["Diurno"], edgecolor="#334155", linewidth=0.6)
 
         ax.set_title("Causas Ligadas à Resposta e Visibilidade do Condutor: Noturno vs Diurno", fontsize=8.5, fontweight="bold", pad=5)
         ax.set_ylabel("Ocorrências Únicas", fontsize=7.5)

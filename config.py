@@ -536,10 +536,57 @@ COLOR_PALETTE = {
     "info": "#17becf",          # Ciano tecnologia
     "light": "#f8f9fa",
     "dark": "#1a2332",          # Fundo escuro
-    "noturno": "#1f77b4",       # Noturno
-    "diurno": "#ff7f0e",        # Diurno
-    "amanhecer": "#ffbb78",     # Amanhecer
-    "anoitecer": "#9467bd",     # Anoitecer
+    "noturno": "#38BDF8",
+    "diurno": "#F59E0B",
+    "amanhecer": "#C4B5FD",
+    "anoitecer": "#8B5CF6",
+    "crepusculo": "#A78BFA",
+    "obitos": "#EF4444",
+    "feridos_graves": "#F97316",
+    "feridos_leves": "#FBBF24",
+    "ilesos": "#94A3B8",
+    "nao_informado": "#64748B",
+    "masculino": "#60A5FA",
+    "feminino": "#A78BFA",
+    "contagem": "#60A5FA",
+    "taxa": "#A78BFA",
+    "capex": "#F87171",
+    "beneficio_social": "#34D399",
+    "neutro": "#94A3B8",
+}
+
+PHASE_COLORS = {
+    "Pleno dia": COLOR_PALETTE["diurno"],
+    "Diurno": COLOR_PALETTE["diurno"],
+    "Plena Noite": COLOR_PALETTE["noturno"],
+    "Noturno": COLOR_PALETTE["noturno"],
+    "Amanhecer": COLOR_PALETTE["amanhecer"],
+    "Anoitecer": COLOR_PALETTE["anoitecer"],
+    "Crepúsculo": COLOR_PALETTE["crepusculo"],
+}
+
+SEVERITY_COLORS = {
+    "Óbitos": COLOR_PALETTE["obitos"],
+    "Feridos graves": COLOR_PALETTE["feridos_graves"],
+    "Feridos leves": COLOR_PALETTE["feridos_leves"],
+    "Ilesos": COLOR_PALETTE["ilesos"],
+    "Não informado": COLOR_PALETTE["nao_informado"],
+    "mortos": COLOR_PALETTE["obitos"],
+    "feridos_graves": COLOR_PALETTE["feridos_graves"],
+    "feridos_leves": COLOR_PALETTE["feridos_leves"],
+}
+
+SEX_COLORS = {
+    "Masculino": COLOR_PALETTE["masculino"],
+    "Feminino": COLOR_PALETTE["feminino"],
+    "Não informado": COLOR_PALETTE["neutro"],
+    "Ignorado": COLOR_PALETTE["neutro"],
+    "Não informado / Ignorado": COLOR_PALETTE["neutro"],
+}
+
+FINANCIAL_CHART_COLORS = {
+    "CAPEX Total (R$ M)": COLOR_PALETTE["capex"],
+    "VPL 15 Anos (R$ M)": COLOR_PALETTE["beneficio_social"],
 }
 
 # =============================================================================
