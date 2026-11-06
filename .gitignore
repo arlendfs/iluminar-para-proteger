@@ -9,6 +9,7 @@ data/*.xls
 # Relatórios gerados
 reports/*.pdf
 reports/*.docx
+output/pdf/*.pdf
 
 # Arquivos temporários
 temp/*

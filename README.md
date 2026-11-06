@@ -40,6 +40,23 @@ para a implantação de postes solares inteligentes autônomos.
 > postes nesta etapa acadêmica.** Simulações socioeconômicas indicam potencial
 > de impacto, não constituindo receita de caixa já realizada.
 
+### Comunidade beneficiária: Vila Velha (ES)
+
+A aplicação extensionista está direcionada à comunidade de **Vila Velha (ES)**,
+com **ODS 11 - Cidades e Comunidades Sustentáveis** como vínculo principal. O
+módulo **Estudo de Caso — Vila Velha** apresenta separadamente ocorrências do
+município, corredores federais do entorno metropolitano, Região Metropolitana
+da Grande Vitória, Espírito Santo e a referência brasileira. A análise nacional
+existente continua disponível nos módulos originais.
+
+O recorte municipal reconcilia os rótulos da PRF com coordenadas e com a
+[Malha Municipal Digital 2025 do IBGE](https://www.ibge.gov.br/geociencias/organizacao-do-territorio/malhas-territoriais/15774-malhas.html).
+O relatório territorial é gerado separadamente do relatório científico nacional.
+A atividade prática consiste em disponibilizar e apresentar o sistema digital;
+o software não comprova residência das vítimas, ausência de iluminação,
+causalidade ou instalação de postes. Evidências de divulgação ficam vazias até
+serem fornecidas pela equipe do projeto.
+
 ---
 
 ## 🌍 2. Alinhamento com os Objetivos de Desenvolvimento Sustentável (ODS/ONU)
@@ -105,9 +122,13 @@ iluminar-para-proteger/
 ├── segmentation.py            # Segmentação de trechos viários e ranqueamento
 ├── financial_model.py         # Modelo financeiro, CAPEX, OPEX, VPL, TIR e ROI
 ├── pdf_generator.py           # Gerador de relatório científico completo (15 seções)
+├── territorial_case.py        # Recortes, validação espacial e indicadores locais
+├── territorial_dashboard.py   # Estudo de caso sob demanda
+├── territorial_pdf.py         # Relatório territorial independente
+├── assets/ibge_rmgv_2025.geojson.gz  # Malha IBGE 2025 selecionada
 ├── solar_post_3d.html         # Protótipo 3D interativo (Three.js)
 ├── config.py                  # Parâmetros técnicos, econômicos e institucionais
-├── tests/                     # Suíte de testes automatizados com Pytest (36 testes)
+├── tests/                     # Suíte de testes automatizados com Pytest
 │   ├── test_data_loader.py
 │   ├── test_demographic_analysis.py
 │   ├── test_metrics.py

@@ -1711,12 +1711,18 @@ def create_dashboard(analyzer: AccidentAnalyzer) -> None:
         "Mapa": lambda: render_mapa(analyzer),
         "Protótipo 3D": render_prototipo_3d,
         "Relatório PDF": lambda: render_relatorio_pdf(analyzer),
+        "Estudo de Caso — Vila Velha": lambda: _render_territorial_case_lazy(analyzer),
     }
     active = st.radio("Módulo", list(modules), horizontal=True, key="active_dashboard_module")
     modules[active]()
     timings = st.session_state.get("module_timings", {})
     if timings:
         st.caption("Tempo Python do último carregamento: " + ", ".join(f"{k}: {v:.2f}s" for k, v in timings.items()))
+
+
+def _render_territorial_case_lazy(analyzer: AccidentAnalyzer) -> None:
+    from territorial_dashboard import render_territorial_case
+    render_territorial_case(analyzer)
 
 
 # Recuperação seletiva do conteúdo existente em render_legacy_full_dashboard.

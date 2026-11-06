@@ -555,6 +555,23 @@ COLOR_PALETTE = {
     "neutro": "#94A3B8",
 }
 
+COMMUNITY_CONFIG = {
+    "municipio": "Vila Velha",
+    "uf": "ES",
+    "codigo_ibge": "3205200",
+    "territorio_aplicacao": "Vila Velha - ES",
+    "periodo_principal": [2021, 2022, 2023, 2024, 2025],
+    "ods_principal": 11,
+    "tipo_projeto": "Extensão universitária aplicada à segurança viária",
+    "implantacao_fisica_realizada": False,
+    "video_demonstrativo": "",
+    "publicacao_linkedin": "",
+    "data_divulgacao": "",
+    "participantes_registrados": None,
+    "sintese_interacoes": "",
+    "resultados_apresentacao": "",
+}
+
 PHASE_COLORS = {
     "Pleno dia": COLOR_PALETTE["diurno"],
     "Diurno": COLOR_PALETTE["diurno"],
