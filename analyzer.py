@@ -61,19 +61,36 @@ def _source_sha256(path: str, size: int, mtime_ns: int) -> str:
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
-def _normalized_cache_matches_source(filepath: str, filename: str) -> tuple[bool, str]:
-    stat = os.stat(filepath)
-    digest = _source_sha256(filepath, stat.st_size, stat.st_mtime_ns)
+def uploaded_file_digest(file: Any) -> str:
+    """Calcula SHA-256 do upload sem alterar sua posição de leitura."""
+    if hasattr(file, "getbuffer"):
+        return hashlib.sha256(file.getbuffer()).hexdigest()
+    position = file.tell()
+    file.seek(0)
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: file.read(1024 * 1024), b""):
+        digest.update(chunk)
+    file.seek(position)
+    return digest.hexdigest()
+
+
+def _normalized_cache_matches_digest(filename: str, digest: str) -> bool:
     sidecar = NORMALIZED_CACHE_DIR / f"{filename}.source.sha256"
     if sidecar.exists():
-        return sidecar.read_text(encoding="ascii").strip() == digest, digest
+        return sidecar.read_text(encoding="ascii").strip() == digest
     manifest = NORMALIZED_CACHE_DIR / "source_sha256.json"
     if manifest.exists():
         try:
-            return json.loads(manifest.read_text(encoding="utf-8")).get(filename) == digest, digest
+            return json.loads(manifest.read_text(encoding="utf-8")).get(filename) == digest
         except (ValueError, OSError):
             pass
-    return False, digest
+    return False
+
+
+def _normalized_cache_matches_source(filepath: str, filename: str) -> tuple[bool, str]:
+    stat = os.stat(filepath)
+    digest = _source_sha256(filepath, stat.st_size, stat.st_mtime_ns)
+    return _normalized_cache_matches_digest(filename, digest), digest
 
 
 class AccidentAnalyzer:
@@ -454,6 +471,7 @@ class AccidentAnalyzer:
             log_memory_checkpoint(f"Início upload: {filename}")
 
             try:
+                upload_digest = uploaded_file_digest(file)
                 # Otimização: se o arquivo já possui versão normalizada em cache, carrega diretamente (bypass de 600k linhas)
                 cached_oc_p = NORMALIZED_CACHE_DIR / f"{filename}.oc.parquet"
                 cached_pes_p = NORMALIZED_CACHE_DIR / f"{filename}.pes.parquet"
@@ -467,6 +485,7 @@ class AccidentAnalyzer:
                     and cached_veic_p.exists()
                     and cached_caus_p.exists()
                     and cached_qual_p.exists()
+                    and _normalized_cache_matches_digest(filename, upload_digest)
                 ):
                     oc = pd.read_parquet(cached_oc_p)
                     pes = pd.read_parquet(cached_pes_p)

@@ -17,7 +17,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
 import streamlit as st
-from analyzer import AccidentAnalyzer
+from analyzer import AccidentAnalyzer, uploaded_file_digest
 from dashboard import create_dashboard
 try:
     from config import (
@@ -323,7 +323,7 @@ def main():
         )
     elif active_source == "upload":
         file_signature = "upload_" + "_".join(
-            sorted([f"{f.name}_{getattr(f, 'size', 0)}" for f in uploaded_files])
+            sorted([f"{f.name}_{getattr(f, 'size', 0)}_{uploaded_file_digest(f)}" for f in uploaded_files])
         )
     else:
         file_signature = None

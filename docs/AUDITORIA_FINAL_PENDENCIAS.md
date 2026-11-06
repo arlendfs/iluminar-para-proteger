@@ -73,8 +73,8 @@ O arquivo de referência `relatorio_cientifico_iluminar_20261102_175932.pdf` nã
 |---|---|---|
 | M09 | Commit `3e9e64a` enviado ao `main` via HTTPS; a aplicação pública processou cinco arquivos 2021–2025 e mostrou 342.626 ocorrências únicas e 2.702.004 linhas brutas | APROVADO |
 | M10 | PDF público baixado com 217.244 bytes, 5 páginas, 2 gráficos, 9 links e numeração correta em todas as páginas; geração exibiu 7,72 s | APROVADO |
-| M11 | Após a carga de cinco anos, RSS pontual de 1.272,2 MiB; após gerar PDF e atualizar a interface, 983,2 MiB. A segunda aba carregou o mesmo período, mas o contador da aplicação permaneceu em uma sessão; não há prova de duas sessões ativas simultâneas | EM EXECUÇÃO |
-| M12 | Na primeira carga após a publicação da instrumentação, o processo começou em 1.073,5 MiB, atingiu **2.888,9 MiB de pico** e estabilizou em 2.019,9 MiB. O cache local usava mtime no identificador, que pode mudar no deploy sem mudança do conteúdo; `local_file_digest` passa a usar SHA-256 do arquivo, com cache de digest por tamanho e mtime | EM EXECUÇÃO |
+| M11 | Após a carga de cinco anos, RSS pontual de 1.272,2 MiB; após gerar PDF e atualizar a interface, 983,2 MiB. O contador antigo não comprovava duas sessões; a correção e o aceite estão registrados em M16 | CONCLUÍDO EM M16 |
+| M12 | A primeira carga após a instrumentação atingiu **2.888,9 MiB de pico**. A validação do cache por SHA-256 e o aceite de memória estão registrados em M15 | CONCLUÍDO EM M15 |
 
 - O painel administrativo do Streamlit Cloud exigiu autenticação indisponível nesta sessão. Para medir o pico no próprio servidor, foi acrescentado `RSSPeakSampler` à carga e ao PDF, com amostragem de 20 ms e exibição do resultado na interface. Essa instrumentação ainda precisa ser publicada e exercitada no servidor.
 - A função anterior `get_current_rss_mb()` dividia bytes por 1.048.576; os valores mostrados como MB eram, portanto, **MiB**. A interface passa a rotulá-los corretamente. O alvo de 1 GB decimal equivale a aproximadamente **953,7 MiB**.
@@ -92,10 +92,37 @@ O arquivo de referência `relatorio_cientifico_iluminar_20261102_175932.pdf` nã
 |---|---|---|
 | M13 | Commit `1d28ce0` retirou apenas a compactação categórica de `72614ab`, que causou regressão remota; `python -m pytest -q` passou com 120 testes | APROVADO |
 | M14 | Após reconstrução, RSS inicial 221,3 MiB; carga 2021–2025 concluída com 342.626 ocorrências e pico de **1.052,8 MiB**, próximo dos 1.049,8 MiB da revisão estável anterior. O PDF foi gerado na implantação em 9,01 s e baixado íntegro: 217.244 bytes, 5 páginas, 2 gráficos, 9 links e paginação completa | APROVADO |
-| M15 | O alvo estrito de 1 GB decimal (953,7 MiB) continua acima do pico de carga observado. Uma recarga após atualização do servidor marcou 1.536,2 MiB na carga e 1.279,2 MiB no PDF, mostrando que sessões/caches transitórios ainda afetam a memória. Duas análises simultâneas no servidor não foram comprovadas pelo contador da interface | PENDENTE |
+| M15 | O alvo estrito de 1 GB decimal (953,7 MiB) era excedido pela carga. A correção e a medição final no servidor estão registradas na seção de aceite de 06/11/2026 | APROVADO |
 
 - Os picos são amostrados a cada 20 ms no processo Streamlit; representam as operações observadas, não garantia de máximo absoluto. O segundo ensaio partiu de processo já aquecido e não é comparável ao primeiro como carga fria.
 - O PDF de `1d28ce0` foi baixado como `relatorio_cientifico_iluminar_20261105_185748.pdf` e validado por `pypdf`. O próximo requisito é isolar e reduzir o pico de consolidação no ambiente Linux publicado sem comprometer os resultados científicos; a validação de sessões realmente simultâneas continua pendente.
+
+## Aceite de memória e duas sessões na implantação (06/11/2026)
+
+| Item | Correção e evidência | Status |
+|---|---|---|
+| M15 | Diagnóstico por etapa isolou a consolidação. `8e54698` evita cópias de desduplicação quando não há duplicatas; `70ffc5a` valida o cache normalizado pelo SHA-256 da fonte, independente do mtime do deploy; `573667b` libera tabelas anuais antes da desduplicação; `3e4680c` e `dd33407` projetam campos de veículos e causas efetivamente usados. Na implantação limpa, 2021–2025 gerou **342.626 ocorrências** com pico de carga **907,8 MiB**; repetição em outra sessão marcou **891,6 MiB**. O PDF dessa sessão teve pico **883,1 MiB** e 7,60 s. Todos abaixo de 953,7 MiB | APROVADO |
+| M16 | `1ad7a93` moveu o registro de sessões e o semáforo de análises pesadas para `st.cache_resource`, compartilhado entre reruns. Duas abas remotas mostraram **2 sessões ativas**. A primeira carga atingiu **886,2 MiB**; a segunda reutilizou os mesmos 342.626 registros, com pico **758,4 MiB** e visão geral em **0,12 s**. Cada sessão gerou um PDF com botão de download; picos respectivos **890,5** e **895,0 MiB** | APROVADO |
+
+- PDF remoto de M15 baixado como `relatorio_cientifico_iluminar_20261106_084941.pdf`: **217.244 bytes, cinco páginas, dois gráficos, nove links, numeração em todas as páginas** e total de 342.626 ocorrências. A projeção das causas manteve o texto integral do PDF local anterior, exceto o horário de emissão. `python -m pytest -q`: **120 testes aprovados** após as alterações.
+- Teste local com duas sessões residentes: mesma instância de DataFrame compartilhada, dois PDFs de 217.458 bytes e pico total amostrado **894,3 MiB**. No servidor, os PDFs sequenciais foram concluídos com ambas as sessões abertas.
+- Os picos são amostras de RSS do processo Python a cada 20 ms. As medições comprovam os fluxos observados, sem garantir um máximo absoluto em toda carga futura ou em mais de duas sessões.
+
+## Pedidos de PDF concorrentes (06/11/2026)
+
+| Item | Evidência | Status |
+|---|---|---|
+| M17 | Dois pedidos de PDF foram disparados juntos em abas remotas com 2 sessões ativas. Ambos terminaram com botão de download; picos RSS por pedido de **945,9** e **888,6 MiB**, abaixo de 953,7 MiB. Os PDFs baixados (`relatorio_cientifico_iluminar_20261106_085556.pdf` e `relatorio_cientifico_iluminar_20261106_085550.pdf`) têm 217.244 bytes, 5 páginas, 2 gráficos e 9 links cada. Texto igual exceto horário; hashes das imagens iguais. Ensaio local de duas threads também gerou dois PDFs completos, pico 850,0 MiB | APROVADO |
+
+- A margem mínima observada no servidor foi de **7,8 MiB**; a amostragem de 20 ms não é uma garantia rígida para todas as condições de concorrência.
+
+## Integridade do cache de uploads (06/11/2026)
+
+| Item | Correção e evidência | Status |
+|---|---|---|
+| M18 | A assinatura da sessão agora inclui SHA-256 do conteúdo de cada upload, além de nome e tamanho. `AccidentAnalyzer.load_data` só reutiliza um cache normalizado quando o digest do upload coincide com o digest associado ao cache. Um Parquet sintético de uma ocorrência, enviado com o mesmo nome do arquivo oficial de 2025, retornou exatamente sua própria ocorrência e uma linha bruta; arquivos de mesmo tamanho com bytes diferentes geram assinaturas diferentes | APROVADO LOCALMENTE |
+
+- `python -m pytest -q`: **122 testes aprovados**. A correção impede o erro silencioso por colisão de nome sem transmitir arquivo privado ao servidor público. A verificação remota de upload pode ser feita com um arquivo de teste autorizado se for exigida como critério de implantação.
 
 ## Histórico da rodada P01–P08 (02/11/2026)
 
