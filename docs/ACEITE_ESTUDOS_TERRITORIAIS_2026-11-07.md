@@ -30,3 +30,4 @@
 - Os Parquets 2020 e 2026 foram restaurados a partir do conteúdo já versionado; não houve alteração dos dados nem novo commit desses binários.
 - Métricas de memória do servidor publicado dependem do painel de hospedagem; o perfil acima é local.
 - A malha rodoviária de outros estados e inventário de iluminação não estão disponíveis. A auditoria BR/KM é triagem espacial, não vistoria ou confirmação histórica.
+- A camada SNV/DNIT disponível é de 202507A; sem série histórica oficial do traçado e dos marcos quilométricos para 2021–2025, a data exata de implantação, duplicação ou alteração de cada segmento não é verificável por ocorrência. Os pontos desses corredores permanecem classificados como triagem, com divergências expostas.
