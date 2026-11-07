@@ -17,6 +17,7 @@ from territorial_case import (
     local_ranking, municipal_mesh, principal_period, select_scope,
     simulate_selected_segments, territorial_audit, territorial_diagnostics,
 )
+from territorial_road_audit import audit_road_positions, ROAD_TOLERANCE_M, KM_TOLERANCE, SOURCE as ROAD_SOURCE
 
 
 def _number(value: float | int | None, decimals: int = 0) -> str:
@@ -91,7 +92,7 @@ def _render_map(selected: pd.DataFrame, audit: pd.DataFrame, ranking: pd.DataFra
     folium.LayerControl().add_to(map_view)
     folium_static(map_view, width=850, height=520)
     st.caption(
-        f"Mapa: {len(sample)} de {len(regional)} ocorrências metropolitanas com coordenadas válidas "
+        f"Mapa: {len(sample)} de {len(regional)} ocorrências do recorte ativo com coordenadas válidas "
         "(máximo de 500 pontos por desempenho). Os marcadores roxos são posições médias de segmentos "
         "com recorrência, não locais propostos para instalação. Limites: IBGE 2025, EPSG:4326."
     )
@@ -160,6 +161,17 @@ def render_territorial_case(analyzer) -> None:
             "O total local inclui pontos confirmados dentro do limite e registros municipais sem coordenadas; "
             "rótulos Vila Velha com ponto fora do limite ficam fora do total."
         )
+        road = audit_road_positions(selected)
+        st.caption(
+            f"Confronto exploratório SNV/DNIT 202507A: {road['situacao_rodovia'].value_counts().to_dict()}. "
+            f"Tolerância transversal: {ROAD_TOLERANCE_M:.0f} m; quilométrica: ±{KM_TOLERANCE:.0f} km. "
+            "Proximidade ao traçado não comprova pista, sentido, geometria histórica ou iluminação."
+        )
+        with st.expander("Auditoria territorial das ocorrências", expanded=False):
+            cols = [c for c in ("id", "ano", "uf", "municipio", "br", "km", "latitude", "longitude") if c in selected]
+            detail = selected[cols].join(audit[["municipio_por_coordenada", "divergencia_municipio_coordenada", "situacao_localizacao"]], how="left").join(road)
+            st.dataframe(detail, hide_index=True, use_container_width=True)
+            st.caption(f"Traçado: {ROAD_SOURCE}. A malha municipal confirma apenas o polígono, não a rodovia. Pontos repetidos e arredondados exigem verificação adicional.")
     st.subheader("Indicadores do recorte e comparação nacional")
     cols = st.columns(4)
     for col, title, key in zip(cols, ["Acidentes únicos", "Acidentes noturnos", "Óbitos", "Óbitos / 100 acidentes"],
@@ -231,8 +243,9 @@ def render_territorial_case(analyzer) -> None:
         st.info("Não há segmentos com BR e KM válidos neste recorte.")
     else:
         st.caption(f"{len(ranking)} segmentos com BR e KM elegíveis no recorte ativo. Score heurístico de severidade e concentração noturna, sem validação causal ou inventário de iluminação.")
-        columns = ["ranking", "trecho_id", "n_acidentes_total", "n_acidentes_noturnos", "mortos_noturno", "score_iluminacao_solar", "confiabilidade_geo"]
+        columns = ["ranking", "trecho_id", "n_acidentes_total", "n_acidentes_noturnos", "mortos_noturno", "score_iluminacao_solar"]
         st.dataframe(ranking[columns], hide_index=True, use_container_width=True)
+        st.caption("Coordenada presente não equivale a localização rodoviária confirmada. Os segmentos são prioritários para investigação, sujeitos ao confronto SNV e à verificação de campo.")
     st.caption("A rede viária mudou entre 2021 e 2025. A BR-447 inclui trechos em implantação; ausência de registro em trecho novo não prova segurança. BR-101, BR-262 e BR-447 são referências de investigação, não seleção automática de intervenção.")
     br447 = selected.loc[selected["br"].astype(str).str.replace(r"\D", "", regex=True).eq("447")]
     distinct_coordinates = len(br447[["latitude", "longitude"]].dropna().drop_duplicates())

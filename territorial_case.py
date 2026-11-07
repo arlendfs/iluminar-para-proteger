@@ -209,7 +209,7 @@ def projection_eligible(data: pd.DataFrame, ranking: pd.DataFrame) -> bool:
 
 def simulate_selected_segments(
     data: pd.DataFrame, selected_segments: pd.DataFrame, scenario_id: str,
-    spacing_m: float = DEFAULT_SPACING_M,
+    spacing_m: float = DEFAULT_SPACING_M, allow_exploratory_vpl: bool = True,
 ) -> dict:
     """Custos locais sempre; VPL exploratório apenas com amostra suficiente."""
     if selected_segments.empty:
@@ -235,7 +235,7 @@ def simulate_selected_segments(
         "horizonte_anos": years, "taxa_desconto": FINANCIAL_PARAMS["taxa_desconto_anual"],
         "vpl_exploratorio_disponivel": False, "sensibilidade": {},
     }
-    if projection_eligible(data, selected_segments):
+    if allow_exploratory_vpl and projection_eligible(data, selected_segments):
         for reduction in (0.20, 0.35, 0.50):
             simulated = calcular_orcamento_cenarios(
                 selected_segments, n_trechos=count,

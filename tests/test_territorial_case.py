@@ -163,17 +163,18 @@ import streamlit as st
 from types import SimpleNamespace
 from tests.test_territorial_case import _sample
 import dashboard
-import territorial_dashboard
-territorial_dashboard.folium_static = lambda *args, **kwargs: None
+import territorial_platform
+territorial_platform.folium_static = lambda *args, **kwargs: None
 data = _sample()
 analyzer = SimpleNamespace(data=data, filtered_data=data, filtered_causas=pd.DataFrame(), filtered_pessoas=pd.DataFrame())
-st.session_state["active_dashboard_module"] = "Estudo de Caso \\u2014 Vila Velha"
+st.session_state["active_dashboard_module"] = "Estudos Territoriais"
 dashboard.create_dashboard(analyzer)
 """
     app = AppTest.from_string(script, default_timeout=30).run()
     assert not app.exception
-    assert app.radio[0].value == "Estudo de Caso — Vila Velha"
-    assert app.selectbox[0].value == SCOPE_VILA
+    assert app.radio[0].value == "Estudos Territoriais"
+    assert app.selectbox(key="territory_kind").value == "Município"
+    assert app.selectbox(key="territory_city").value == "Vila Velha"
     assert app.metric[0].value == "3"
 
 

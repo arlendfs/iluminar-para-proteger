@@ -44,14 +44,22 @@ para a implantação de postes solares inteligentes autônomos.
 
 A aplicação extensionista está direcionada à comunidade de **Vila Velha (ES)**,
 com **ODS 11 - Cidades e Comunidades Sustentáveis** como vínculo principal. O
-módulo **Estudo de Caso — Vila Velha** apresenta separadamente ocorrências do
-município, corredores federais do entorno metropolitano, Região Metropolitana
-da Grande Vitória, Espírito Santo e a referência brasileira. A análise nacional
-existente continua disponível nos módulos originais.
+módulo **Estudos Territoriais** permite escolher Brasil, UF, município, Região
+Metropolitana da Grande Vitória, vários municípios ou entorno de um município,
+além do período. Vila Velha permanece como comunidade extensionista oficial;
+outros recortes geram relatórios territoriais próprios. A análise nacional
+continua disponível nos módulos originais.
 
 O recorte municipal reconcilia os rótulos da PRF com coordenadas e com a
 [Malha Municipal Digital 2025 do IBGE](https://www.ibge.gov.br/geociencias/organizacao-do-territorio/malhas-territoriais/15774-malhas.html).
-O relatório territorial é gerado separadamente do relatório científico nacional.
+O relatório territorial é gerado separadamente do relatório científico nacional
+e do relatório extensionista específico de Vila Velha. As malhas municipais 2025
+são carregadas por UF sob demanda. No ES, o confronto BR/KM usa o traçado
+[SNV/DNIT 202507A no Geobases ES](https://gis.geobases.es.gov.br/server/rest/services/gb/DNIT_Rodovias_Federais_ES/MapServer/0),
+com tolerâncias exploratórias de 100 m e 1 km. Proximidade não comprova pista,
+iluminação nem situação histórica da rodovia. Fora do ES, o traçado viário não
+está disponível nesta implantação. Sem estimativa causal local, o módulo exibe
+custos condicionais e não calcula VPL territorial.
 A atividade prática consiste em disponibilizar e apresentar o sistema digital;
 o software não comprova residência das vítimas, ausência de iluminação,
 causalidade ou instalação de postes. Evidências de divulgação ficam vazias até
