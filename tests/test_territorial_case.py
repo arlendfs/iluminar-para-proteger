@@ -6,7 +6,7 @@ from streamlit.testing.v1 import AppTest
 
 from territorial_case import (
     SCOPES, SCOPE_BRASIL, SCOPE_ENTORNO, SCOPE_ES, SCOPE_METRO,
-    SCOPE_VILA, cause_counts, indicators, local_ranking, municipal_mesh,
+    SCOPE_VILA, cause_counts, indicators, involvement_counts, local_ranking, municipal_mesh,
     normalize_municipality, projection_eligible, select_scope,
     simulate_selected_segments, territorial_audit,
 )
@@ -90,6 +90,17 @@ def test_cause_join_deduplicates_only_exact_associations_and_ranks_local():
     assert not ranked["trecho_id"].str.contains("MG").any()
 
 
+def test_people_are_reused_only_for_selected_occurrences_without_empty_categories():
+    data = _sample()
+    local = select_scope(data, territorial_audit(data), SCOPE_VILA)
+    people = pd.DataFrame({
+        "id": [1, 1, 2, 3, 6],
+        "tipo_envolvido": pd.Categorical(["Condutor", "Condutor", None, "Pedestre", "Pedestre"],
+                                         categories=["Condutor", "Pedestre", "Cavaleiro"]),
+    })
+    assert involvement_counts(local, people).to_dict() == {"Condutor": 2, "Não informado": 1}
+
+
 def test_cost_only_when_local_sample_is_small_and_finance_uses_selected_segments():
     data = _sample()
     local = select_scope(data, territorial_audit(data), SCOPE_VILA)
@@ -164,3 +175,23 @@ dashboard.create_dashboard(analyzer)
     assert app.radio[0].value == "Estudo de Caso — Vila Velha"
     assert app.selectbox[0].value == SCOPE_VILA
     assert app.metric[0].value == "3"
+
+
+def test_brazil_reference_does_not_recompute_national_ranking_in_case_module():
+    script = """
+import pandas as pd
+import streamlit as st
+from types import SimpleNamespace
+from tests.test_territorial_case import _sample
+import territorial_dashboard as case
+ufs = "AC AL AM AP BA CE DF ES GO MA MG MS MT PA PB PE PI PR RJ RN RO RR RS SC SE SP TO".split()
+base = _sample().iloc[[0]]
+data = pd.concat([base.assign(id=index + 100, uf=uf) for index, uf in enumerate(ufs)], ignore_index=True)
+st.session_state["vv_scope"] = "Brasil \\u2014 refer\\u00eancia nacional"
+case.local_ranking = lambda _: (_ for _ in ()).throw(AssertionError("national ranking was recomputed"))
+case.render_territorial_case(SimpleNamespace(data=data, filtered_data=data, filtered_causas=pd.DataFrame(), filtered_pessoas=pd.DataFrame()))
+"""
+    app = AppTest.from_string(script, default_timeout=30).run()
+    assert not app.exception
+    assert app.selectbox[0].value == SCOPE_BRASIL
+    assert not app.get("download_button")

@@ -13,7 +13,7 @@ from streamlit_folium import folium_static
 from config import COMMUNITY_CONFIG, CENARIOS_ORCAMENTO, COLOR_PALETTE, PHASE_COLORS
 from territorial_case import (
     CORRIDOR_BRS, MALHA_SOURCE, SCOPES, SCOPE_BRASIL, SCOPE_ENTORNO,
-    SCOPE_ES, SCOPE_METRO, SCOPE_VILA, cause_counts, indicators,
+    SCOPE_ES, SCOPE_METRO, SCOPE_VILA, cause_counts, indicators, involvement_counts,
     local_ranking, municipal_mesh, principal_period, select_scope,
     simulate_selected_segments, territorial_audit, territorial_diagnostics,
 )
@@ -161,6 +161,9 @@ def render_territorial_case(analyzer) -> None:
                                ["acidentes", "noturnos", "obitos", "obitos_por_100"]):
         col.metric(title, _number(local[key], 2 if key == "obitos_por_100" else 0))
     st.dataframe(_metric_table(scope, local, national, national_available), hide_index=True, use_container_width=True)
+    if scope == SCOPE_BRASIL:
+        st.info("A referência brasileira preserva os indicadores da base nacional carregada. Para ranking, mapa nacional, simulações e relatório científico do Brasil, use os módulos nacionais correspondentes. O relatório territorial requer um dos recortes do ES.")
+        return
     if local["acidentes"] < 200:
         st.warning("A amostra deste recorte é pequena para projeções econômicas territoriais; taxas podem ser instáveis e não devem ser generalizadas.")
     st.caption("Os tamanhos amostrais acima são de acidentes, não de moradores. Diferenças entre recortes não demonstram efeito da iluminação.")
@@ -176,10 +179,11 @@ def render_territorial_case(analyzer) -> None:
     else:
         st.write(f"O recorte {scope} contém {_number(local['acidentes'])} ocorrências, sem base suficiente para comparar taxas noturnas e diurnas.")
     st.caption("Hipótese: menor visibilidade pode afetar detecção de obstáculos e percepção de riscos, entre outros mecanismos. Acidente noturno não implica falta de postes nem causalidade da iluminação.")
-    phase = selected["fase_dia_oficial"].value_counts().rename_axis("Fase do dia").reset_index(name="Ocorrências")
+    phase = selected["fase_dia_oficial"].value_counts().loc[lambda counts: counts.gt(0)].rename_axis("Fase do dia").reset_index(name="Ocorrências")
     st.plotly_chart(px.bar(phase, x="Fase do dia", y="Ocorrências", color="Fase do dia", color_discrete_map=PHASE_COLORS), use_container_width=True)
-    causes = cause_counts(selected, analyzer.filtered_causas)
-    accident_types = selected["tipo_acidente"].value_counts().head(10).rename_axis("Tipo de acidente").reset_index(name="Ocorrências")
+    full_causes = getattr(analyzer, "causas_data", None)
+    causes = cause_counts(selected, full_causes if full_causes is not None else analyzer.filtered_causas)
+    accident_types = selected["tipo_acidente"].value_counts().loc[lambda counts: counts.gt(0)].head(10).rename_axis("Tipo de acidente").reset_index(name="Ocorrências")
     left, right = st.columns(2)
     with left:
         st.markdown("**Causas associadas**")
@@ -200,14 +204,15 @@ def render_territorial_case(analyzer) -> None:
                        "; ".join(f"{row.causa_acidente}: {_number(row.ocorrencias_associadas)}" for row in mechanism.itertuples(index=False)))
     for column, title in (("condicao_metereologica", "Condição meteorológica"), ("tipo_pista", "Tipo de pista"), ("tracado_via", "Traçado da via")):
         if column in selected:
-            values = selected[column].value_counts().head(8)
+            values = selected[column].value_counts().loc[lambda counts: counts.gt(0)].head(8)
             if not values.empty:
                 st.caption(f"{title}: " + "; ".join(f"{name}: {_number(count)}" for name, count in values.items()))
-    people = analyzer.filtered_pessoas
-    if people is not None and not people.empty and {"id", "tipo_envolvido"}.issubset(people):
-        involvement = people.loc[people["id"].isin(selected["id"]), "tipo_envolvido"].value_counts().head(8)
-        if not involvement.empty:
-            st.caption("Tipos de envolvimento (pessoas, não acidentes): " + "; ".join(f"{name}: {_number(count)}" for name, count in involvement.items()))
+    people = getattr(analyzer, "pessoas_data", None)
+    if people is None:
+        people = analyzer.filtered_pessoas
+    involvement = involvement_counts(selected, people).head(8)
+    if not involvement.empty:
+        st.caption("Tipos de envolvimento (pessoas, não acidentes): " + "; ".join(f"{name}: {_number(count)}" for name, count in involvement.items()))
     st.warning(
         "Limitações: a PRF não fornece inventário completo de iluminação; fase do dia não mede lux; "
         "a visibilidade não foi medida diretamente; não há comprovação de residência das vítimas. "

@@ -118,7 +118,7 @@ def generate_territorial_report(
     if local["acidentes"] < 200:
         story.append(Paragraph("A amostra territorial é pequena para projeção econômica local; taxas podem ser instáveis.", styles["CaseBody"]))
     cause_text = "; ".join(f"{name}: {_number(count)}" for name, count in causes.head(8).itertuples(index=False, name=None)) if not causes.empty else "Causas não disponíveis neste recorte."
-    type_text = "; ".join(f"{name}: {_number(count)}" for name, count in data["tipo_acidente"].value_counts().head(8).items()) if "tipo_acidente" in data else "Tipos não disponíveis."
+    type_text = "; ".join(f"{name}: {_number(count)}" for name, count in data["tipo_acidente"].value_counts().loc[lambda counts: counts.gt(0)].head(8).items()) if "tipo_acidente" in data else "Tipos não disponíveis."
     section("7. Causas e gravidade", [
         "Causas associadas a ocorrências: " + cause_text,
         "Tipos de acidente: " + type_text,

@@ -185,6 +185,15 @@ def cause_counts(data: pd.DataFrame, causes: pd.DataFrame) -> pd.DataFrame:
             .sort_values(ascending=False).rename("ocorrencias_associadas").reset_index())
 
 
+def involvement_counts(data: pd.DataFrame, people: pd.DataFrame) -> pd.Series:
+    """Conta pessoas do recorte sem categorias vazias do dtype categórico."""
+    if data.empty or people is None or people.empty or not {"id", "tipo_envolvido"}.issubset(people):
+        return pd.Series(dtype="int64")
+    values = people.loc[people["id"].isin(data["id"]), "tipo_envolvido"].astype("string").str.strip()
+    values = values.mask(values.str.lower().isin(["nan", "none", ""])).fillna("Não informado")
+    return values.value_counts().loc[lambda counts: counts.gt(0)]
+
+
 def local_ranking(data: pd.DataFrame) -> pd.DataFrame:
     if data.empty:
         return pd.DataFrame()
