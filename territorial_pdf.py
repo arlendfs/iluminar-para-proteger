@@ -173,7 +173,8 @@ def generate_territorial_report(
     evidence_lines = []
     for key, label in (("video_demonstrativo", "Vídeo"), ("publicacao_linkedin", "LinkedIn"),
                        ("data_divulgacao", "Data"), ("participantes_registrados", "Participantes registrados"),
-                       ("sintese_interacoes", "Interações"), ("resultados_apresentacao", "Resultados da apresentação")):
+                       ("sintese_interacoes", "Interações"), ("resultados_apresentacao", "Resultados da apresentação"),
+                       ("feedback_voluntario", "Feedback voluntário")):
         value = evidence.get(key)
         if value is not None and value != "":
             evidence_lines.append(f"{label}: {value}")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import folium
+from folium.plugins import HeatMap
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -53,6 +54,10 @@ def _map(data: pd.DataFrame, meta: dict, ranking: pd.DataFrame) -> None:
         folium.CircleMarker([row.latitude, row.longitude], radius=3, color="#F59E0B",
                             fill=True, fill_opacity=.7, tooltip=f"PRF ID {row.id}").add_to(events)
     events.add_to(view)
+    if len(sample) > 1:
+        heat = folium.FeatureGroup(name="Concentração de coordenadas PRF", show=False)
+        HeatMap(sample[["latitude", "longitude"]].to_numpy().tolist(), radius=14, blur=12).add_to(heat)
+        heat.add_to(view)
     candidate = folium.FeatureGroup(name="Centros médios dos segmentos")
     if not ranking.empty:
         for row in ranking.head(50).itertuples():
@@ -63,7 +68,7 @@ def _map(data: pd.DataFrame, meta: dict, ranking: pd.DataFrame) -> None:
     candidate.add_to(view)
     folium.LayerControl().add_to(view)
     folium_static(view, width=850, height=500)
-    st.caption(f"{len(sample)} de {len(geographic)} ocorrências com coordenada válida exibidas. Pontos laranja: registros PRF; marcadores roxos: centros médios exploratórios; polígonos azuis: limites IBGE; linhas cinzas no ES: SNV/DNIT 202507A. Fora do ES, o traçado viário não está disponível nesta implantação. Não há localização proposta de postes.")
+    st.caption(f"{len(sample)} de {len(geographic)} ocorrências com coordenada válida exibidas. Pontos laranja: registros PRF; camada de calor opcional: concentração de coordenadas registradas, sujeita a pontos repetidos; marcadores roxos: centros médios exploratórios; polígonos azuis: limites IBGE; linhas cinzas no ES: SNV/DNIT 202507A. Fora do ES, o traçado viário não está disponível nesta implantação. Não há localização proposta de postes.")
 
 
 def _evidence() -> dict:
@@ -75,9 +80,11 @@ def _evidence() -> dict:
         participants = st.number_input("Participantes efetivamente registrados", min_value=0, value=0, key="territory_participants")
         comments = st.text_area("Comentários e síntese das interações", key="territory_comments")
         outcome = st.text_area("Resultados observados da apresentação", key="territory_outcome")
+        feedback = st.text_area("Feedback voluntário, sem dados pessoais", key="territory_feedback")
     return {"video_demonstrativo": video, "publicacao_linkedin": linkedin, "data_divulgacao": date,
             "participantes_registrados": int(participants) if participants else None,
-            "sintese_interacoes": comments, "resultados_apresentacao": outcome}
+            "sintese_interacoes": comments, "resultados_apresentacao": outcome,
+            "feedback_voluntario": feedback}
 
 
 def render_territorial_platform(analyzer) -> None:
@@ -181,8 +188,11 @@ def render_territorial_platform(analyzer) -> None:
     st.subheader("Segmentos Prioritários para Investigação")
     _map(selected, meta, ranking)
     if not ranking.empty:
-        st.caption("Score heurístico de severidade e concentração noturna; não é risco por veículo-quilômetro e não prova falta de iluminação.")
-        st.dataframe(ranking[["ranking", "trecho_id", "n_acidentes_total", "n_acidentes_noturnos", "mortos_noturno", "score_iluminacao_solar"]], hide_index=True, width="stretch")
+        st.caption("Score heurístico = (5 × óbitos noturnos + 3 × feridos graves noturnos + feridos leves noturnos + 2 × acidentes noturnos) × (1 + fração noturna). Sem denominador de tráfego; não prova falta de iluminação.")
+        ranking_columns = ["ranking", "trecho_id", "n_acidentes_total", "n_acidentes_noturnos",
+                           "acidentes_fatais_noturno", "mortos_noturno", "feridos_graves_total",
+                           "feridos_graves_noturno", "score_iluminacao_solar"]
+        st.dataframe(ranking[ranking_columns], hide_index=True, width="stretch")
         with st.expander("Detalhes de um segmento", expanded=False):
             segment_name = st.selectbox("Segmento prioritário para investigação", ranking["trecho_id"].tolist(), key="territory_segment_detail")
             segment = ranking.loc[ranking["trecho_id"].eq(segment_name)].iloc[0]
