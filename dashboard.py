@@ -1715,12 +1715,17 @@ def create_dashboard(analyzer: AccidentAnalyzer) -> None:
     }
     active = st.radio("Módulo", list(modules), horizontal=True, key="active_dashboard_module")
     render_started = time.perf_counter()
+    rss_before = None
+    if st.query_params.get("diagnostics") == "1":
+        from config import get_current_rss_mb
+        rss_before = get_current_rss_mb()
     modules[active]()
     if st.query_params.get("diagnostics") == "1":
         from config import get_current_rss_mb
         st.session_state["last_render_diagnostic"] = {
             "module": active, "seconds": round(time.perf_counter() - render_started, 3),
             "rss_mib": round(get_current_rss_mb(), 1),
+            "rss_before_mib": round(rss_before, 1),
         }
     timings = st.session_state.get("module_timings", {})
     if timings:

@@ -16,10 +16,10 @@ Estados: **APROVADO** (evidência executada), **APROVADO COM RESSALVA** (uso exp
 | 10. PDFs | APROVADO | Vila Velha, Vitória e extensionista gerados; conteúdo e páginas renderizadas/inspecionadas. |
 | 11. Fontes | APROVADO COM RESSALVA | PRF, IBGE, DNIT e FHWA citados; publicação exata dos ZIPs SNV indisponível. |
 | 12. README | APROVADO COM RESSALVA | Estado atual e limitações revisados; valores hipotéticos nacionais permanecem condicionais. |
-| 13. Performance local | APROVADO | Perfil AppTest: pico após módulo histórico otimizado 923,3 MiB; após PDF 954,3 MiB. |
-| 14. Performance publicada | BLOQUEADO | Teste de 1–3 sessões e métricas após novo deploy ainda não executados. |
+| 13. Performance local | APROVADO | Perfil AppTest final: 781,7 MiB após carga; 903,3 MiB no módulo histórico; 941,4 MiB após PDF. Uma execução local, não limite garantido. |
+| 14. Performance publicada | APROVADO COM RESSALVA | Três sessões controladas, uma com 2021–2025 e duas com 2021, abriram e renderizaram sem erro; amostras RSS e limite abaixo. Outras sessões preexistiam e não houve acesso a logs ou pico global do contêiner. |
 | 15. Testes automatizados | APROVADO | Última suíte: 147 testes aprovados; repetir após fechamento. |
-| 16. Navegação pública e downloads | BLOQUEADO | Versão anterior verificada em Streamlit; novas alterações aguardam publicação e conferência. |
+| 16. Navegação pública e downloads | APROVADO | Commit `55ad31e` aberto em Streamlit: estudos de Vila Velha e Vitória, triagem SNV histórica e botão de download do PDF territorial observados. |
 | 17. Segurança dos dados publicados | APROVADO COM RESSALVA | Fonte PRF pública; evidências extensionistas opcionais ficam na sessão. Revisar logs e arquivos temporários após deploy. |
 | 18. Limitações documentadas | APROVADO | Metodologia explicita tempo da malha, SNV, amostra, custos e ausência de medição de iluminação. |
 
@@ -38,4 +38,12 @@ Os totais de cada método não são intercambiáveis. Na BR-447 de Vila Velha, 4
 - `output/auditoria/auditoria_snv_vila_velha_2021_2025.csv` e `output/auditoria/auditoria_snv_vitoria_2021_2025.csv`: tabelas por ocorrência, não versionadas.
 - `output/pdf/relatorio_territorial_vila_velha_v2.pdf`, `output/pdf/relatorio_territorial_vitoria_v2.pdf` e `output/pdf/relatorio_extensionista_vila_velha_v2.pdf`: PDFs locais, não versionados.
 
-**Parecer provisório:** divulgação como estudo exploratório condicionada à repetição da suíte final e à verificação da implantação publicada. Nenhuma evidência sustenta certificação de engenharia ou efeito causal de postes.
+## Medições publicadas controladas
+
+Em `https://iluminar-para-proteger.streamlit.app/?diagnostics=1`, após publicar `55ad31e`, a primeira sessão controlada carregou 2021–2025 com pico RSS amostrado na carga de **1.450,5 MiB** (limite cgroup **3.072 MiB**), renderizou Estudos Territoriais em **11,156 s** para Vila Velha e **11,977 s** para Vitória e gerou PDF territorial em **0,579 s**. RSS apresentado após renderização: **1.249,7–1.263,0 MiB**. Os painéis exibiram 105/18/3 para Vila Velha e 28/4/6 para Vitória.
+
+Abriram-se duas sessões adicionais. O contador estimou 3, depois 4 e 5 sessões ativas, pois havia sessões preexistentes; não são contagens exclusivas deste ensaio. A segunda e a terceira carregaram somente o Parquet 2021, com picos de carga informados de **1.109,3 MiB** e **1.096,3 MiB**, respectivamente. A limpeza da terceira sessão retirou sua análise sem impedir que a segunda permanecesse carregada; o RSS imediatamente após limpeza foi **1.099,4 MiB**, sem redução imediata comprovada. As leituras entre abas variaram e podem refletir coleta em momentos ou processos distintos; não se atribui crescimento por sessão a esses números. Não houve teste de carga agressivo.
+
+Para coleta manual adicional: abrir `?diagnostics=1` em uma sessão isolada, registrar RSS, uso/limite do contêiner e disponibilidade do hospedeiro antes e depois da carga; registrar tempo e RSS antes/depois de cada módulo e PDF; repetir três reruns idênticos; abrir duas sessões adicionais de forma sequencial, com a mesma seleção, anotando horário e leituras; limpar uma sessão e conferir que as demais mantêm os dados. Associar os valores aos logs e métricas da hospedagem para obter o pico global e detectar reciclagem de processos. Sem acesso ao painel da hospedagem, o pico global e vazamento de longo prazo permanecem **não verificados**.
+
+**Parecer:** apto para divulgação como estudo exploratório, com as ressalvas temporais, geográficas, causais, econômicas e de memória acima. Não equivale a certificação de engenharia rodoviária.

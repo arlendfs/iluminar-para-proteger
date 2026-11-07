@@ -342,6 +342,7 @@ def main():
         st.session_state.pop("load_stage_peaks_mib", None)
         st.session_state.pop("last_render_diagnostic", None)
         st.session_state.pop("last_territory_pdf_diagnostic", None)
+        st.session_state.pop("last_load_diagnostic", None)
         st.session_state.pop("applied_filters", None)
         gc.collect()
 
@@ -369,6 +370,12 @@ def main():
             "peak_pdf_rss_mib",
             "peak_pdf_stages_mib",
             "load_stage_peaks_mib",
+            "last_render_diagnostic",
+            "last_territory_pdf_diagnostic",
+            "last_load_diagnostic",
+            "territory_generated",
+            "territory_extension_generated",
+            "generated_pdf",
         ]:
             st.session_state.pop(k, None)
         st.session_state["uploader_key"] = st.session_state.get("uploader_key", 0) + 1
@@ -394,9 +401,17 @@ def main():
                 st.caption(f"{stage}: {peak_mib:.1f} MiB")
     st.sidebar.caption(f"👥 Sessões ativas estimadas: **{active_sessions_count}**")
     if st.query_params.get("diagnostics") == "1":
+        if c_info.get("container_usage_mb") is not None:
+            st.sidebar.caption(f"🖥️ Uso do contêiner: {c_info['container_usage_mb']:.1f} MiB")
+        if c_info.get("host_available_mb") is not None:
+            st.sidebar.caption(f"🖥️ Disponível no hospedeiro: {c_info['host_available_mb']:.0f} MiB (não equivale à folga do contêiner)")
+        last_load = st.session_state.get("last_load_diagnostic")
+        if last_load:
+            st.sidebar.caption(f"⏱️ Última ingestão: {last_load['seconds']:.3f} s; pico RSS {last_load['peak_rss_mib']:.1f} MiB")
         last_render = st.session_state.get("last_render_diagnostic")
         if last_render:
-            st.sidebar.caption(f"⏱️ Último módulo: {last_render['module']}; {last_render['seconds']:.3f} s; RSS após renderização {last_render['rss_mib']:.1f} MiB")
+            before_text = f"{last_render['rss_before_mib']:.1f}/" if "rss_before_mib" in last_render else ""
+            st.sidebar.caption(f"⏱️ Último módulo: {last_render['module']}; {last_render['seconds']:.3f} s; RSS antes/depois {before_text}{last_render['rss_mib']:.1f} MiB")
         last_territory_pdf = st.session_state.get("last_territory_pdf_diagnostic")
         if last_territory_pdf:
             st.sidebar.caption(f"⏱️ Último PDF territorial: {last_territory_pdf['seconds']:.3f} s; RSS após geração {last_territory_pdf['rss_mib']:.1f} MiB")
@@ -490,6 +505,7 @@ def main():
                             analyzer.data = analyzer.load_data(uploaded_files, session_id=st.session_state["session_id"])
                         log_memory_checkpoint("Carga incremental e auditoria concluída", start_time=t_load_start)
                 st.session_state["peak_load_rss_mib"] = load_peak.peak_mib
+                st.session_state["last_load_diagnostic"] = {"seconds": round(time.time() - t_load_start, 3), "peak_rss_mib": round(load_peak.peak_mib, 1)}
                 st.session_state["load_stage_peaks_mib"] = load_peak.stage_peaks_mib.copy()
                 st.sidebar.caption(f"📈 Pico RSS na carga: **{load_peak.peak_mib:.1f} MiB**")
                 if st.query_params.get("diagnostics") == "1":
