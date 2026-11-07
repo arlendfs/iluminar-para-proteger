@@ -195,3 +195,12 @@ case.render_territorial_case(SimpleNamespace(data=data, filtered_data=data, filt
     assert not app.exception
     assert app.selectbox[0].value == SCOPE_BRASIL
     assert not app.get("download_button")
+
+
+def test_brazil_reference_table_has_one_value_column():
+    from territorial_dashboard import _metric_table
+
+    metrics = indicators(_sample())
+    assert _metric_table(SCOPE_BRASIL, metrics, metrics, True).columns.tolist() == [
+        "Indicador", SCOPE_BRASIL,
+    ]

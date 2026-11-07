@@ -40,11 +40,16 @@ def _metric_table(scope: str, local: dict, national: dict, national_available: b
         ("Acidentes fatais (%)", "percentual_fatais", 2),
         ("Óbitos por 100 acidentes", "obitos_por_100", 2),
     ]
-    return pd.DataFrame({
+    columns = {
         "Indicador": [label for label, _, _ in rows],
         scope: [_number(local[key], decimals) for _, key, decimals in rows],
-        "Brasil - referência": [_number(national[key], decimals) if national_available else "Indisponível" for _, key, decimals in rows],
-    })
+    }
+    if scope != SCOPE_BRASIL:
+        columns["Brasil - referência"] = [
+            _number(national[key], decimals) if national_available else "Indisponível"
+            for _, key, decimals in rows
+        ]
+    return pd.DataFrame(columns)
 
 
 def _render_map(selected: pd.DataFrame, audit: pd.DataFrame, ranking: pd.DataFrame) -> None:
