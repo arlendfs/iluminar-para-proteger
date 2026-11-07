@@ -14,6 +14,7 @@
 - AppTest com cinco Parquets de 2021 a 2025: Vila Velha com 126 acidentes, 52 em plena noite e 16 óbitos; PDF territorial com 3 páginas. Vitória: 38 acidentes, 7 em plena noite e 0 óbito; PDF com identificação de Vitória e sem texto fixo de Vila Velha.
 - PDF extensionista de Vila Velha com 3 páginas. Os três PDFs foram renderizados; mapas, tabelas e identificação territorial inspecionados visualmente.
 - Perfil local de processo no AppTest: pico de 778,6 MiB após carga nacional; 894,0 MiB no módulo territorial; 929,8 MiB após geração do PDF. São medições locais, não da instância Streamlit publicada.
+- Implantação `iluminar-para-proteger.streamlit.app` verificada após o commit `07a8236`: navegação "Estudos Territoriais", cinco anos 2021–2025, 126 acidentes e 16 óbitos para Vila Velha, e botão de download do PDF territorial gerado. O painel da sessão mostrou RSS de 810,0 MiB após a geração; é leitura instantânea, não pico do processo.
 
 ## Arquivos e fontes
 
