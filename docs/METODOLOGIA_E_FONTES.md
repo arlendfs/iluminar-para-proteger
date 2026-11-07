@@ -1,0 +1,33 @@
+# Metodologia e fontes — versão pré-publicação
+
+## Microdados PRF
+
+- Origem: [Dados Abertos de Acidentes da PRF](https://www.gov.br/prf/pt-br/acesso-a-informacao/dados-abertos/dados-abertos-da-prf), arquivos `acidentesYYYY_todas_causas_tipos`. O período principal territorial é 2021–2025. O aplicativo aceita CSV e Parquet; os cinco Parquets em `parquet_samples/` são as cópias locais usadas na validação.
+- Inclusão: ocorrências com ID único após ingestão; período, UF e recorte espacial aplicados explicitamente. O ano corrente pode ser parcial. Sem KM válido, a ocorrência permanece nas estatísticas e sai apenas da segmentação por KM.
+- Granularidades: `id` identifica ocorrência; `(id, pesid)` identifica pessoa; `(id, id_veiculo)` identifica veículo; causas são associações relacionais, potencialmente múltiplas por ocorrência. A ingestão retém uma ocorrência por `id`, deduplica pessoas e veículos por chave e causas por combinação de campos; óbitos e feridos vêm das pessoas, evitando multiplicação por causas.
+- Transformações: parser de decimal brasileiro preserva KM e coordenadas ausentes como nulos; fases oficiais (`Pleno dia`, `Plena Noite`, `Amanhecer`, `Anoitecer`) permanecem separadas. O score usa segmentos disjuntos de 2 km por BR e UF.
+
+## Território e SNV
+
+- Municípios: [Malha Municipal Digital IBGE 2025](https://www.ibge.gov.br/geociencias/organizacao-do-territorio/malhas-territoriais/15774-malhas.html), carregada por UF; o recorte RMGV usa sete polígonos compactos. Coordenadas são confrontadas com polígonos; rótulos PRF sem ponto podem entrar em recortes descritivos, mas pontos divergentes não são ocultados. A malha 2025 é referência retrospectiva.
+- SNV ES contemporâneo: camada [Geobases/DNIT 202507A](https://gis.geobases.es.gov.br/server/rest/services/gb/DNIT_Rodovias_Federais_ES/MapServer/0), em `assets/dnit_es_snv_202507a.geojson.gz`. Distâncias são calculadas em SIRGAS 2000 / UTM 24S (EPSG:31984); 100 m transversal e ±1 km longitudinal são tolerâncias de triagem, não erros de medição ou prova de pista.
+- SNV histórico: [acervo oficial DNIT](https://servicos.dnit.gov.br/dnitcloud/index.php/s/oTpPRmYs5AAdiNr), pasta `SNV Bases Geométricas (2013-Atual) (SHP)`. Foram obtidos 23 arquivos ZIP: uma referência de 202010A e todas as versões listadas no acervo para 2021–2025. Nome exato, URL direta, ano/mês de referência, tamanho, SHA-256, WKT do SRC SIRGAS 2000 e campos retidos constam de [`assets/snv_es_historico_manifest.json`](../assets/snv_es_historico_manifest.json). Os ZIPs brutos ficam em `temp/snv_historico/` fora do Git; os recortes compactos do ES ficam em `assets/snv_es_historico/`. A data precisa de publicação de cada ZIP não foi confirmada: o carimbo de modificação no servidor não é tratado como data de publicação.
+- Método por ocorrência: usa a versão cujo **mês de referência é o último estritamente anterior ao mês do acidente**. Registra a defasagem em meses. Compara a BR informada ao traçado mais próximo da mesma BR, KM do trecho ±1 km e distância transversal ≤100 m. `ds_legenda`, `ds_sup_fed` e `ds_obra` são atributos cadastrais, não prova de abertura ao tráfego. Se planejado (`PLA`) ou em obra de implantação (`EOI`), a ocorrência recebe divergência para investigação. Mesmo um encaixe geométrico positivo fica como “correspondência espacial plausível, sem confirmação histórica”. Sem coordenada, BR, KM ou traçado: “informação insuficiente”. Nenhuma linha é excluída da base estatística por essa triagem.
+- BR-447: versões mostram trechos pavimentados, planejados e em obra, além de variação de KM e de classificação. O [DNIT em 2021](https://www.gov.br/dnit/pt-br/assuntos/noticias/em-2021-dnit-avanca-com-as-obras-no-espirito-santo/), a [interdição de KM 12,4–13,520 em 2022](https://www.gov.br/dnit/pt-br/central-de-conteudos/noticias-alerta-de-servicos/dnit-alerta-para-interdicao-da-br-447-em-vila-velha-es) e a [notícia de 28/04/2026](https://www.gov.br/dnit/pt-br/assuntos/noticias/obras-da-br-447-es-atingem-90-de-conclusao-com-entrega-prevista-para-dezembro) ajudam a contextualizar, mas não identificam a pista exata de cada sinistro.
+
+## Indicadores e interpretação
+
+- Óbitos por 100 acidentes = 100 × pessoas mortas / ocorrências únicas. Acidentes fatais (%) = 100 × ocorrências com ≥1 óbito / ocorrências únicas. Os intervalos de Wilson de 95% tratam a proporção de acidentes fatais, assumindo independência entre ocorrências, sem ajuste por exposição ou confundimento.
+- As causas por fase são frequências de **ocorrências associadas**; categorias podem se sobrepor e não devem ser somadas como acidentes distintos. Em Vila Velha, 2021–2025: 126 acidentes, 16 óbitos; 52 em plena noite, 58 em pleno dia; 17,31 e 6,90 óbitos por 100 acidentes, respectivamente. Reação tardia: 9/52 e 9/58; ausência de reação: 6/52 e 7/58. Esses dados não demonstram forte associação noturna dessas causas.
+- Score territorial = (5 × óbitos noturnos + 3 × feridos graves noturnos + feridos leves noturnos + 2 × acidentes noturnos) × (1 + fração noturna). Não é taxa por veículo-quilômetro, validação de obra nem indicação de local de poste. Custos usam segmentos escolhidos sem sobreposição, extensão geométrica, espaçamento hipotético e cenários de preço. O território não recebe VPL porque não há estimativa causal local de redução de acidentes.
+- [FHWA Nighttime Visibility](https://highways.dot.gov/safety/other/visibility/nighttime-visibility-overview) fundamenta mecanismos físicos possíveis; não fornece efeito local. PRF não mede lux, inventário de postes, tráfego exposto nem o contrafactual. O protótipo energético é paramétrico e não comprova autonomia ou conformidade luminotécnica em campo.
+
+## Reprodução
+
+1. Instalar `requirements.txt` e manter os Parquets PRF correspondentes em `parquet_samples/`.
+2. Para refazer os recortes SNV, obter os ZIPs pela URL individual do manifesto e verificar SHA-256; colocá-los em `temp/snv_historico/`; executar `python scripts/build_historical_snv_es.py`.
+3. Executar `python -m pytest tests/ -q`.
+4. Executar `python scripts/export_territorial_historical_audit.py` para CSVs por ocorrência em `output/auditoria/`.
+5. Iniciar `streamlit run app.py`, carregar 2021–2025 e escolher **Estudos Territoriais**. Gerar separadamente os PDFs de Vila Velha e Vitória. `?diagnostics=1` mostra métricas locais do processo da instância em execução.
+
+Resultados de triagem e simulações devem ser comunicados como exploratórios. Não houve instalação física de postes nem comprovação de que falta de iluminação causou os sinistros.

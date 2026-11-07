@@ -1714,7 +1714,14 @@ def create_dashboard(analyzer: AccidentAnalyzer) -> None:
         "Estudos Territoriais": lambda: _render_territorial_case_lazy(analyzer),
     }
     active = st.radio("Módulo", list(modules), horizontal=True, key="active_dashboard_module")
+    render_started = time.perf_counter()
     modules[active]()
+    if st.query_params.get("diagnostics") == "1":
+        from config import get_current_rss_mb
+        st.session_state["last_render_diagnostic"] = {
+            "module": active, "seconds": round(time.perf_counter() - render_started, 3),
+            "rss_mib": round(get_current_rss_mb(), 1),
+        }
     timings = st.session_state.get("module_timings", {})
     if timings:
         st.caption("Tempo Python do último carregamento: " + ", ".join(f"{k}: {v:.2f}s" for k, v in timings.items()))

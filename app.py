@@ -340,6 +340,8 @@ def main():
         st.session_state.pop("peak_pdf_rss_mib", None)
         st.session_state.pop("peak_pdf_stages_mib", None)
         st.session_state.pop("load_stage_peaks_mib", None)
+        st.session_state.pop("last_render_diagnostic", None)
+        st.session_state.pop("last_territory_pdf_diagnostic", None)
         st.session_state.pop("applied_filters", None)
         gc.collect()
 
@@ -391,6 +393,13 @@ def main():
             for stage, peak_mib in st.session_state["load_stage_peaks_mib"].items():
                 st.caption(f"{stage}: {peak_mib:.1f} MiB")
     st.sidebar.caption(f"👥 Sessões ativas estimadas: **{active_sessions_count}**")
+    if st.query_params.get("diagnostics") == "1":
+        last_render = st.session_state.get("last_render_diagnostic")
+        if last_render:
+            st.sidebar.caption(f"⏱️ Último módulo: {last_render['module']}; {last_render['seconds']:.3f} s; RSS após renderização {last_render['rss_mib']:.1f} MiB")
+        last_territory_pdf = st.session_state.get("last_territory_pdf_diagnostic")
+        if last_territory_pdf:
+            st.sidebar.caption(f"⏱️ Último PDF territorial: {last_territory_pdf['seconds']:.3f} s; RSS após geração {last_territory_pdf['rss_mib']:.1f} MiB")
 
     # =========================================================================
     # SIDEBAR: RELATÓRIOS SALVOS DA SESSÃO

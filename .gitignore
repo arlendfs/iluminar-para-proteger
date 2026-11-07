@@ -10,6 +10,7 @@ data/*.xls
 reports/*.pdf
 reports/*.docx
 output/pdf/*.pdf
+output/auditoria/*.csv
 
 # Arquivos temporários
 temp/*

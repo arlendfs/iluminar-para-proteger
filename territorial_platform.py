@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from time import perf_counter
 
 import folium
 from folium.plugins import HeatMap
@@ -17,6 +18,7 @@ from territorial_case import cause_counts, indicators, local_ranking, simulate_s
 from territorial_dynamic import municipality_options, select_territory
 from territorial_science import combined_table, mechanism_flags, mechanism_table, phase_severity, scientific_summary
 from territorial_road_audit import audit_road_positions, road_geojson, ROAD_TOLERANCE_M, SOURCE as ROAD_SOURCE
+from territorial_historical_audit import audit_historical_positions, segment_history_quality
 
 
 KINDS = ("Município", "Estado", "Brasil", "Região Metropolitana", "Municípios selecionados", "Entorno de município")
@@ -185,13 +187,24 @@ def render_territorial_platform(analyzer) -> None:
             pivot = heat.pivot(index="condicao_metereologica", columns="fase_dia_oficial", values="ocorrencias").fillna(0)
             st.plotly_chart(px.imshow(pivot, color_continuous_scale="Blues", labels={"color": "Ocorrências"}), width="stretch")
     ranking = local_ranking(selected)
+    historical = None
+    historical_summary = None
+    if uf == "ES" and kind in ("Município", "Região Metropolitana", "Municípios selecionados", "Entorno de município"):
+        geographic_name = pd.Series(name if kind == "Município" else None, index=selected.index)
+        historical = audit_historical_positions(selected, geographic_name)
+        historical_summary = historical["status_localizacao"].value_counts().to_dict()
+        ranking = segment_history_quality(ranking, selected, historical)
     st.subheader("Segmentos Prioritários para Investigação")
+    if uf == "ES" and selected["br"].astype(str).str.replace(r"\D", "", regex=True).eq("447").any():
+        st.warning("BR-447: a posição de ocorrências históricas não comprova a configuração atual ou operação de trechos novos. Consulte a auditoria SNV antes de interpretar o mapa ou ranking.")
     _map(selected, meta, ranking)
     if not ranking.empty:
-        st.caption("Score heurístico = (5 × óbitos noturnos + 3 × feridos graves noturnos + feridos leves noturnos + 2 × acidentes noturnos) × (1 + fração noturna). Sem denominador de tráfego; não prova falta de iluminação.")
+        st.caption("Score heurístico = (5 × óbitos noturnos + 3 × feridos graves noturnos + feridos leves noturnos + 2 × acidentes noturnos) × (1 + fração noturna). Sem denominador de tráfego; não prova falta de iluminação. Triagem SNV: P=espacialmente plausível, D=divergência, I=insuficiente; nenhuma categoria certifica operação histórica.")
         ranking_columns = ["ranking", "trecho_id", "n_acidentes_total", "n_acidentes_noturnos",
                            "acidentes_fatais_noturno", "mortos_noturno", "feridos_graves_total",
                            "feridos_graves_noturno", "score_iluminacao_solar"]
+        if "triagem_snv" in ranking:
+            ranking_columns.append("triagem_snv")
         st.dataframe(ranking[ranking_columns], hide_index=True, width="stretch")
         with st.expander("Detalhes de um segmento", expanded=False):
             segment_name = st.selectbox("Segmento prioritário para investigação", ranking["trecho_id"].tolist(), key="territory_segment_detail")
@@ -209,6 +222,9 @@ def render_territorial_platform(analyzer) -> None:
     if uf == "ES" and kind in ("Município", "Região Metropolitana", "Municípios selecionados", "Entorno de município"):
         road = audit_road_positions(selected)
         road_summary = road["situacao_rodovia"].value_counts().to_dict()
+        st.caption(f"Confronto histórico SNV por mês de referência: {historical_summary}. Nenhuma correspondência é certificação operacional; datas de publicação não verificadas.")
+        if selected["br"].astype(str).str.replace(r"\D", "", regex=True).eq("447").any():
+            st.warning("BR-447: versões históricas registram trechos planejados, pavimentados e em obra, além de mudanças de quilometragem. Pontos e segmentos permanecem em triagem; não se infere configuração física atual ou local para postes.")
         st.caption(f"Confronto SNV/DNIT ES 202507A: {road_summary}; tolerância transversal {ROAD_TOLERANCE_M:.0f} m. Proximidade não confirma pista ou marco histórico.")
         with st.expander("Auditoria BR/KM e coordenadas", expanded=False):
             from territorial_case import territorial_audit, territorial_diagnostics
@@ -218,6 +234,8 @@ def render_territorial_platform(analyzer) -> None:
             cols = [column for column in ("id", "ano", "uf", "municipio", "br", "km", "latitude", "longitude") if column in selected]
             selected_audit = selected[cols].join(ibge_audit[["municipio_por_coordenada", "divergencia_municipio_coordenada", "situacao_localizacao"]], how="left").join(road)
             st.dataframe(selected_audit, hide_index=True, width="stretch")
+            st.markdown("**Confronto com referência histórica SNV por ocorrência**")
+            st.dataframe(historical, hide_index=True, width="stretch")
             divergent = base.loc[ibge_audit.index[ibge_audit["divergencia_municipio_coordenada"]]]
             if not divergent.empty:
                 divergence_table = divergent[[column for column in cols if column in divergent]].join(
@@ -236,13 +254,17 @@ def render_territorial_platform(analyzer) -> None:
     finance = simulate_selected_segments(selected, subset_ranking, scenario, spacing, allow_exploratory_vpl=False) if not subset_ranking.empty else {}
     if finance:
         st.write(f"{finance['segmentos']} segmentos; {_format(finance['extensao_km'],1)} km; {_format(finance['postes'])} postes hipotéticos; CAPEX R$ {_format(finance['capex'],2)}; manutenção anual R$ {_format(finance['manutencao_anual'],2)}; reserva de baterias R$ {_format(finance['reserva_reposicoes_baterias_15_anos'],2)}.")
+        st.caption("Segmentos incluídos neste custo: " + "; ".join(subset_ranking["trecho_id"].astype(str).tolist()))
         st.warning("VPL territorial não calculado: falta estimativa causal local de redução de sinistros. Custos são hipóteses, não economia realizada.")
     st.caption("Uma fileira a cada 50 m é hipótese geométrica. Pista dupla, curvas, acessos e pedestres exigem projeto luminotécnico conforme ABNT NBR 5101:2024.")
     st.subheader("Relatórios")
     report_key = (kind, uf, name, tuple(years), tuple(chosen_segments), scenario, spacing)
     if st.button("Gerar Relatório do Território Selecionado", key="territory_pdf"):
         from territorial_report_dynamic import generate_selected_territory_report
-        st.session_state["territory_generated"] = (report_key, generate_selected_territory_report(selected, base, meta, flags, ranking, finance, road_summary))
+        from config import get_current_rss_mb
+        pdf_started = perf_counter()
+        st.session_state["territory_generated"] = (report_key, generate_selected_territory_report(selected, base, meta, flags, ranking, finance, road_summary, historical_summary, subset_ranking))
+        st.session_state["last_territory_pdf_diagnostic"] = {"seconds": round(perf_counter() - pdf_started, 3), "rss_mib": round(get_current_rss_mb(), 1)}
     generated = st.session_state.get("territory_generated")
     if generated and generated[0] == report_key:
         st.download_button("Baixar PDF do território selecionado", generated[1], f"relatorio_territorial_{uf}_{datetime.now():%Y%m%d}.pdf", "application/pdf")
@@ -255,7 +277,7 @@ def render_territorial_platform(analyzer) -> None:
             from territorial_pdf import generate_territorial_report
             causes = cause_counts(selected, causes_data)
             pdf = generate_territorial_report(name, selected, base, causes, ranking, subset_ranking, finance,
-                                              territorial_audit(base), evidence)
+                                              territorial_audit(base), evidence, historical_summary)
             st.session_state["territory_extension_generated"] = (report_key, tuple(sorted(evidence.items())), pdf)
         ext = st.session_state.get("territory_extension_generated")
         if ext and ext[:2] == (report_key, tuple(sorted(evidence.items()))):

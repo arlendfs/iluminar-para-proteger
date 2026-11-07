@@ -154,6 +154,8 @@ def test_local_pdf_reports_separate_local_and_national_counts_and_no_false_activ
     assert "não foram fornecidas" in text.lower()
     assert "VPL local" in text
     assert "14. Referências" in text
+    assert "ocorrências metropolitanas" not in text
+    assert "Segmentos incluídos no custo" in text
 
 
 def test_new_module_is_lazy_navigable_and_defaults_to_vila_velha():

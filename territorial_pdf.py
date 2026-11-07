@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html import escape
 from io import BytesIO
+import re
 
 import pandas as pd
 from reportlab.lib import colors
@@ -21,9 +22,14 @@ def _number(value: float | int | None, decimals: int = 0) -> str:
     return f"{value:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _segment_name(name: str) -> str:
+    return re.sub(r"(?<=\d)\.(?=\d)", ",", str(name))
+
+
 def _map_image(data: pd.DataFrame, audit: pd.DataFrame, scope: str):
     import geopandas as gpd
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
 
     geojson, geometries = municipal_mesh()
     fig, ax = plt.subplots(figsize=(7, 4.2), dpi=150)
@@ -46,6 +52,8 @@ def _map_image(data: pd.DataFrame, audit: pd.DataFrame, scope: str):
         ax.set_ylim(-20.79, -19.83)
     ax.set_xlabel("Longitude (WGS 84)", fontsize=7)
     ax.set_ylabel("Latitude (WGS 84)", fontsize=7)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.2f}".replace(".", ",")))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.2f}".replace(".", ",")))
     ax.set_title("Vila Velha e Grande Vitória: limites IBGE 2025 e ocorrências", fontsize=8)
     ax.tick_params(labelsize=6)
     fig.tight_layout()
@@ -60,6 +68,7 @@ def generate_territorial_report(
     scope: str, data: pd.DataFrame, national_data: pd.DataFrame,
     causes: pd.DataFrame, ranking: pd.DataFrame, selected_segments: pd.DataFrame,
     finance: dict, audit: pd.DataFrame, evidence: dict | None = None,
+    historical_summary: dict | None = None,
 ) -> bytes:
     """Gera PDF local sem reutilizar números do relatório nacional como municipais."""
     evidence = evidence or {}
@@ -103,6 +112,7 @@ def generate_territorial_report(
     section("4. Metodologia", [
         f"Microdados PRF do período {period}, em nível de ocorrência única; pessoas e causas são tabelas relacionais separadas. Município e UF são normalizados. Coordenadas são confrontadas com a Malha Municipal Digital 2025 do IBGE, originalmente SIRGAS 2000 (EPSG:4674), transformada para WGS 84 (EPSG:4326).",
         f"Auditoria no ES: {diag['rotulo_vila']} registros rotulados Vila Velha; {diag['vila_confirmada']} pontos dentro da malha municipal ({diag['ponto_vila_rotulo_outro']} com rótulo de outro município); {diag['rotulo_vila_ponto_fora']} rótulos Vila Velha com ponto fora; {diag['vila_sem_coordenada']} registros municipais sem coordenada; {diag['divergencias']} divergências município/coordenada. Pontos fora do limite não são atribuídos ao município pelo rótulo. A malha de 2025 é referência retrospectiva para 2021-2025.",
+        "Confronto com versões SNV/DNIT de mês de referência anterior à ocorrência: " + ("; ".join(f"{key}: {value}" for key, value in historical_summary.items()) if historical_summary else "não executado neste relatório") + ". O mês da versão não comprova publicação anterior ao sinistro nem abertura operacional.",
     ])
     section("5. Resultados observados no recorte", [
         f"O recorte {scope} contém {_number(local['acidentes'])} ocorrências únicas, {_number(local['noturnos'])} em plena noite, {_number(local['diurnos'])} em pleno dia, {_number(local['obitos'])} óbitos, {_number(local['feridos_graves'])} feridos graves e {_number(local['feridos_leves'])} feridos leves.",
@@ -126,22 +136,23 @@ def generate_territorial_report(
     ])
     map_buffer, shown, regional = _map_image(data, audit, scope)
     story.append(KeepTogether([
-        Paragraph("8. Mapa e segmentos elegíveis", styles["CaseHeading"]),
+        Paragraph("8. Mapa e segmentos em triagem", styles["CaseHeading"]),
         Image(map_buffer, width=15.5 * cm, height=9.3 * cm),
-        Paragraph(f"Mapa: {shown} de {regional} ocorrências metropolitanas com coordenadas válidas (limite visual de 500). Malha IBGE 2025. Pontos do entorno não são ocorrências municipais.", styles["CaseSmall"]),
+        Paragraph(f"Mapa: {shown} de {regional} ocorrências do recorte com coordenadas válidas (limite visual de 500). Malha IBGE 2025. Os pontos não identificam locais de instalação.", styles["CaseSmall"]),
     ]))
     if not ranking.empty:
-        story.append(Paragraph(f"{len(ranking)} segmentos elegíveis por BR e KM no recorte. O score é heurístico, não valida risco causal, falta de iluminação ou prioridade de obra. Segmentos selecionados para custo: {len(selected_segments)}.", styles["CaseBody"]))
-        rows = [["Segmento", "Acid. total", "Acid. not.", "Score"]]
+        story.append(Paragraph(f"{len(ranking)} segmentos em triagem por BR e KM no recorte. O score é heurístico, não valida risco causal, falta de iluminação ou prioridade de obra. Segmentos selecionados para custo: {len(selected_segments)}.", styles["CaseBody"]))
+        rows = [["Segmento", "Acid. total", "Acid. not.", "Score", "SNV P/D/I"]]
         for row in ranking.head(8).itertuples():
-            rows.append([str(row.trecho_id), str(row.n_acidentes_total), str(row.n_acidentes_noturnos), _number(row.score_iluminacao_solar, 1)])
-        table = Table(rows, colWidths=[8.5 * cm, 2.5 * cm, 2.5 * cm, 2 * cm], repeatRows=1)
+            rows.append([_segment_name(row.trecho_id), str(row.n_acidentes_total), str(row.n_acidentes_noturnos), _number(row.score_iluminacao_solar, 1), getattr(row, "triagem_snv", "n/d")])
+        table = Table(rows, colWidths=[6.3 * cm, 2.1 * cm, 2.1 * cm, 1.5 * cm, 3.5 * cm], repeatRows=1)
         table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1D4ED8")),
                                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                                    ("FONTSIZE", (0, 0), (-1, -1), 7),
                                    ("GRID", (0, 0), (-1, -1), .3, colors.HexColor("#CBD5E1")),
                                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
         story.append(table)
+        story.append(Paragraph("SNV P/D/I: P = correspondência espacial plausível sem confirmação histórica; D = divergência; I = informação insuficiente. Nenhum segmento está certificado para obra.", styles["CaseSmall"]))
     else:
         story.append(Paragraph("Sem segmentos elegíveis por BR e KM neste recorte.", styles["CaseBody"]))
     if "br" in data and {"latitude", "longitude"}.issubset(data):
@@ -161,6 +172,8 @@ def generate_territorial_report(
             f"{finance['cenario']}: {finance['segmentos']} {'segmento hipotético' if finance.get('hipotetico') else 'segmentos selecionados'}, {_number(finance['extensao_km'],1)} km, {_number(finance['postes'])} postes estimados, custo unitário R$ {_number(finance['custo_unitario'],2)}, CAPEX R$ {_number(finance['capex'],2)}.",
             f"Manutenção anual hipotética: R$ {_number(finance['manutencao_anual'],2)}; reserva de duas reposições de bateria no horizonte de 15 anos: R$ {_number(finance['reserva_reposicoes_baterias_15_anos'],2)}. Taxa social de desconto de 8% ao ano é hipótese.",
         ]
+        if not selected_segments.empty:
+            economic.append("Segmentos incluídos no custo: " + "; ".join(_segment_name(item) for item in selected_segments["trecho_id"]) + ".")
         if finance["vpl_exploratorio_disponivel"]:
             economic.append("VPL social exploratório por redução hipotética de acidentes noturnos: " + "; ".join(f"{reduction:.0%}: R$ {_number(value,2)}" for reduction, value in finance["sensibilidade"].items()) + ". Benefícios representam custos sociais potencialmente evitados, não receita financeira; redução de óbitos pressupõe proporcionalidade adicional.")
         else:
@@ -190,6 +203,7 @@ def generate_territorial_report(
         "IBGE. Malha Municipal Digital 2025, ES_Municipios_2025.zip. " + MALHA_SOURCE,
         "Governo do Espírito Santo. COMDEVIT: sete municípios da Região Metropolitana da Grande Vitória. " + METRO_SOURCE,
         "DNIT. Obras da BR-447/ES e acesso ao Porto de Capuaba (2026). " + BR447_SOURCE,
+        "DNIT. Acervo histórico SNV 2020–2025; versões e hashes em docs/METODOLOGIA_E_FONTES.md. https://servicos.dnit.gov.br/dnitcloud/index.php/s/oTpPRmYs5AAdiNr",
         "ABNT. NBR 5101:2024, iluminação pública e rodoviária. Referência normativa; conformidade não demonstrada."
     ])
 

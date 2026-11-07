@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from html import escape
 from io import BytesIO
+import re
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import pandas as pd
 from shapely.geometry import box, shape
 from reportlab.lib import colors
@@ -23,6 +25,10 @@ def _n(value, digits=0):
     if value is None or pd.isna(value):
         return "Não estimável"
     return f"{value:,.{digits}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _segment_name(name: str) -> str:
+    return re.sub(r"(?<=\d)\.(?=\d)", ",", str(name))
 
 
 def _figure(data: pd.DataFrame, geometries: list, title: str, uf: str | None) -> BytesIO:
@@ -60,6 +66,8 @@ def _figure(data: pd.DataFrame, geometries: list, title: str, uf: str | None) ->
     ax.set_title(title, fontsize=9)
     ax.set_xlabel("Longitude WGS 84", fontsize=7)
     ax.set_ylabel("Latitude WGS 84", fontsize=7)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.2f}".replace(".", ",")))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.2f}".replace(".", ",")))
     ax.tick_params(labelsize=7)
     fig.tight_layout()
     buffer = BytesIO()
@@ -80,6 +88,7 @@ def _phase_figure(flags: pd.DataFrame) -> BytesIO:
         ax.set_xticks([])
         ax.set_yticks([])
     ax.set_ylabel("Óbitos por 100 acidentes", fontsize=8)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:g}".replace(".", ",")))
     ax.tick_params(axis="x", labelsize=7)
     ax.tick_params(axis="y", labelsize=7)
     fig.tight_layout()
@@ -93,6 +102,7 @@ def _phase_figure(flags: pd.DataFrame) -> BytesIO:
 def generate_selected_territory_report(
     data: pd.DataFrame, national: pd.DataFrame, meta: dict, flags: pd.DataFrame,
     ranking: pd.DataFrame, finance: dict, road_summary: dict | None = None,
+    historical_summary: dict | None = None, selected_segments: pd.DataFrame | None = None,
 ) -> bytes:
     """Usa exclusivamente o recorte ativo para resultados e custos."""
     name, uf = meta["nome"], meta.get("uf")
@@ -117,7 +127,8 @@ def generate_selected_territory_report(
     section("2. Problema observado", f"{_n(local['acidentes'])} ocorrências únicas, {_n(local['obitos'])} óbitos e {_n(local['feridos_graves'])} feridos graves no recorte.")
     section("3. Metodologia", "Deduplicação por ID de ocorrência; causas relacionais como associações não exclusivas. Coordenadas municipais confrontadas com a Malha IBGE 2025 quando disponível.")
     road_text = "; ".join(f"{status}: {count}" for status, count in road_summary.items()) if road_summary else "não verificada neste recorte"
-    section("4. Auditoria geográfica", f"Método: {meta.get('metodo', 'não informado')}. Correspondência rodoviária: {road_text}. A proximidade ao traçado não confirma pista ou condição histórica.")
+    historical_text = "; ".join(f"{status}: {count}" for status, count in historical_summary.items()) if historical_summary else "não realizada neste recorte"
+    section("4. Auditoria geográfica", f"Método: {meta.get('metodo', 'não informado')}. Referência SNV 202507A: {road_text}. Confronto com versões históricas por mês de referência: {historical_text}. Datas exatas de publicação e abertura operacional não verificadas; proximidade não confirma pista.")
     section("5. Indicadores", f"Plena noite: {_n(local['noturnos'])}; pleno dia: {_n(local['diurnos'])}; acidentes fatais: {_n(local['acidentes_fatais'])}; feridos leves: {_n(local['feridos_leves'])}; óbitos por 100 acidentes: {_n(local['obitos_por_100'], 2)}.")
     if national["uf"].dropna().nunique() == 27:
         section("6. Referência nacional", f"Brasil na base carregada: {_n(country['acidentes'])} acidentes, {_n(country['obitos'])} óbitos. São dados contextuais, não resultados de {name}.")
@@ -139,23 +150,30 @@ def generate_selected_territory_report(
     story.append(table)
     section("9. Mapa", "Pontos com coordenadas válidas; até 500 pontos são exibidos. O enquadramento acompanha as ocorrências e pode omitir partes distantes do território. O mapa não identifica locais de instalação.")
     story.append(Image(_figure(data, meta.get("geometrias", []), name, uf), width=15.5*cm, height=8.9*cm))
-    section("10. Segmentos prioritários para investigação", f"{len(ranking)} segmentos identificados por BR/KM. Score heurístico sem denominador de tráfego; não atesta falta de iluminação.")
+    br447_present = data["br"].astype(str).str.replace(r"\D", "", regex=True).eq("447").any() if "br" in data else False
+    br447_caveat = " BR-447 exige triagem histórica: a malha SNV registra trechos com classificação física e quilometragem variáveis entre 2021 e 2025." if br447_present else ""
+    section("10. Segmentos prioritários para investigação", f"{len(ranking)} segmentos identificados por BR/KM. Score heurístico sem denominador de tráfego; não atesta falta de iluminação.{br447_caveat}")
     if not ranking.empty:
-        rows = [["Segmento", "Acidentes", "Noite", "Score"]]
-        rows += [[str(item.trecho_id), str(item.n_acidentes_total), str(item.n_acidentes_noturnos),
-                  _n(item.score_iluminacao_solar, 1)] for item in ranking.head(8).itertuples()]
-        ranking_table = Table(rows, colWidths=[8*cm, 2.2*cm, 2.2*cm, 2.2*cm], repeatRows=1)
+        rows = [["Segmento", "Acidentes", "Noite", "Score", "SNV P/D/I"]]
+        rows += [[_segment_name(item.trecho_id), str(item.n_acidentes_total), str(item.n_acidentes_noturnos),
+                  _n(item.score_iluminacao_solar, 1), getattr(item, "triagem_snv", "n/d")]
+                 for item in ranking.head(8).itertuples()]
+        ranking_table = Table(rows, colWidths=[6.6*cm, 2.0*cm, 1.7*cm, 1.7*cm, 3.5*cm], repeatRows=1)
         ranking_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1D4ED8")),
                                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                                            ("FONTSIZE", (0, 0), (-1, -1), 7),
                                            ("GRID", (0, 0), (-1, -1), .25, colors.HexColor("#CBD5E1"))]))
         story.append(ranking_table)
+        section("10a. Legenda SNV", "P = correspondência espacial plausível, sem confirmação histórica; D = divergência identificada; I = informação insuficiente. Nenhum segmento foi certificado operacionalmente.")
     section("11. Custos condicionais", (f"{finance['segmentos']} segmentos, {_n(finance['extensao_km'],1)} km geométricos, {_n(finance['postes'])} postes hipotéticos, CAPEX R$ {_n(finance['capex'],2)}. Espaçamento longitudinal não substitui projeto luminotécnico." if finance else "Nenhum segmento selecionado para custo."))
+    if finance and selected_segments is not None and not selected_segments.empty:
+        section("11a. Segmentos incluídos no custo", "; ".join(_segment_name(item) for item in selected_segments["trecho_id"]))
     section("12. Limitações", "Sem lux, inventário de iluminação, volume de tráfego, residência das vítimas ou confirmação da situação histórica de cada pista. A análise é observacional e não demonstra causalidade.")
     section("13. Conclusão", f"O recorte {name} permite descrever os registros disponíveis e priorizar verificação técnica. Não se conclui que iluminação evitaria um número determinado de acidentes ou óbitos.")
     section("14. Referências", "PRF: https://www.gov.br/prf/pt-br/acesso-a-informacao/dados-abertos/dados-abertos-da-prf",
             "IBGE, Malha Municipal Digital 2025: https://www.ibge.gov.br/geociencias/organizacao-do-territorio/malhas-territoriais/15774-malhas.html",
             f"SNV/DNIT, camada ES quando aplicável: {ROAD_SOURCE}",
+            "SNV/DNIT histórico 2020–2025: https://servicos.dnit.gov.br/dnitcloud/index.php/s/oTpPRmYs5AAdiNr",
             "FHWA, Nighttime Visibility: https://highways.dot.gov/safety/other/visibility/nighttime-visibility-overview")
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=1.7*cm, rightMargin=1.7*cm, topMargin=1.7*cm, bottomMargin=1.7*cm)

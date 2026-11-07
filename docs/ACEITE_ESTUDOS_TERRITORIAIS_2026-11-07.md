@@ -1,5 +1,7 @@
 # Aceite técnico — Estudos Territoriais (2026-11-07)
 
+Atualização pré-publicação: a auditoria histórica SNV e o estado atual dos 18 critérios constam de [Metodologia e Fontes](METODOLOGIA_E_FONTES.md) e [Validação Pré-publicação](VALIDACAO_PRE_PUBLICACAO.md). Este registro preserva as medições e conclusões da entrega territorial inicial; a suíte posterior passou a 147 testes e as versões SNV históricas foram obtidas.
+
 ## Corrigido e implementado
 
 - Navegação nacional preservada; novo módulo territorial sob demanda para Brasil, UF, município, RMGV, municípios selecionados e entorno municipal.
