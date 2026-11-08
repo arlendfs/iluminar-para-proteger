@@ -23,7 +23,8 @@ def _number(value: float | int | None, decimals: int = 0) -> str:
 
 
 def _segment_name(name: str) -> str:
-    return re.sub(r"(?<=\d)\.(?=\d)", ",", str(name))
+    label = re.sub(r"(?<=\d)\.(?=\d)", ",", str(name))
+    return re.sub(r"\bKM\s+(\d+(?:,\d+)?)\s*[-–]\s*(\d+(?:,\d+)?)", r"km \1 a \2", label, flags=re.I)
 
 
 def _map_image(data: pd.DataFrame, audit: pd.DataFrame, scope: str):

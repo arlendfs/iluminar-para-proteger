@@ -28,7 +28,8 @@ def _n(value, digits=0):
 
 
 def _segment_name(name: str) -> str:
-    return re.sub(r"(?<=\d)\.(?=\d)", ",", str(name))
+    label = re.sub(r"(?<=\d)\.(?=\d)", ",", str(name))
+    return re.sub(r"\bKM\s+(\d+(?:,\d+)?)\s*[-–]\s*(\d+(?:,\d+)?)", r"km \1 a \2", label, flags=re.I)
 
 
 def _figure(data: pd.DataFrame, geometries: list, title: str, uf: str | None) -> BytesIO:
@@ -81,8 +82,13 @@ def _phase_figure(flags: pd.DataFrame) -> BytesIO:
     rates = phase_severity(flags)
     fig, ax = plt.subplots(figsize=(7, 2.4), dpi=130)
     palette = {"Plena Noite": "#1D4ED8", "Pleno dia": "#F59E0B", "Amanhecer": "#8B5CF6", "Anoitecer": "#64748B"}
-    if not rates.empty and rates["Óbitos"].sum() > 0:
-        ax.bar(rates["Fase"], rates["Óbitos por 100 acidentes"], color=[palette.get(name, "#64748B") for name in rates["Fase"]])
+    if not rates.empty:
+        bars = ax.bar(rates["Fase"], rates["Óbitos por 100 acidentes"], color=[palette.get(name, "#64748B") for name in rates["Fase"]])
+        ceiling = max(float(rates["Óbitos por 100 acidentes"].max()), 1.0)
+        ax.set_ylim(0, ceiling * 1.32)
+        for bar, item in zip(bars, rates.itertuples(index=False)):
+            ax.annotate(f"{item[3]} óbitos / {item[1]} acidentes", (bar.get_x() + bar.get_width()/2, bar.get_height()),
+                        xytext=(0, 3), textcoords="offset points", ha="center", fontsize=6)
     else:
         ax.text(.5, .5, "Nenhum óbito registrado nas fases exibidas", ha="center", va="center", transform=ax.transAxes, fontsize=9)
         ax.set_xticks([])
@@ -106,6 +112,9 @@ def generate_selected_territory_report(
 ) -> bytes:
     """Usa exclusivamente o recorte ativo para resultados e custos."""
     name, uf = meta["nome"], meta.get("uf")
+    scope = meta.get("abrangencia", "território selecionado")
+    if scope == "Estado" and uf == "ES":
+        name = "Espírito Santo"
     local, country = indicators(data), indicators(national)
     years = sorted(data["ano"].dropna().astype(int).unique()) if "ano" in data else []
     period = ", ".join(str(year) for year in years) or "não informado"
@@ -115,8 +124,12 @@ def generate_selected_territory_report(
     styles.add(ParagraphStyle(name="TerritoryHead", parent=styles["Heading2"], fontSize=10, leading=13,
                               spaceBefore=11, spaceAfter=4, textColor=colors.HexColor("#1D4ED8")))
     styles.add(ParagraphStyle(name="TerritoryBody", parent=styles["BodyText"], fontSize=8.4, leading=11.8, spaceAfter=5))
-    story = [Paragraph("Iluminar para Proteger — Relatório do Território Selecionado", styles["TerritoryTitle"]),
-             Paragraph(escape(f"Recorte: {name} | UF: {uf or 'Brasil'} | Código IBGE: {meta.get('codigo_ibge') or 'não aplicável'} | Anos: {period}"), styles["TerritoryBody"])]
+    story = [Paragraph(escape(f"Iluminar para Proteger — Relatório territorial: {name}"), styles["TerritoryTitle"]),
+             Paragraph(escape(f"Abrangência: {scope} | Recorte: {name} | UF: {uf or 'Brasil'} | Código IBGE: {meta.get('codigo_ibge') or 'não aplicável'} | Anos: {period}"), styles["TerritoryBody"])]
+    if scope == "Estado":
+        municipalities = sorted(data["municipio"].dropna().astype(str).unique()) if "municipio" in data else []
+        section_note = f"Municípios PRF presentes no recorte: {len(municipalities)}; " + "; ".join(municipalities)
+        story.append(Paragraph(escape(section_note), styles["TerritoryBody"]))
 
     def section(title, *paragraphs):
         block = [Paragraph(title, styles["TerritoryHead"])]
@@ -137,6 +150,13 @@ def generate_selected_territory_report(
     section("7. Visibilidade, percepção e reação", scientific_summary(data, flags, name),
             "Faróis, contraste, velocidade, distância de percepção e frenagem, chuva, neblina e ofuscamento são mecanismos físicos possíveis; não foram medidos diretamente pela PRF neste estudo.")
     story.append(Image(_phase_figure(flags), width=15.5*cm, height=5.3*cm))
+    phases = phase_severity(flags)
+    phase_rows = {row["Fase"]: row for _, row in phases.iterrows()}
+    section("7a. Denominadores das quatro fases oficiais", "; ".join(
+        f"{phase}: {int(phase_rows[phase]['Acidentes']) if phase in phase_rows else 0} acidentes e "
+        f"{int(phase_rows[phase]['Óbitos']) if phase in phase_rows else 0} óbitos"
+        for phase in ("Plena Noite", "Pleno dia", "Amanhecer", "Anoitecer")),
+        "Fases com menos de 20 acidentes têm amostra pequena; suas taxas são instáveis." if (not phases.empty and phases["Acidentes"].lt(20).any()) else "Taxas descritivas, sem ajuste por exposição ao tráfego.")
     rows = [["Fase", "Fator", "N", "Denom.", "%", "Óbitos"]]
     table_data = mechanism_table(flags)
     for item in table_data.itertuples(index=False):

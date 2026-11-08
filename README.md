@@ -1,10 +1,12 @@
 # 🌟 Iluminar para Proteger
 
-## Energia Solar como Solução para a Segurança nas Rodovias Brasileiras
+## Estudo exploratório de acidentes rodoviários e cenários de iluminação solar
 
 > **Projeto de Extensão Universitária em Ciência de Dados — UNINTER**\
 > _Auditoria Científica, Estatística, Financeira e Técnica de Acidentes
 > Rodoviários da PRF_
+
+[Dashboard público](https://iluminar-para-proteger.streamlit.app/) · [Metodologia e fontes](docs/METODOLOGIA_E_FONTES.md) · [Validação pré-publicação](docs/VALIDACAO_PRE_PUBLICACAO.md)
 
 ---
 
@@ -19,11 +21,12 @@
 7. [Visibilidade Noturna e Tempo de Reação](#-7-visibilidade-noturna-tempo-de-reação-e-fatores-associados)
 8. [Segmentação Geográfica e Correção do KM 0,0](#-8-segmentação-geográfica-e-correção-do-km-00)
 9. [Modelo Econômico-Financeiro e Dimensionamento](#-9-modelo-econômico-financeiro-e-dimensionamento)
-10. [Protótipo 3D Interativo](#-10-protótipo-3d-interativo)
-11. [Relatório Técnico-Científico em PDF](#-11-relatório-técnico-científico-em-pdf)
-12. [Testes Automatizados (QA)](#-12-testes-automatizados-qa)
-13. [Instalação e Execução](#-13-instalação-e-execução)
-14. [Limitações Científicas e Referências](#-14-limitações-científicas-e-referências)
+10. [Supervisão remota e telemetria conceitual](#-10-supervisão-remota-e-telemetria-de-infraestrutura-conceitual)
+11. [Protótipo 3D Interativo](#-11-protótipo-3d-interativo)
+12. [Relatório Técnico-Científico em PDF](#-12-relatório-técnico-científico-em-pdf)
+13. [Testes Automatizados (QA)](#-13-testes-automatizados-qa)
+14. [Instalação e Execução](#-14-instalação-e-execução)
+15. [Limitações Científicas e Referências](#-15-limitações-científicas-e-referências)
 
 ---
 
@@ -292,7 +295,7 @@ O gerador `ReportGenerator` produz relatórios formatados em padrão A4, contend
 6. Ranking Geral de Causas de Acidentes e Sobrecarga por Reação Tardia
 7. Visibilidade Noturna, Tempo de Reação e Mecanismo Ótico Viário
 8. Distribuição Regional (Top Estados e Rodovias)
-9. Ranking de Trechos Prioritários para Iluminação (Segmentos de 2 km)
+9. Ranking de Trechos para Investigação (Segmentos de 2 km)
 10. Engenharia, Conceito Compacto (8m/40W) e Balanço Energético Auditado
 11. Modelagem Econômica e Tabela Comparativa de Cenários Orçamentários (A a E)
 12. Supervisão Remota e Telemetria Conceitual
@@ -304,7 +307,7 @@ O gerador `ReportGenerator` produz relatórios formatados em padrão A4, contend
 
 ## 🧪 13. Testes Automatizados (QA)
 
-A suíte de testes cobre as camadas principais do sistema com **147 testes aprovados na última execução local (2026-11-07)** via Pytest:
+A suíte de testes cobre as camadas principais do sistema com **149 testes aprovados na execução local de 2026-11-08** via Pytest:
 
 - **Dados:** Limpeza de decimais com vírgula, preservação de nulos em KM e coordenadas, desduplicação por `id` e `pesid`, auditoria das 267 ocorrências sem KM.
 - **Elegibilidade:** Inclusão de sinistros sem KM nas estatísticas nacionais e isolamento apenas na segmentação viária por KM.
@@ -325,32 +328,46 @@ python -m pytest tests/ -v
 
 ---
 
-## 🚀 13. Instalação e Execução
+## 🚀 14. Instalação e Execução
 
 ### Pré-requisitos
 
-- Python 3.8+ (testado e validado em Python 3.13)
+- Python 3.11+ (testado em Python 3.13)
 - Gerenciador `pip`
 
 ### Instalação
 
 ```bash
-git clone <url_do_repositorio>
+git clone https://github.com/arlendfs/iluminar-para-proteger.git
 cd iluminar-para-proteger
-python -m venv venv
-venv\Scripts\activate  # No Windows
-pip install -r requirements.txt
+python -m venv .venv
 ```
+
+No PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+No Linux/macOS:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Para reproduzir a validação territorial, mantenha os cinco Parquets PRF 2021–2025 em `parquet_samples/` e siga [Metodologia e fontes](docs/METODOLOGIA_E_FONTES.md).
 
 ### Executar a Aplicação Web
 
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 ---
 
-## 📚 14. Limitações Científicas e Referências
+## 📚 15. Limitações Científicas e Referências
 
 ### Limitações Metodológicas
 

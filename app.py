@@ -8,6 +8,7 @@ import os
 import re
 import gc
 import hashlib
+import hmac
 import time
 import uuid
 import shutil
@@ -180,6 +181,12 @@ def main():
         st.session_state["session_id"] = str(uuid.uuid4())[:8]
     if "uploader_key" not in st.session_state:
         st.session_state["uploader_key"] = 0
+    diagnostics_token = os.environ.get("ILUMINAR_DIAGNOSTICS_TOKEN", "")
+    diagnostics_allowed = False
+    if st.query_params.get("diagnostics") == "1" and diagnostics_token:
+        supplied = st.sidebar.text_input("Chave de diagnóstico", type="password", key="diagnostics_token_input")
+        diagnostics_allowed = bool(supplied) and hmac.compare_digest(supplied, diagnostics_token)
+    st.session_state["diagnostics_allowed"] = diagnostics_allowed
 
     heavy_analysis_semaphore, active_sessions, sessions_lock = runtime_controls()
     now = time.time()
@@ -387,20 +394,21 @@ def main():
         st.sidebar.success("Recursos liberados para a sua sessão.")
         st.rerun()
 
-    # Diagnóstico de Memória e Recursos do Servidor
-    current_rss = get_current_rss_mb()
-    c_info = get_container_memory_info()
-    st.sidebar.caption(f"💾 Memória do Processo (RSS): **{current_rss:.1f} MiB**")
-    if c_info.get("limit_mb") and c_info["limit_mb"] < 100000:
-        st.sidebar.caption(f"🖥️ Limite do Contêiner: **{c_info['limit_mb']:.0f} MiB**")
-    if st.session_state.get("peak_load_rss_mib") is not None:
-        st.sidebar.caption(f"📈 Pico RSS na última carga: **{st.session_state['peak_load_rss_mib']:.1f} MiB**")
-    if st.query_params.get("diagnostics") == "1" and st.session_state.get("load_stage_peaks_mib"):
+    # Diagnóstico de recursos restrito a uma chave configurada no servidor.
+    if diagnostics_allowed:
+        current_rss = get_current_rss_mb()
+        c_info = get_container_memory_info()
+        st.sidebar.caption(f"💾 Memória do Processo (RSS): **{current_rss:.1f} MiB**")
+        if c_info.get("limit_mb") and c_info["limit_mb"] < 100000:
+            st.sidebar.caption(f"🖥️ Limite do Contêiner: **{c_info['limit_mb']:.0f} MiB**")
+        if st.session_state.get("peak_load_rss_mib") is not None:
+            st.sidebar.caption(f"📈 Pico RSS na última carga: **{st.session_state['peak_load_rss_mib']:.1f} MiB**")
+        st.sidebar.caption(f"👥 Sessões ativas estimadas: **{active_sessions_count}**")
+    if diagnostics_allowed and st.session_state.get("load_stage_peaks_mib"):
         with st.sidebar.expander("Picos RSS por etapa da carga"):
             for stage, peak_mib in st.session_state["load_stage_peaks_mib"].items():
                 st.caption(f"{stage}: {peak_mib:.1f} MiB")
-    st.sidebar.caption(f"👥 Sessões ativas estimadas: **{active_sessions_count}**")
-    if st.query_params.get("diagnostics") == "1":
+    if diagnostics_allowed:
         if c_info.get("container_usage_mb") is not None:
             st.sidebar.caption(f"🖥️ Uso do contêiner: {c_info['container_usage_mb']:.1f} MiB")
         if c_info.get("host_available_mb") is not None:
@@ -507,8 +515,9 @@ def main():
                 st.session_state["peak_load_rss_mib"] = load_peak.peak_mib
                 st.session_state["last_load_diagnostic"] = {"seconds": round(time.time() - t_load_start, 3), "peak_rss_mib": round(load_peak.peak_mib, 1)}
                 st.session_state["load_stage_peaks_mib"] = load_peak.stage_peaks_mib.copy()
-                st.sidebar.caption(f"📈 Pico RSS na carga: **{load_peak.peak_mib:.1f} MiB**")
-                if st.query_params.get("diagnostics") == "1":
+                if diagnostics_allowed:
+                    st.sidebar.caption(f"📈 Pico RSS na carga: **{load_peak.peak_mib:.1f} MiB**")
+                if diagnostics_allowed:
                     with st.sidebar.expander("Picos RSS por etapa da carga"):
                         for stage, peak_mib in load_peak.stage_peaks_mib.items():
                             st.caption(f"{stage}: {peak_mib:.1f} MiB")

@@ -29,6 +29,6 @@
 2. Para refazer os recortes SNV, obter os ZIPs pela URL individual do manifesto e verificar SHA-256; colocá-los em `temp/snv_historico/`; executar `python scripts/build_historical_snv_es.py`.
 3. Executar `python -m pytest tests/ -q`.
 4. Executar `python scripts/export_territorial_historical_audit.py` para CSVs por ocorrência em `output/auditoria/`.
-5. Iniciar `streamlit run app.py`, carregar 2021–2025 e escolher **Estudos Territoriais**. Gerar separadamente os PDFs de Vila Velha e Vitória. `?diagnostics=1` mostra métricas locais do processo da instância em execução.
+5. Iniciar `python -m streamlit run app.py`, carregar 2021–2025 e escolher **Estudos Territoriais**. Gerar separadamente os PDFs de Vila Velha, Espírito Santo e Vitória. Métricas operacionais em `?diagnostics=1` exigem a variável de ambiente `ILUMINAR_DIAGNOSTICS_TOKEN` no servidor e a chave informada na sessão; a implantação pública não deve configurar essa chave para usuários gerais.
 
 Resultados de triagem e simulações devem ser comunicados como exploratórios. Não houve instalação física de postes nem comprovação de que falta de iluminação causou os sinistros.

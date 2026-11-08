@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from time import perf_counter
+import re
+import unicodedata
 
 import folium
 from folium.plugins import HeatMap
@@ -22,6 +24,15 @@ from territorial_historical_audit import audit_historical_positions, segment_his
 
 
 KINDS = ("Município", "Estado", "Brasil", "Região Metropolitana", "Municípios selecionados", "Entorno de município")
+
+
+def territory_pdf_filename(kind: str, name: str, uf: str, code: str | None, date: datetime | None = None) -> str:
+    scope = unicodedata.normalize("NFKD", kind).encode("ascii", "ignore").decode().lower().replace(" ", "_")
+    label = "espirito_santo" if kind == "Estado" and uf == "ES" else name
+    slug = unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode().lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", slug).strip("_")
+    identity = f"_{code}" if kind == "Município" and code else ""
+    return f"relatorio_territorial_{scope}_{slug}_{uf.lower()}{identity}_{(date or datetime.now()):%Y%m%d}.pdf"
 
 
 def _format(value, digits=0):
@@ -116,6 +127,7 @@ def render_territorial_platform(analyzer) -> None:
     names = st.multiselect("Municípios comparados", options, default=[municipality] if municipality else [], key="territory_cities") if kind == "Municípios selecionados" else []
     distance = st.slider("Distância do entorno ao limite municipal (km)", 1, 100, 20, key="territory_distance") if kind == "Entorno de município" else 20
     selected, meta = select_territory(base, kind, uf, chosen, tuple(names), float(distance))
+    meta["abrangencia"] = kind
     if selected.empty:
         st.warning("Sem registros elegíveis neste recorte e período. Escolha explicitamente outra abrangência ou anos.")
         return
@@ -258,7 +270,9 @@ def render_territorial_platform(analyzer) -> None:
         st.warning("VPL territorial não calculado: falta estimativa causal local de redução de sinistros. Custos são hipóteses, não economia realizada.")
     st.caption("Uma fileira a cada 50 m é hipótese geométrica. Pista dupla, curvas, acessos e pedestres exigem projeto luminotécnico conforme ABNT NBR 5101:2024.")
     st.subheader("Relatórios")
-    report_key = (kind, uf, name, tuple(years), tuple(chosen_segments), scenario, spacing)
+    report_key = (kind, uf, name, meta.get("codigo_ibge"), tuple(years), tuple(chosen_segments), scenario, spacing,
+                  st.session_state.get("cached_file_signature"), len(selected), len(base),
+                  int(pd.util.hash_pandas_object(selected[["id", "ano"]], index=False).sum()) if "id" in selected else None)
     if st.button("Gerar Relatório do Território Selecionado", key="territory_pdf"):
         from territorial_report_dynamic import generate_selected_territory_report
         from config import get_current_rss_mb
@@ -267,11 +281,11 @@ def render_territorial_platform(analyzer) -> None:
         st.session_state["last_territory_pdf_diagnostic"] = {"seconds": round(perf_counter() - pdf_started, 3), "rss_mib": round(get_current_rss_mb(), 1)}
     generated = st.session_state.get("territory_generated")
     if generated and generated[0] == report_key:
-        st.download_button("Baixar PDF do território selecionado", generated[1], f"relatorio_territorial_{uf}_{datetime.now():%Y%m%d}.pdf", "application/pdf")
+        st.download_button("Baixar PDF do território selecionado", generated[1], territory_pdf_filename(kind, name, uf, meta.get("codigo_ibge")), "application/pdf")
     st.subheader("Aplicação comunitária oficial: Vila Velha (ES)")
     st.write("Sistema desenvolvido: sim. Sistema disponibilizado: sim. Aplicação comunitária realizada: somente após evidências verificáveis de apresentação ou participação.")
-    evidence = _evidence()
     if uf == "ES" and kind == "Município" and meta.get("codigo_ibge") == COMMUNITY_CONFIG["codigo_ibge"]:
+        evidence = _evidence()
         if st.button("Gerar Relatório Extensionista — Vila Velha (ES)", key="territory_extension_pdf"):
             from territorial_case import territorial_audit
             from territorial_pdf import generate_territorial_report

@@ -72,8 +72,10 @@ def scientific_summary(data: pd.DataFrame, flags: pd.DataFrame, name: str) -> st
     text = (f"{name}: {metrics['acidentes']} acidentes únicos, {metrics['noturnos']} na plena noite, "
             f"{metrics['diurnos']} no pleno dia e {metrics['obitos']} óbitos. ")
     if metrics["noturnos"] >= 20 and metrics["diurnos"] >= 20:
-        text += (f"Óbitos por 100 acidentes: {metrics['taxa_noturna']:.2f} na plena noite e "
-                 f"{metrics['taxa_diurna']:.2f} no pleno dia. ")
+        night_rate = f"{metrics['taxa_noturna']:.2f}".replace(".", ",")
+        day_rate = f"{metrics['taxa_diurna']:.2f}".replace(".", ",")
+        text += (f"Óbitos por 100 acidentes: {night_rate} na plena noite e "
+                 f"{day_rate} no pleno dia. ")
     else:
         text += "A amostra por fase é pequena para comparar taxas com estabilidade. "
     text += ("Fase do dia, reação e meteorologia são registros observacionais. Exposição ao tráfego, velocidade, "

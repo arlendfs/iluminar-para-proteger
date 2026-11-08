@@ -1687,8 +1687,9 @@ def render_relatorio_pdf(analyzer: AccidentAnalyzer) -> None:
         st.session_state["peak_pdf_stages_mib"] = pdf_peak.stage_peaks_mib.copy()
         _time_module("PDF", started)
     if st.session_state.get("peak_pdf_rss_mib") is not None:
-        st.caption(f"Pico RSS amostrado durante a última geração: {st.session_state['peak_pdf_rss_mib']:.1f} MiB (intervalo de 20 ms).")
-        if st.query_params.get("diagnostics") == "1":
+        if st.session_state.get("diagnostics_allowed"):
+            st.caption(f"Pico RSS amostrado durante a última geração: {st.session_state['peak_pdf_rss_mib']:.1f} MiB (intervalo de 20 ms).")
+        if st.session_state.get("diagnostics_allowed"):
             with st.expander("Picos RSS por etapa do PDF"):
                 for stage, peak_mib in st.session_state.get("peak_pdf_stages_mib", {}).items():
                     st.caption(f"{stage}: {peak_mib:.1f} MiB")
@@ -1716,11 +1717,11 @@ def create_dashboard(analyzer: AccidentAnalyzer) -> None:
     active = st.radio("Módulo", list(modules), horizontal=True, key="active_dashboard_module")
     render_started = time.perf_counter()
     rss_before = None
-    if st.query_params.get("diagnostics") == "1":
+    if st.session_state.get("diagnostics_allowed"):
         from config import get_current_rss_mb
         rss_before = get_current_rss_mb()
     modules[active]()
-    if st.query_params.get("diagnostics") == "1":
+    if st.session_state.get("diagnostics_allowed"):
         from config import get_current_rss_mb
         st.session_state["last_render_diagnostic"] = {
             "module": active, "seconds": round(time.perf_counter() - render_started, 3),
