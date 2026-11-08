@@ -136,7 +136,8 @@ def generate_selected_territory_report(
         block.extend(Paragraph(escape(str(item)), styles["TerritoryBody"]) for item in paragraphs)
         story.append(KeepTogether(block))
 
-    section("1. Identificação e fonte", f"{name}; microdados de acidentes da PRF carregados no dashboard. {meta.get('metodo', '')}.")
+    method = str(meta.get("metodo", ""))
+    section("1. Identificação e fonte", f"{name}; microdados de acidentes da PRF carregados no dashboard. {method[:1].upper() + method[1:]}.")
     section("2. Problema observado", f"{_n(local['acidentes'])} ocorrências únicas, {_n(local['obitos'])} óbitos e {_n(local['feridos_graves'])} feridos graves no recorte.")
     section("3. Metodologia", "Deduplicação por ID de ocorrência; causas relacionais como associações não exclusivas. Coordenadas municipais confrontadas com a Malha IBGE 2025 quando disponível.")
     road_text = "; ".join(f"{status}: {count}" for status, count in road_summary.items()) if road_summary else "não verificada neste recorte"

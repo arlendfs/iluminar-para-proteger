@@ -1,4 +1,16 @@
-# Validação pré-publicação — 2026-11-07
+# Validação pré-publicação — 2026-11-08
+
+## Fechamento da versão pública (2026-11-08)
+
+Commit de correção `e9465a8` (`main`). A suíte integral `python -m pytest tests/ -q` passou com **149 testes** em 20,57 s. A reprodução local com os cinco Parquets PRF 2021–2025 percorreu, na mesma sessão, **Vila Velha → Espírito Santo → Vitória → Vila Velha**: 126 → 12.082 → 38 → 126 acidentes. Cada etapa gerou PDF territorial com nome específico de abrangência e recorte, código IBGE municipal, período, indicadores, mapa, ranking e custos condicionais. O relatório estadual apresenta 12.082 ocorrências do recorte estadual; as 126 de Vila Velha não são tratadas como total do ES. O relatório extensionista de Vila Velha foi gerado com campos de evidência vazios.
+
+Foram renderizadas e inspecionadas as 12 páginas dos quatro PDFs resultantes (3 por arquivo), incluindo títulos, números, gráficos, mapas, tabelas e referências. Os arquivos finais locais ficam em `output/pdf/relatorio_territorial_municipio_vila_velha_es_3205200_20261108.pdf`, `output/pdf/relatorio_territorial_estado_espirito_santo_es_20261108.pdf` e `output/pdf/relatorio_extensionista_vila_velha_20261108.pdf`; o PDF de Vitória é artefato adicional da sequência. Os PDFs não são versionados. Na geração local, o processo passou de 194,3 MiB antes da ingestão para 760,4 MiB após a consolidação; são amostras de um ensaio, sem inferência de estabilidade contínua.
+
+O nome anterior `relatorio_territorial_ES_20261108.pdf` era produzido pela regra que usava apenas a UF; não há evidência de renomeação manual. A chave de sessão agora inclui abrangência, código IBGE, período, segmentos, cenário, espaçamento, assinatura da base e identidade dos registros selecionados. Não houve limpeza global de cache. `?diagnostics=1` sem a chave `ILUMINAR_DIAGNOSTICS_TOKEN` configurada no servidor não mostra RSS, limite/uso do contêiner ou contador de sessões. Logs e pico global do contêiner publicado continuam indisponíveis nesta auditoria.
+
+Na implantação pública após `e9465a8`, o acesso anônimo abriu sem GitHub ou autenticação Streamlit. Os cinco anos carregaram 342.626 ocorrências únicas nacionais. A navegação e os downloads seguiram Vila Velha (126) → Espírito Santo (12.082) → Vitória (38) → Vila Velha (126), com nomes de arquivo específicos. Uma segunda sessão anônima carregou apenas 2021 (64.567 ocorrências nacionais); o marcador temporário de feedback da primeira sessão permaneceu ausente no campo correspondente da segunda. O PDF extensionista publicado foi baixado sem evidências preenchidas. A rota pública `?diagnostics=1` não exibiu métricas operacionais. A leitura dos PDFs baixados confirmou os totais por recorte e três páginas por arquivo. O teste não incluiu carga agressiva nem monitoramento contínuo; RSS e uso do contêiner atuais não são observáveis sem a chave administrativa ou o painel da hospedagem.
+
+**Parecer:** apto para divulgação científica exploratória. Entrega extensionista com evidências depende de vídeo/publicação, data, participantes, comentários e resultados reais da apresentação; esses campos não foram preenchidos. Pendências técnicas não impeditivas: acesso a logs do host e monitoramento longitudinal de memória, data exata de publicação dos ZIPs SNV e validação operacional da BR-447. Erros impeditivos de publicação identificados nesta reprodução local: nenhum.
 
 Estados: **APROVADO** (evidência executada), **APROVADO COM RESSALVA** (uso exploratório com limite explícito), **BLOQUEADO** (fonte/acesso externo necessário) e **REPROVADO** (erro conhecido sem mitigação).
 
@@ -13,14 +25,14 @@ Estados: **APROVADO** (evidência executada), **APROVADO COM RESSALVA** (uso exp
 | 7. Ranking | APROVADO COM RESSALVA | Score heurístico por BR/KM; segmentos em triagem, sem fluxo de tráfego e sem validação física. |
 | 8. Interpretação científica | APROVADO COM RESSALVA | Causas e gravidade distinguidas; sem inferência causal da iluminação. |
 | 9. Custos | APROVADO COM RESSALVA | Segmentos selecionados explicitados nos PDFs; hipótese geométrica; sem VPL territorial. |
-| 10. PDFs | APROVADO | Vila Velha, Vitória e extensionista gerados; conteúdo e páginas renderizadas/inspecionadas. |
+| 10. PDFs | APROVADO | Vila Velha, Espírito Santo, Vitória e extensionista gerados; 12 páginas renderizadas/inspecionadas; downloads públicos verificados. |
 | 11. Fontes | APROVADO COM RESSALVA | PRF, IBGE, DNIT e FHWA citados; publicação exata dos ZIPs SNV indisponível. |
 | 12. README | APROVADO COM RESSALVA | Estado atual e limitações revisados; valores hipotéticos nacionais permanecem condicionais. |
 | 13. Performance local | APROVADO | Perfil AppTest final: 781,7 MiB após carga; 903,3 MiB no módulo histórico; 941,4 MiB após PDF. Uma execução local, não limite garantido. |
 | 14. Performance publicada | APROVADO COM RESSALVA | Três sessões controladas, uma com 2021–2025 e duas com 2021, abriram e renderizaram sem erro; amostras RSS e limite abaixo. Outras sessões preexistiam e não houve acesso a logs ou pico global do contêiner. |
-| 15. Testes automatizados | APROVADO | Última suíte: 147 testes aprovados; repetir após fechamento. |
-| 16. Navegação pública e downloads | APROVADO | Commit `55ad31e` aberto em Streamlit: estudos de Vila Velha e Vitória, triagem SNV histórica e botão de download do PDF territorial observados. |
-| 17. Segurança dos dados publicados | APROVADO COM RESSALVA | Fonte PRF pública; evidências extensionistas opcionais ficam na sessão. Revisar logs e arquivos temporários após deploy. |
+| 15. Testes automatizados | APROVADO | Suíte integral de 2026-11-08: 149 testes aprovados. |
+| 16. Navegação pública e downloads | APROVADO | Commit `e9465a8` aberto sem login: sequência de quatro recortes, três PDFs territoriais e extensionista baixados. |
+| 17. Segurança dos dados publicados | APROVADO COM RESSALVA | Evidência temporária isolada entre duas sessões; diagnóstico operacional oculto sem chave. Logs e arquivos temporários do servidor não auditados. |
 | 18. Limitações documentadas | APROVADO | Metodologia explicita tempo da malha, SNV, amostra, custos e ausência de medição de iluminação. |
 
 ## Comparação geográfica por referência
@@ -36,7 +48,7 @@ Os totais de cada método não são intercambiáveis. Na BR-447 de Vila Velha, 4
 
 - `assets/snv_es_historico_manifest.json`: arquivos, versões e hashes.
 - `output/auditoria/auditoria_snv_vila_velha_2021_2025.csv` e `output/auditoria/auditoria_snv_vitoria_2021_2025.csv`: tabelas por ocorrência, não versionadas.
-- `output/pdf/relatorio_territorial_vila_velha_v2.pdf`, `output/pdf/relatorio_territorial_vitoria_v2.pdf` e `output/pdf/relatorio_extensionista_vila_velha_v2.pdf`: PDFs locais, não versionados.
+- `output/pdf/relatorio_territorial_municipio_vila_velha_es_3205200_20261108.pdf`, `output/pdf/relatorio_territorial_estado_espirito_santo_es_20261108.pdf` e `output/pdf/relatorio_extensionista_vila_velha_20261108.pdf`: PDFs finais locais, não versionados.
 
 ## Medições publicadas controladas
 
@@ -46,6 +58,6 @@ Após publicar `b52f9e5`, o diagnóstico novo apareceu na implantação: **RSS 1
 
 Abriram-se duas sessões adicionais. O contador estimou 3, depois 4 e 5 sessões ativas, pois havia sessões preexistentes; não são contagens exclusivas deste ensaio. A segunda e a terceira carregaram somente o Parquet 2021, com picos de carga informados de **1.109,3 MiB** e **1.096,3 MiB**, respectivamente. A limpeza da terceira sessão retirou sua análise sem impedir que a segunda permanecesse carregada; o RSS imediatamente após limpeza foi **1.099,4 MiB**, sem redução imediata comprovada. As leituras entre abas variaram e podem refletir coleta em momentos ou processos distintos; não se atribui crescimento por sessão a esses números. Não houve teste de carga agressivo.
 
-Para coleta manual adicional: abrir `?diagnostics=1` em uma sessão isolada, registrar RSS, uso/limite do contêiner e disponibilidade do hospedeiro antes e depois da carga; registrar tempo e RSS antes/depois de cada módulo e PDF; repetir três reruns idênticos; abrir duas sessões adicionais de forma sequencial, com a mesma seleção, anotando horário e leituras; limpar uma sessão e conferir que as demais mantêm os dados. Associar os valores aos logs e métricas da hospedagem para obter o pico global e detectar reciclagem de processos. Sem acesso ao painel da hospedagem, o pico global e vazamento de longo prazo permanecem **não verificados**.
+Para coleta administrativa adicional: configurar `ILUMINAR_DIAGNOSTICS_TOKEN` no servidor, abrir `?diagnostics=1` em sessão isolada e informar a chave; registrar RSS, uso/limite do contêiner e disponibilidade do hospedeiro antes/depois da carga, módulo e PDF. Repetir três reruns e observar sessões adicionais sem carga agressiva. Associar os valores aos logs da hospedagem para obter pico global e detectar reciclagem de processos. Sem acesso ao painel da hospedagem, o pico global e vazamento de longo prazo permanecem **não verificados**.
 
 **Parecer:** apto para divulgação como estudo exploratório, com as ressalvas temporais, geográficas, causais, econômicas e de memória acima. Não equivale a certificação de engenharia rodoviária.
