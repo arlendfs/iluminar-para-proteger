@@ -19,6 +19,8 @@ from config import CENARIOS_ORCAMENTO, COMMUNITY_CONFIG, PHASE_COLORS
 from territorial_case import cause_counts, indicators, local_ranking, simulate_selected_segments
 from territorial_dynamic import municipality_options, select_territory
 from territorial_science import combined_table, mechanism_flags, mechanism_table, phase_severity, scientific_summary
+from territorial_science import mortality_explanation
+from ptbr_text import quantity
 from territorial_road_audit import audit_road_positions, road_geojson, ROAD_TOLERANCE_M, SOURCE as ROAD_SOURCE
 from territorial_historical_audit import audit_historical_positions, segment_history_quality
 
@@ -81,7 +83,7 @@ def _map(data: pd.DataFrame, meta: dict, ranking: pd.DataFrame) -> None:
     candidate.add_to(view)
     folium.LayerControl().add_to(view)
     folium_static(view, width=850, height=500)
-    st.caption(f"{len(sample)} de {len(geographic)} ocorrências com coordenada válida exibidas. Pontos laranja: registros PRF; camada de calor opcional: concentração de coordenadas registradas, sujeita a pontos repetidos; marcadores roxos: centros médios exploratórios; polígonos azuis: limites IBGE; linhas cinzas no ES: SNV/DNIT 202507A. Fora do ES, o traçado viário não está disponível nesta implantação. Não há localização proposta de postes.")
+    st.caption(f"{quantity(len(sample), 'ocorrência')} {'exibida' if len(sample) == 1 else 'exibidas'} de {quantity(len(geographic), 'ocorrência')} com coordenada válida. Pontos laranja: registros PRF; camada de calor opcional: concentração de coordenadas registradas, sujeita a pontos repetidos; marcadores roxos: centros médios exploratórios; polígonos azuis: limites IBGE; linhas cinzas no ES: SNV/DNIT 202507A. Fora do ES, o traçado viário não está disponível nesta implantação. Não há localização proposta de postes.")
 
 
 def _evidence() -> dict:
@@ -170,11 +172,15 @@ def render_territorial_platform(analyzer) -> None:
         if table["Ocorrências associadas"].lt(5).any():
             st.caption("Algumas células têm menos de cinco ocorrências; percentuais são instáveis. Nenhuma significância estatística é afirmada.")
     severity = phase_severity(flags)
+    mortality_note = mortality_explanation(flags, metrics["acidentes"])
+    if mortality_note:
+        st.info(mortality_note)
     if not severity.empty:
         st.markdown("**Gravidade por fase do dia**")
         st.dataframe(severity, hide_index=True, width="stretch")
-        st.plotly_chart(px.bar(severity, x="Fase", y="Óbitos por 100 acidentes", color="Fase",
-                               color_discrete_map=PHASE_COLORS), width="stretch")
+        if not mortality_note:
+            st.plotly_chart(px.bar(severity, x="Fase", y="Óbitos por 100 acidentes", color="Fase",
+                                   color_discrete_map=PHASE_COLORS), width="stretch")
         if {"Acidentes fatais", "Acidentes"}.issubset(severity):
             stacked = severity[["Fase", "Acidentes fatais", "Acidentes"]].copy()
             stacked["Acidentes sem óbito"] = stacked["Acidentes"] - stacked["Acidentes fatais"]
@@ -227,7 +233,7 @@ def render_territorial_platform(analyzer) -> None:
                 & selected["km"].between(segment.km_inicio, segment.km_fim, inclusive="left")
             ]
             segment_causes = cause_counts(records, causes_data)
-            st.write(f"{segment_name}; {len(records)} ocorrências, {int(segment.n_acidentes_noturnos)} noturnas, {int(segment.mortos_total)} óbitos, {int(segment.feridos_graves_total)} feridos graves. Município PRF mais frequente: {records['municipio'].mode().iloc[0] if not records.empty else 'Não verificado'}.")
+            st.write(f"{segment_name}; {quantity(len(records), 'ocorrência')}, {quantity(segment.n_acidentes_noturnos, 'acidente')} {'noturno' if segment.n_acidentes_noturnos == 1 else 'noturnos'}, {quantity(segment.mortos_total, 'óbito')}, {quantity(segment.feridos_graves_total, 'ferido grave')}. Município PRF mais frequente: {records['municipio'].mode().iloc[0] if not records.empty else 'Não verificado'}.")
             st.caption("Causas associadas: " + ("; ".join(f"{row.causa_acidente}: {row.ocorrencias_associadas}" for row in segment_causes.head(6).itertuples(index=False)) if not segment_causes.empty else "Não verificadas"))
             st.caption("Qualidade da localização: exige conferência de BR/KM e traçado. Situação da iluminação: Não verificada.")
     road_summary = None
@@ -242,7 +248,7 @@ def render_territorial_platform(analyzer) -> None:
             from territorial_case import territorial_audit, territorial_diagnostics
             ibge_audit = territorial_audit(base)
             diagnostics = territorial_diagnostics(ibge_audit)
-            st.caption(f"Na malha compacta dos sete municípios da Grande Vitória: {diagnostics['divergencias']} divergências entre município PRF e posição IBGE; {diagnostics['pontos_prf_es_fora_malha_es']} ponto(s) fora da malha estadual. Para outros municípios do ES, a reconciliação do recorte usa a malha IBGE integral indicada acima. Registros divergentes permanecem disponíveis para inspeção.")
+            st.caption(f"Na malha compacta dos sete municípios da Grande Vitória: {quantity(diagnostics['divergencias'], 'divergência')} entre município PRF e posição IBGE; {quantity(diagnostics['pontos_prf_es_fora_malha_es'], 'ponto')} fora da malha estadual. Para outros municípios do ES, a reconciliação do recorte usa a malha IBGE integral indicada acima. Registros divergentes permanecem disponíveis para inspeção.")
             cols = [column for column in ("id", "ano", "uf", "municipio", "br", "km", "latitude", "longitude") if column in selected]
             selected_audit = selected[cols].join(ibge_audit[["municipio_por_coordenada", "divergencia_municipio_coordenada", "situacao_localizacao"]], how="left").join(road)
             st.dataframe(selected_audit, hide_index=True, width="stretch")
@@ -265,7 +271,7 @@ def render_territorial_platform(analyzer) -> None:
     spacing = st.number_input("Espaçamento longitudinal hipotético (m)", min_value=20.0, max_value=100.0, value=50.0, step=5.0, key="territory_spacing")
     finance = simulate_selected_segments(selected, subset_ranking, scenario, spacing, allow_exploratory_vpl=False) if not subset_ranking.empty else {}
     if finance:
-        st.write(f"{finance['segmentos']} segmentos; {_format(finance['extensao_km'],1)} km; {_format(finance['postes'])} postes hipotéticos; CAPEX R$ {_format(finance['capex'],2)}; manutenção anual R$ {_format(finance['manutencao_anual'],2)}; reserva de baterias R$ {_format(finance['reserva_reposicoes_baterias_15_anos'],2)}.")
+        st.write(f"{quantity(finance['segmentos'], 'segmento')}; {_format(finance['extensao_km'],1)} km; {quantity(finance['postes'], 'poste')} {'hipotético' if finance['postes'] == 1 else 'hipotéticos'}; CAPEX R$ {_format(finance['capex'],2)}; manutenção anual R$ {_format(finance['manutencao_anual'],2)}; reserva de baterias R$ {_format(finance['reserva_reposicoes_baterias_15_anos'],2)}.")
         st.caption("Segmentos incluídos neste custo: " + "; ".join(subset_ranking["trecho_id"].astype(str).tolist()))
         st.warning("VPL territorial não calculado: falta estimativa causal local de redução de sinistros. Custos são hipóteses, não economia realizada.")
     st.caption("Uma fileira a cada 50 m é hipótese geométrica. Pista dupla, curvas, acessos e pedestres exigem projeto luminotécnico conforme ABNT NBR 5101:2024.")
@@ -291,7 +297,7 @@ def render_territorial_platform(analyzer) -> None:
             from territorial_pdf import generate_territorial_report
             causes = cause_counts(selected, causes_data)
             pdf = generate_territorial_report(name, selected, base, causes, ranking, subset_ranking, finance,
-                                              territorial_audit(base), evidence, historical_summary)
+                                              territorial_audit(base), evidence, historical_summary, flags)
             st.session_state["territory_extension_generated"] = (report_key, tuple(sorted(evidence.items())), pdf)
         ext = st.session_state.get("territory_extension_generated")
         if ext and ext[:2] == (report_key, tuple(sorted(evidence.items()))):

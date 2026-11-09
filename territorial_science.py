@@ -6,6 +6,7 @@ import pandas as pd
 from math import sqrt
 
 from territorial_case import indicators, normalize_municipality
+from ptbr_text import number_ptbr, quantity
 
 
 MECHANISMS = {
@@ -68,20 +69,63 @@ def combined_table(flags: pd.DataFrame) -> pd.DataFrame:
 def scientific_summary(data: pd.DataFrame, flags: pd.DataFrame, name: str) -> str:
     metrics = indicators(data)
     if not metrics["acidentes"]:
-        return f"{name}: sem ocorrências elegíveis no período selecionado."
-    text = (f"{name}: {metrics['acidentes']} acidentes únicos, {metrics['noturnos']} na plena noite, "
-            f"{metrics['diurnos']} no pleno dia e {metrics['obitos']} óbitos. ")
+        return f"{name}: não foram encontrados acidentes para o recorte e período selecionados."
+    years = sorted(data["ano"].dropna().astype(int).unique()) if "ano" in data else []
+    period = f"Entre {years[0]} e {years[-1]}, " if years else "No período selecionado, "
+    text = (f"{period}o recorte {name} registrou {quantity(metrics['acidentes'], 'acidente')} "
+            f"({quantity(metrics['noturnos'], 'acidente')} em plena noite e "
+            f"{quantity(metrics['diurnos'], 'acidente')} em pleno dia) e {quantity(metrics['obitos'], 'óbito')}. ")
     if metrics["noturnos"] >= 20 and metrics["diurnos"] >= 20:
-        night_rate = f"{metrics['taxa_noturna']:.2f}".replace(".", ",")
-        day_rate = f"{metrics['taxa_diurna']:.2f}".replace(".", ",")
+        night_rate = number_ptbr(metrics['taxa_noturna'], 2)
+        day_rate = number_ptbr(metrics['taxa_diurna'], 2)
         text += (f"Óbitos por 100 acidentes: {night_rate} na plena noite e "
                  f"{day_rate} no pleno dia. ")
+        if metrics['taxa_diurna'] > 0:
+            text += (f"A razão entre essas taxas foi aproximadamente "
+                     f"{number_ptbr(metrics['taxa_noturna']/metrics['taxa_diurna'], 2)}. ")
+        text += ("A diferença descreve mortes por acidente registrado; não mede risco por veículo em circulação "
+                 "nem demonstra causalidade da ausência de iluminação. ")
     else:
         text += "A amostra por fase é pequena para comparar taxas com estabilidade. "
-    text += ("Fase do dia, reação e meteorologia são registros observacionais. Exposição ao tráfego, velocidade, "
-             "álcool, fadiga e geometria da via também podem explicar diferenças; não há lux nem inventário de iluminação. "
-             "A hipótese de visibilidade permanece inconclusiva sem estudo técnico específico.")
+    if metrics["acidentes"] < 200:
+        text += "O tamanho da amostra territorial torna as taxas especialmente instáveis. "
+    table = mechanism_table(flags) if flags is not None and not flags.empty else pd.DataFrame()
+    if not table.empty:
+        comparisons = []
+        differences = []
+        for factor in ("Reação tardia", "Ausência de reação"):
+            rows = table.loc[table["Fator registrado"].eq(factor)].set_index("Fase")
+            if all(phase in rows.index and rows.loc[phase, "Denominador de acidentes"] >= 20 for phase in ("Plena Noite", "Pleno dia")):
+                night, day = rows.loc["Plena Noite"], rows.loc["Pleno dia"]
+                comparisons.append(f"{factor.lower()}: {quantity(night['Ocorrências associadas'], 'ocorrência')} de "
+                                   f"{number_ptbr(night['Denominador de acidentes'])} ({number_ptbr(night['Participação (%)'], 1)}%) "
+                                   f"na plena noite e {quantity(day['Ocorrências associadas'], 'ocorrência')} de "
+                                   f"{number_ptbr(day['Denominador de acidentes'])} ({number_ptbr(day['Participação (%)'], 1)}%) no pleno dia")
+                differences.append(abs(night["Participação (%)"] - day["Participação (%)"]))
+        if comparisons:
+            text += "Causas associadas registradas pela PRF: " + "; ".join(comparisons) + ". "
+            if len(differences) == 2 and max(differences) < 2:
+                text += ("As proporções dessas categorias foram semelhantes entre as fases; os registros não "
+                         "demonstram aumento expressivo no período noturno. ")
+    text += ("Fase do dia, reação e meteorologia são registros observacionais. Alcance dos faróis, contraste, "
+             "distância de percepção, identificação de obstáculos, decisão e frenagem são mecanismos físicos possíveis; "
+             "a PRF não mediu esses mecanismos nem lux. Velocidade, álcool, fadiga, falhas mecânicas, pista, chuva, "
+             "neblina, ofuscamento, geometria e exposição ao tráfego podem influir; a hipótese de visibilidade "
+             "exige estudo técnico específico e não comprova eficácia de uma intervenção não instalada.")
     return text
+
+
+def mortality_explanation(flags: pd.DataFrame | None, accidents: int) -> str:
+    """Distingue zero observado, ausência de registros e mortalidade não informada."""
+    if not accidents:
+        return "Não foram encontrados acidentes para o recorte e período selecionados."
+    if flags is None or "mortos" not in flags or flags["mortos"].notna().sum() != len(flags):
+        return "Óbitos não informados nos dados disponíveis; não é possível calcular a mortalidade por fase."
+    if pd.to_numeric(flags["mortos"], errors="coerce").sum() == 0:
+        return (f"Nenhum óbito registrado nos {quantity(accidents, 'acidente')} analisados no período selecionado. "
+                "Os indicadores de mortalidade são iguais a zero para todas as fases do dia. "
+                "Isso não significa ausência de acidentes ou de outros danos.")
+    return ""
 
 
 def phase_severity(flags: pd.DataFrame) -> pd.DataFrame:

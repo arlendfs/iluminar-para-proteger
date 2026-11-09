@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 from io import BytesIO
 import re
+import textwrap
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
@@ -18,6 +19,8 @@ from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate
 
 from territorial_case import indicators
 from territorial_science import mechanism_table, phase_severity, scientific_summary
+from territorial_science import mortality_explanation
+from ptbr_text import quantity
 from territorial_road_audit import SOURCE as ROAD_SOURCE, road_geojson
 
 
@@ -82,15 +85,17 @@ def _phase_figure(flags: pd.DataFrame) -> BytesIO:
     rates = phase_severity(flags)
     fig, ax = plt.subplots(figsize=(7, 2.4), dpi=130)
     palette = {"Plena Noite": "#1D4ED8", "Pleno dia": "#F59E0B", "Amanhecer": "#8B5CF6", "Anoitecer": "#64748B"}
-    if not rates.empty:
+    explanation = mortality_explanation(flags, len(flags))
+    if not explanation and not rates.empty:
         bars = ax.bar(rates["Fase"], rates["Óbitos por 100 acidentes"], color=[palette.get(name, "#64748B") for name in rates["Fase"]])
         ceiling = max(float(rates["Óbitos por 100 acidentes"].max()), 1.0)
         ax.set_ylim(0, ceiling * 1.32)
         for bar, item in zip(bars, rates.itertuples(index=False)):
-            ax.annotate(f"{item[3]} óbitos / {item[1]} acidentes", (bar.get_x() + bar.get_width()/2, bar.get_height()),
+            ax.annotate(f"{quantity(item[3], 'óbito')} / {quantity(item[1], 'acidente')}", (bar.get_x() + bar.get_width()/2, bar.get_height()),
                         xytext=(0, 3), textcoords="offset points", ha="center", fontsize=6)
     else:
-        ax.text(.5, .5, "Nenhum óbito registrado nas fases exibidas", ha="center", va="center", transform=ax.transAxes, fontsize=9)
+        ax.text(.5, .5, textwrap.fill(explanation or "Fases oficiais do dia não informadas para os acidentes registrados.", 58),
+                ha="center", va="center", transform=ax.transAxes, fontsize=8)
         ax.set_xticks([])
         ax.set_yticks([])
     ax.set_ylabel("Óbitos por 100 acidentes", fontsize=8)
@@ -128,7 +133,7 @@ def generate_selected_territory_report(
              Paragraph(escape(f"Abrangência: {scope} | Recorte: {name} | UF: {uf or 'Brasil'} | Código IBGE: {meta.get('codigo_ibge') or 'não aplicável'} | Anos: {period}"), styles["TerritoryBody"])]
     if scope == "Estado":
         municipalities = sorted(data["municipio"].dropna().astype(str).unique()) if "municipio" in data else []
-        section_note = f"Municípios PRF presentes no recorte: {len(municipalities)}; " + "; ".join(municipalities)
+        section_note = f"{quantity(len(municipalities), 'município')} PRF {'presente' if len(municipalities) == 1 else 'presentes'} no recorte: " + "; ".join(municipalities)
         story.append(Paragraph(escape(section_note), styles["TerritoryBody"]))
 
     def section(title, *paragraphs):
@@ -138,24 +143,27 @@ def generate_selected_territory_report(
 
     method = str(meta.get("metodo", ""))
     section("1. Identificação e fonte", f"{name}; microdados de acidentes da PRF carregados no dashboard. {method[:1].upper() + method[1:]}.")
-    section("2. Problema observado", f"{_n(local['acidentes'])} ocorrências únicas, {_n(local['obitos'])} óbitos e {_n(local['feridos_graves'])} feridos graves no recorte.")
+    section("2. Problema observado", f"{quantity(local['acidentes'], 'ocorrência única')}, {quantity(local['obitos'], 'óbito')} e {quantity(local['feridos_graves'], 'ferido grave')} no recorte.")
     section("3. Metodologia", "Deduplicação por ID de ocorrência; causas relacionais como associações não exclusivas. Coordenadas municipais confrontadas com a Malha IBGE 2025 quando disponível.")
     road_text = "; ".join(f"{status}: {count}" for status, count in road_summary.items()) if road_summary else "não verificada neste recorte"
     historical_text = "; ".join(f"{status}: {count}" for status, count in historical_summary.items()) if historical_summary else "não realizada neste recorte"
     section("4. Auditoria geográfica", f"Método: {meta.get('metodo', 'não informado')}. Referência SNV 202507A: {road_text}. Confronto com versões históricas por mês de referência: {historical_text}. Datas exatas de publicação e abertura operacional não verificadas; proximidade não confirma pista.")
     section("5. Indicadores", f"Plena noite: {_n(local['noturnos'])}; pleno dia: {_n(local['diurnos'])}; acidentes fatais: {_n(local['acidentes_fatais'])}; feridos leves: {_n(local['feridos_leves'])}; óbitos por 100 acidentes: {_n(local['obitos_por_100'], 2)}.")
     if national["uf"].dropna().nunique() == 27:
-        section("6. Referência nacional", f"Brasil na base carregada: {_n(country['acidentes'])} acidentes, {_n(country['obitos'])} óbitos. São dados contextuais, não resultados de {name}.")
+        section("6. Referência nacional", f"Brasil na base carregada: {quantity(country['acidentes'], 'acidente')}, {quantity(country['obitos'], 'óbito')}. São dados contextuais, não resultados de {name}.")
     else:
         section("6. Referência nacional", "Indisponível: a base carregada não contém as 27 UFs.")
     section("7. Visibilidade, percepção e reação", scientific_summary(data, flags, name),
             "Faróis, contraste, velocidade, distância de percepção e frenagem, chuva, neblina e ofuscamento são mecanismos físicos possíveis; não foram medidos diretamente pela PRF neste estudo.")
     story.append(Image(_phase_figure(flags), width=15.5*cm, height=5.3*cm))
+    explanation = mortality_explanation(flags, local["acidentes"])
+    if explanation:
+        story.append(Paragraph(escape(explanation), styles["TerritoryBody"]))
     phases = phase_severity(flags)
     phase_rows = {row["Fase"]: row for _, row in phases.iterrows()}
     section("7a. Denominadores das quatro fases oficiais", "; ".join(
-        f"{phase}: {int(phase_rows[phase]['Acidentes']) if phase in phase_rows else 0} acidentes e "
-        f"{int(phase_rows[phase]['Óbitos']) if phase in phase_rows else 0} óbitos"
+        f"{phase}: {quantity(phase_rows[phase]['Acidentes'] if phase in phase_rows else 0, 'acidente')} e "
+        f"{quantity(phase_rows[phase]['Óbitos'] if phase in phase_rows else 0, 'óbito')}"
         for phase in ("Plena Noite", "Pleno dia", "Amanhecer", "Anoitecer")),
         "Fases com menos de 20 acidentes têm amostra pequena; suas taxas são instáveis." if (not phases.empty and phases["Acidentes"].lt(20).any()) else "Taxas descritivas, sem ajuste por exposição ao tráfego.")
     rows = [["Fase", "Fator", "N", "Denom.", "%", "Óbitos"]]
@@ -173,20 +181,24 @@ def generate_selected_territory_report(
     story.append(Image(_figure(data, meta.get("geometrias", []), name, uf), width=15.5*cm, height=8.9*cm))
     br447_present = data["br"].astype(str).str.replace(r"\D", "", regex=True).eq("447").any() if "br" in data else False
     br447_caveat = " BR-447 exige triagem histórica: a malha SNV registra trechos com classificação física e quilometragem variáveis entre 2021 e 2025." if br447_present else ""
-    section("10. Segmentos prioritários para investigação", f"{len(ranking)} segmentos identificados por BR/KM. Score heurístico sem denominador de tráfego; não atesta falta de iluminação.{br447_caveat}")
+    ranking_shown = ranking.head(40)
+    ranking_scope = (f"{quantity(len(ranking), 'segmento')} {'identificado' if len(ranking) == 1 else 'identificados'} por BR/KM; "
+                     f"{quantity(len(ranking_shown), 'segmento')} {'apresentado' if len(ranking_shown) == 1 else 'apresentados'} em ordem de score. "
+                     + ("Ranking parcial: primeiras 40 posições. " if len(ranking_shown) < len(ranking) else "Ranking completo. "))
+    section("10. Segmentos prioritários para investigação", ranking_scope + f"Score heurístico sem denominador de tráfego; não atesta falta de iluminação.{br447_caveat}")
     if not ranking.empty:
-        rows = [["Segmento", "Acidentes", "Noite", "Score", "SNV P/D/I"]]
-        rows += [[_segment_name(item.trecho_id), str(item.n_acidentes_total), str(item.n_acidentes_noturnos),
+        rows = [["#", "Segmento", "Acidentes", "Noite", "Score", "SNV P/D/I"]]
+        rows += [[str(position), _segment_name(item.trecho_id), str(item.n_acidentes_total), str(item.n_acidentes_noturnos),
                   _n(item.score_iluminacao_solar, 1), getattr(item, "triagem_snv", "n/d")]
-                 for item in ranking.head(8).itertuples()]
-        ranking_table = Table(rows, colWidths=[6.6*cm, 2.0*cm, 1.7*cm, 1.7*cm, 3.5*cm], repeatRows=1)
+                 for position, item in enumerate(ranking_shown.itertuples(), 1)]
+        ranking_table = Table(rows, colWidths=[.7*cm, 5.9*cm, 1.8*cm, 1.5*cm, 1.7*cm, 3.9*cm], repeatRows=1)
         ranking_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1D4ED8")),
                                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                                            ("FONTSIZE", (0, 0), (-1, -1), 7),
                                            ("GRID", (0, 0), (-1, -1), .25, colors.HexColor("#CBD5E1"))]))
         story.append(ranking_table)
         section("10a. Legenda SNV", "P = correspondência espacial plausível, sem confirmação histórica; D = divergência identificada; I = informação insuficiente. Nenhum segmento foi certificado operacionalmente.")
-    section("11. Custos condicionais", (f"{finance['segmentos']} segmentos, {_n(finance['extensao_km'],1)} km geométricos, {_n(finance['postes'])} postes hipotéticos, CAPEX R$ {_n(finance['capex'],2)}. Espaçamento longitudinal não substitui projeto luminotécnico." if finance else "Nenhum segmento selecionado para custo."))
+    section("11. Custos condicionais", (f"{quantity(finance['segmentos'], 'segmento')}, {_n(finance['extensao_km'],1)} km geométricos, {quantity(finance['postes'], 'poste')} {'hipotético' if finance['postes'] == 1 else 'hipotéticos'}, CAPEX R$ {_n(finance['capex'],2)}. Espaçamento longitudinal não substitui projeto luminotécnico." if finance else "Nenhum segmento selecionado para custo."))
     if finance and selected_segments is not None and not selected_segments.empty:
         section("11a. Segmentos incluídos no custo", "; ".join(_segment_name(item) for item in selected_segments["trecho_id"]))
     section("12. Limitações", "Sem lux, inventário de iluminação, volume de tráfego, residência das vítimas ou confirmação da situação histórica de cada pista. A análise é observacional e não demonstra causalidade.")

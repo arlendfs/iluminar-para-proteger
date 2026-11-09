@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 from config import CAUSAS_VISIBILIDADE_REACAO
+from ptbr_text import number_ptbr, quantity
 
 
 REPORT_CAUSE_LABELS = (
@@ -262,15 +263,15 @@ def analyze_visibility_and_reaction(
 
     # Textos de fundamentação e rigor científico rigorosamente dinâmicos
     def pt_num(value, decimals=0):
-        return f"{value:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return number_ptbr(value, decimals)
 
     evidencias_texto = (
         f"EVIDÊNCIA OBSERVACIONAL AUDITADA: As ocorrências com registro de 'Reação tardia ou ineficiente' "
-        f"({pt_num(len(ids_rt))} associações) e 'Ausência de reação' ({pt_num(len(ids_ar))} associações) somam "
-        f"{pt_num(len(ids_rt) + len(ids_ar))} apontamentos de causa. Após expurgo de sobreposições "
-        f"({pt_num(len(ids_reacao_intersecao))} acidentes com ambas as causas registradas conjuntamente), "
-        f"identificam-se {pt_num(len(ids_reacao_uniao))} sinistros únicos, resultando em {pt_num(mortos_reacao)} óbitos "
-        f"e {pt_num(feridos_reacao)} feridos. A taxa de mortalidade em Plena Noite atinge {pt_num(let_rt_pn, 2)} óbitos/100 para reação tardia "
+        f"({quantity(len(ids_rt), 'associação')}) e 'Ausência de reação' ({quantity(len(ids_ar), 'associação')}) somam "
+        f"{quantity(len(ids_rt) + len(ids_ar), 'apontamento')} de causa. Após expurgo de sobreposições "
+        f"({quantity(len(ids_reacao_intersecao), 'acidente')} com ambas as causas registradas conjuntamente), "
+        f"identificam-se {quantity(len(ids_reacao_uniao), 'sinistro único')}, resultando em {quantity(mortos_reacao, 'óbito')} "
+        f"e {quantity(feridos_reacao, 'ferido')}. A taxa de mortalidade em Plena Noite atinge {pt_num(let_rt_pn, 2)} óbitos/100 para reação tardia "
         f"e {pt_num(let_ar_pn, 2)} óbitos/100 para ausência de reação, contrastando com {pt_num(let_rt_pd, 2)} e {pt_num(let_ar_pd, 2)} em Pleno Dia."
     )
     hipotese_texto = (

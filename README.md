@@ -1,6 +1,6 @@
 # 🌟 Iluminar para Proteger
 
-## Estudo exploratório de acidentes rodoviários e cenários de iluminação solar
+## Iluminar para Proteger — Análise de Segurança Viária e Avaliação Exploratória de Iluminação Solar
 
 > **Projeto de Extensão Universitária em Ciência de Dados — UNINTER**\
 > _Auditoria Científica, Estatística, Financeira e Técnica de Acidentes
@@ -72,6 +72,15 @@ A atividade prática consiste em disponibilizar e apresentar o sistema digital;
 o software não comprova residência das vítimas, ausência de iluminação,
 causalidade ou instalação de postes. Evidências de divulgação ficam vazias até
 serem fornecidas pela equipe do projeto.
+
+No recorte de Vila Velha de 2021–2025, os acidentes registrados em plena noite
+tiveram 17,31 óbitos por 100 ocorrências, ante 6,90 em pleno dia (razão
+descritiva de aproximadamente 2,51). A amostra municipal é pequena, e essa
+razão não mede risco por veículo nem comprova efeito da iluminação. No Espírito
+Santo, as proporções registradas de reação tardia (16,3% à noite; 16,4% de
+dia) e ausência de reação (13,9%; 14,0%) foram semelhantes entre as fases.
+Esses registros não isolam a visibilidade como causa. A BR-447 permanece em
+triagem histórica, sem validação operacional de cada trecho.
 
 ---
 
@@ -307,7 +316,7 @@ O gerador `ReportGenerator` produz relatórios formatados em padrão A4, contend
 
 ## 🧪 13. Testes Automatizados (QA)
 
-A suíte de testes cobre as camadas principais do sistema com **149 testes aprovados na execução local de 2026-11-08** via Pytest:
+A suíte de testes cobre as camadas principais do sistema com **161 testes aprovados na execução local de 2026-11-08** via Pytest:
 
 - **Dados:** Limpeza de decimais com vírgula, preservação de nulos em KM e coordenadas, desduplicação por `id` e `pesid`, auditoria das 267 ocorrências sem KM.
 - **Elegibilidade:** Inclusão de sinistros sem KM nas estatísticas nacionais e isolamento apenas na segmentação viária por KM.
@@ -340,12 +349,12 @@ python -m pytest tests/ -v
 ```bash
 git clone https://github.com/arlendfs/iluminar-para-proteger.git
 cd iluminar-para-proteger
-python -m venv .venv
 ```
 
 No PowerShell:
 
 ```powershell
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
@@ -353,6 +362,7 @@ python -m pip install -r requirements.txt
 No Linux/macOS:
 
 ```bash
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
@@ -362,7 +372,7 @@ Para reproduzir a validação territorial, mantenha os cinco Parquets PRF 2021�
 ### Executar a Aplicação Web
 
 ```bash
-python -m streamlit run app.py
+streamlit run app.py
 ```
 
 ---

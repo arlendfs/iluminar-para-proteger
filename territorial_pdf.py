@@ -14,6 +14,8 @@ from reportlab.lib.units import cm
 from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from territorial_case import BR447_SOURCE, MALHA_SOURCE, METRO_SOURCE, indicators, municipal_mesh, territorial_diagnostics
+from ptbr_text import quantity
+from territorial_science import scientific_summary, mortality_explanation
 
 
 def _number(value: float | int | None, decimals: int = 0) -> str:
@@ -69,7 +71,7 @@ def generate_territorial_report(
     scope: str, data: pd.DataFrame, national_data: pd.DataFrame,
     causes: pd.DataFrame, ranking: pd.DataFrame, selected_segments: pd.DataFrame,
     finance: dict, audit: pd.DataFrame, evidence: dict | None = None,
-    historical_summary: dict | None = None,
+    historical_summary: dict | None = None, flags: pd.DataFrame | None = None,
 ) -> bytes:
     """Gera PDF local sem reutilizar números do relatório nacional como municipais."""
     evidence = evidence or {}
@@ -116,16 +118,21 @@ def generate_territorial_report(
         "Confronto com versões SNV/DNIT de mês de referência anterior à ocorrência: " + ("; ".join(f"{key}: {value}" for key, value in historical_summary.items()) if historical_summary else "não executado neste relatório") + ". O mês da versão não comprova publicação anterior ao sinistro nem abertura operacional.",
     ])
     section("5. Resultados observados no recorte", [
-        f"O recorte {scope} contém {_number(local['acidentes'])} ocorrências únicas, {_number(local['noturnos'])} em plena noite, {_number(local['diurnos'])} em pleno dia, {_number(local['obitos'])} óbitos, {_number(local['feridos_graves'])} feridos graves e {_number(local['feridos_leves'])} feridos leves.",
+        f"O recorte {scope} contém {quantity(local['acidentes'], 'ocorrência única')}, {quantity(local['noturnos'], 'acidente')} em plena noite, {quantity(local['diurnos'], 'acidente')} em pleno dia, {quantity(local['obitos'], 'óbito')}, {quantity(local['feridos_graves'], 'ferido grave')} e {quantity(local['feridos_leves'], 'ferido leve')}.",
         f"Acidentes fatais: {_number(local['acidentes_fatais'])} ({_number(local['percentual_fatais'],2)}%). Óbitos por 100 acidentes: {_number(local['obitos_por_100'],2)}. Taxa noturna: {_number(local['taxa_noturna'],2)}; taxa diurna: {_number(local['taxa_diurna'],2)}.",
     ])
     national_lines = [
-        f"A referência nacional, entre os dados carregados do período {period}, contém {_number(national['acidentes'])} ocorrências e {_number(national['obitos'])} óbitos. Seu indicador de óbitos por 100 acidentes é {_number(national['obitos_por_100'],2)}. Esses totais nacionais não são resultados de Vila Velha.",
+        f"A referência nacional, entre os dados carregados do período {period}, contém {quantity(national['acidentes'], 'ocorrência')} e {quantity(national['obitos'], 'óbito')}. Seu indicador de óbitos por 100 acidentes é {_number(national['obitos_por_100'],2)}. Esses totais nacionais não são resultados de Vila Velha.",
         "Comparações descritivas dependem do tamanho amostral e da composição das vias. Não se inferem riscos individuais ou efeito da iluminação.",
     ] if national_available else [
         "Referência nacional indisponível: a base carregada não cobre as 27 UFs. Nenhum total da base parcial é apresentado como total do Brasil."
     ]
     section("6. Comparação contextual com o Brasil", national_lines)
+    if flags is not None:
+        section("6a. Interpretação científica", [scientific_summary(data, flags, scope)])
+        mortality_note = mortality_explanation(flags, local["acidentes"])
+        if mortality_note:
+            story.append(Paragraph(escape(mortality_note), styles["CaseBody"]))
     if local["acidentes"] < 200:
         story.append(Paragraph("A amostra territorial é pequena para projeção econômica local; taxas podem ser instáveis.", styles["CaseBody"]))
     cause_text = "; ".join(f"{name}: {_number(count)}" for name, count in causes.head(8).itertuples(index=False, name=None)) if not causes.empty else "Causas não disponíveis neste recorte."
@@ -142,11 +149,14 @@ def generate_territorial_report(
         Paragraph(f"Mapa: {shown} de {regional} ocorrências do recorte com coordenadas válidas (limite visual de 500). Malha IBGE 2025. Os pontos não identificam locais de instalação.", styles["CaseSmall"]),
     ]))
     if not ranking.empty:
-        story.append(Paragraph(f"{len(ranking)} segmentos em triagem por BR e KM no recorte. O score é heurístico, não valida risco causal, falta de iluminação ou prioridade de obra. Segmentos selecionados para custo: {len(selected_segments)}.", styles["CaseBody"]))
-        rows = [["Segmento", "Acid. total", "Acid. not.", "Score", "SNV P/D/I"]]
-        for row in ranking.head(8).itertuples():
-            rows.append([_segment_name(row.trecho_id), str(row.n_acidentes_total), str(row.n_acidentes_noturnos), _number(row.score_iluminacao_solar, 1), getattr(row, "triagem_snv", "n/d")])
-        table = Table(rows, colWidths=[6.3 * cm, 2.1 * cm, 2.1 * cm, 1.5 * cm, 3.5 * cm], repeatRows=1)
+        ranking_shown = ranking.head(40)
+        story.append(Paragraph(f"{quantity(len(ranking), 'segmento')} em triagem por BR e KM; {quantity(len(ranking_shown), 'segmento')} na tabela, em ordem de score. "
+                               + ("Ranking parcial: primeiras 40 posições. " if len(ranking_shown) < len(ranking) else "Ranking completo. ")
+                               + f"O score é heurístico, não valida risco causal, falta de iluminação ou prioridade de obra. Segmentos selecionados para custo: {len(selected_segments)}.", styles["CaseBody"]))
+        rows = [["#", "Segmento", "Acid. total", "Acid. not.", "Score", "SNV P/D/I"]]
+        for position, row in enumerate(ranking_shown.itertuples(), 1):
+            rows.append([str(position), _segment_name(row.trecho_id), str(row.n_acidentes_total), str(row.n_acidentes_noturnos), _number(row.score_iluminacao_solar, 1), getattr(row, "triagem_snv", "n/d")])
+        table = Table(rows, colWidths=[.7 * cm, 5.7 * cm, 1.8 * cm, 1.8 * cm, 1.5 * cm, 4.0 * cm], repeatRows=1)
         table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1D4ED8")),
                                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                                    ("FONTSIZE", (0, 0), (-1, -1), 7),
@@ -160,7 +170,7 @@ def generate_territorial_report(
         br447 = data.loc[data["br"].astype(str).str.replace(r"\D", "", regex=True).eq("447")]
         coordinates = len(br447[["latitude", "longitude"]].dropna().drop_duplicates())
         story.append(Paragraph(
-            f"BR-447 no recorte: {len(br447)} ocorrências, {coordinates} pares distintos de coordenadas. "
+            f"BR-447 no recorte: {quantity(len(br447), 'ocorrência')}, {quantity(coordinates, 'par distinto')} de coordenadas. "
             "A existência de registros permite descrição histórica, mas não valida risco em trechos novos ou modificados.",
             styles["CaseBody"],
         ))
@@ -170,7 +180,7 @@ def generate_territorial_report(
     economic = ["Nenhum orçamento territorial foi produzido porque não há segmentos selecionados."]
     if finance:
         economic = [
-            f"{finance['cenario']}: {finance['segmentos']} {'segmento hipotético' if finance.get('hipotetico') else 'segmentos selecionados'}, {_number(finance['extensao_km'],1)} km, {_number(finance['postes'])} postes estimados, custo unitário R$ {_number(finance['custo_unitario'],2)}, CAPEX R$ {_number(finance['capex'],2)}.",
+            f"{finance['cenario']}: {quantity(finance['segmentos'], 'segmento')} {'hipotético' if finance.get('hipotetico') and finance['segmentos'] == 1 else 'hipotéticos' if finance.get('hipotetico') else 'selecionado' if finance['segmentos'] == 1 else 'selecionados'}, {_number(finance['extensao_km'],1)} km, {quantity(finance['postes'], 'poste')} {'estimado' if finance['postes'] == 1 else 'estimados'}, custo unitário R$ {_number(finance['custo_unitario'],2)}, CAPEX R$ {_number(finance['capex'],2)}.",
             f"Manutenção anual hipotética: R$ {_number(finance['manutencao_anual'],2)}; reserva de duas reposições de bateria no horizonte de 15 anos: R$ {_number(finance['reserva_reposicoes_baterias_15_anos'],2)}. Taxa social de desconto de 8% ao ano é hipótese.",
         ]
         if not selected_segments.empty:
@@ -196,7 +206,7 @@ def generate_territorial_report(
         "O dashboard está disponível para divulgação comunitária. Não foram fornecidas evidências de apresentação pública ou participação; portanto não se afirma que tais atividades ocorreram."
     ])
     section("13. Conclusões e recomendações", [
-        f"No recorte {scope}, os dados permitem descrever {_number(local['acidentes'])} ocorrências e identificar {len(ranking)} segmentos com BR/KM. A comparação noturno/diurno é descritiva, sem evidência causal sobre iluminação.",
+        f"No recorte {scope}, os dados permitem descrever {quantity(local['acidentes'], 'ocorrência')} e identificar {quantity(len(ranking), 'segmento')} com BR/KM. A comparação noturno/diurno é descritiva, sem evidência causal sobre iluminação.",
         "Recomenda-se verificar em campo a localização, o inventário de iluminação, o volume de tráfego e as condições fotométricas antes de qualquer proposta física. ODS 11: acesso comunitário à informação e subsídios exploratórios para mobilidade mais segura, sem alegar melhora medida de indicador oficial."
     ])
     section("14. Referências", [
