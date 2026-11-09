@@ -1,5 +1,11 @@
 # Validação pré-publicação — 2026-11-08
 
+## Incidente de implantação — 2026-11-09
+
+Após o redeploy, a aplicação pública apresentou `ModuleNotFoundError` no import de `plotly.express`, antes de renderizar o dashboard. O log de implantação recebido mostrou Python **3.14.10**, Plotly baixado e NumPy **2.2.6** compilado a partir do código fonte; a instalação de dependências demorou aproximadamente **46 minutos**. A mensagem completa do módulo ausente não apareceu nos logs disponibilizados. Assim, a causa exata do import não está comprovada, mas o limite `numpy<2.3` selecionava uma versão anterior ao suporte oficial ao Python 3.14.
+
+O `requirements.txt` foi ajustado apenas para selecionar NumPy `>=2.3,<2.6` em Python 3.14+ e preservar `>=1.24,<2.3` nas versões anteriores. Em ambiente limpo local com Python **3.14.10**, `uv` instalou as 73 dependências, incluindo NumPy **2.5.4** binário e Plotly **7.1.0**, em cerca de 16 segundos; `import plotly.express` e `import dashboard` funcionaram. A suíte integral nesse ambiente passou com **161 testes** em 28,84 s. A implantação pública deve ser reavaliada após o push; até então, o erro de inicialização é **impeditivo para a publicação**.
+
 ## Ajustes finais pré-divulgação (2026-11-08)
 
 Código e README no commit `2674d71` (`main`). `AGENTS.md` não existe neste checkout. A suíte integral `python -m pytest tests/ -q` passou com **161 testes** em 17,83 s. Os novos testes cobrem flexão 0/1/2, formatação brasileira, ranking completo/limitado com paginação, ausência de barras fictícias na mortalidade zero, dados de mortalidade ausentes, razão de 2,51 em Vila Velha e proporções de reação registradas no ES. Fórmulas estatísticas, score, custos, bases históricas e classificações SNV P/D/I não foram alterados.

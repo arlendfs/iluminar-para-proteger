@@ -1,6 +1,7 @@
 streamlit>=1.38.0,<2.0.0
 pandas>=2.1.4,<3.0.0
-numpy>=1.24.0,<2.3.0
+numpy>=1.24.0,<2.3.0; python_version < "3.14"
+numpy>=2.3.0,<2.6.0; python_version >= "3.14"
 plotly>=5.18.0
 folium>=0.15.0
 streamlit-folium>=0.15.1
